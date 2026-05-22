@@ -1,0 +1,107 @@
+"""Regression tests for project export ordering."""
+
+import os
+import unittest
+
+os.environ["DATABASE_URL"] = "sqlite:///./test_novel_agent.db"
+
+from fastapi.testclient import TestClient
+
+from app.database.models import Chapter, OutlineNode, Project
+from app.database.session import Base, SessionLocal, engine
+from app.main import app
+
+API_PREFIX = "/api/v1"
+
+
+class ExportTestCase(unittest.TestCase):
+    """Exports should follow the same outline order as the chapter workspace."""
+
+    @classmethod
+    def setUpClass(cls):
+        Base.metadata.create_all(bind=engine)
+        cls.client = TestClient(app)
+
+    @classmethod
+    def tearDownClass(cls):
+        Base.metadata.drop_all(bind=engine)
+        try:
+            os.remove("test_novel_agent.db")
+        except OSError:
+            pass
+
+    def setUp(self):
+        db = SessionLocal()
+        try:
+            db.query(Chapter).delete()
+            db.query(OutlineNode).delete()
+            db.query(Project).delete()
+            db.commit()
+        finally:
+            db.close()
+
+    def create_project(self) -> str:
+        response = self.client.post(f"{API_PREFIX}/projects", json={"title": "Export Project"})
+        self.assertEqual(response.status_code, 200)
+        return response.json()["data"]["id"]
+
+    def create_outline_node(self, project_id: str, title: str, sort_order: int) -> str:
+        response = self.client.post(
+            f"{API_PREFIX}/projects/{project_id}/outline",
+            json={"title": title, "node_type": "chapter", "sort_order": sort_order},
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.json()["data"]["id"]
+
+    def create_chapter(self, project_id: str, title: str, outline_node_id: str | None = None) -> str:
+        response = self.client.post(
+            f"{API_PREFIX}/projects/{project_id}/chapters",
+            json={"title": title, "outline_node_id": outline_node_id, "content": title},
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.json()["data"]["id"]
+
+    def test_export_uses_outline_order_instead_of_creation_order(self):
+        project_id = self.create_project()
+        second_outline = self.create_outline_node(project_id, "Second Outline", 1)
+        first_outline = self.create_outline_node(project_id, "First Outline", 0)
+        self.create_chapter(project_id, "Second Chapter", second_outline)
+        self.create_chapter(project_id, "Unlinked Chapter")
+        self.create_chapter(project_id, "First Chapter", first_outline)
+
+        report = self.client.get(f"{API_PREFIX}/projects/{project_id}/export/word-count")
+        self.assertEqual(report.status_code, 200)
+        titles = [item["title"] for item in report.json()["data"]["chapters"]]
+        self.assertEqual(titles, ["First Chapter", "Second Chapter", "Unlinked Chapter"])
+
+        exported = self.client.post(f"{API_PREFIX}/projects/{project_id}/export?scope=chapters&format=txt")
+        self.assertEqual(exported.status_code, 200)
+        export_data = exported.json()["data"]
+        self.assertIn("file_id", export_data)
+        self.assertTrue(export_data["download_url"].endswith(f"/export/download/{export_data['file_id']}"))
+
+        downloaded = self.client.get(export_data["download_url"])
+        self.assertEqual(downloaded.status_code, 200)
+        text = downloaded.content.decode("utf-8")
+        self.assertLess(text.index("First Chapter"), text.index("Second Chapter"))
+        self.assertLess(text.index("Second Chapter"), text.index("Unlinked Chapter"))
+
+    def test_export_selected_chapters_downloads_by_file_id(self):
+        project_id = self.create_project()
+        first_id = self.create_chapter(project_id, "Selected Chapter")
+        self.create_chapter(project_id, "Skipped Chapter")
+
+        exported = self.client.post(
+            f"{API_PREFIX}/projects/{project_id}/export",
+            json={"scope": "selected", "format": "txt", "chapter_ids": [first_id]},
+        )
+        self.assertEqual(exported.status_code, 200)
+        export_data = exported.json()["data"]
+        self.assertEqual(export_data["format"], "txt")
+        self.assertGreater(export_data["size"], 0)
+
+        downloaded = self.client.get(f"{API_PREFIX}/projects/{project_id}/export/download/{export_data['file_id']}")
+        self.assertEqual(downloaded.status_code, 200)
+        text = downloaded.content.decode("utf-8")
+        self.assertIn("Selected Chapter", text)
+        self.assertNotIn("Skipped Chapter", text)

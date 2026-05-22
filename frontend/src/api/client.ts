@@ -1,0 +1,102 @@
+import axios, { AxiosInstance, AxiosError } from 'axios'
+
+const API_BASE_URL = '/api/v1'
+const API_TIMEOUT_MS = 600000
+
+class ApiClient {
+  private client: AxiosInstance
+
+  constructor() {
+    this.client = axios.create({
+      baseURL: API_BASE_URL,
+      timeout: API_TIMEOUT_MS,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error: AxiosError) => {
+        if (error.response) {
+          const data = error.response.data as { code?: number; message?: string }
+          return Promise.reject(new Error(data.message || `请求失败: ${error.response.status}`))
+        }
+        if (error.code === 'ECONNABORTED') {
+          return Promise.reject(new Error('请求超时，AI任务可能仍在处理中，请稍后重试或减少文本量'))
+        }
+        return Promise.reject(new Error('网络错误，请检查后端服务是否运行'))
+      }
+    )
+  }
+
+  get<T>(url: string, params?: Record<string, unknown>) {
+    return this.client.get<T>(url, { params })
+  }
+
+  post<T>(url: string, data?: unknown) {
+    return this.client.post<T>(url, data)
+  }
+
+  put<T>(url: string, data?: unknown) {
+    return this.client.put<T>(url, data)
+  }
+
+  delete<T>(url: string) {
+    return this.client.delete<T>(url)
+  }
+
+  /** SSE stream request for AI generation */
+  stream(url: string, data: unknown, onMessage: (chunk: string) => void, onError?: (err: Error) => void) {
+    const fullUrl = `${API_BASE_URL}${url}`
+    fetch(fullUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+      .then((response) => {
+        if (!response.ok || !response.body) {
+          throw new Error('SSE请求失败')
+        }
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        const emitFrame = (frame: string) => {
+          const data = frame
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.replace(/^data:\s?/, ''))
+            .join('\n')
+          if (data && data !== '[DONE]') {
+            onMessage(data)
+          }
+        }
+
+        const read = () => {
+          reader.read().then(({ done, value }) => {
+            if (done) {
+              buffer += decoder.decode()
+              if (buffer.trim()) emitFrame(buffer)
+              return
+            }
+            buffer += decoder.decode(value, { stream: true })
+            const frames = buffer.split(/\r?\n\r?\n/)
+            buffer = frames.pop() || ''
+            for (const frame of frames) {
+              if (frame.trim()) emitFrame(frame)
+            }
+            read()
+          }).catch((err) => {
+            onError?.(err)
+          })
+        }
+        read()
+      })
+      .catch((err) => {
+        onError?.(err)
+      })
+  }
+}
+
+export const apiClient = new ApiClient()

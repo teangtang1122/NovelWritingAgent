@@ -1,0 +1,29 @@
+# Runtime data and secrets
+.env
+.env.bak
+.crypto_key
+*.db
+*.sqlite
+*.sqlite3
+
+# Build outputs
+.build/
+release/
+artifacts/
+frontend/dist/
+frontend/node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Node and editor noise
+node_modules/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,98 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { apiClient } from '../api/client'
+
+interface ApiResponse<T> {
+  code: number
+  message: string
+  data: T
+}
+
+export interface ModelConfig {
+  id: string
+  provider: string
+  default_model: string
+  is_global_default: boolean
+  base_url_override?: string
+  max_output_tokens?: number | null
+  effective_max_output_tokens?: number
+  deconstruct_input_char_limit?: number | null
+  effective_deconstruct_input_char_limit?: number
+  deconstruct_item_char_limit?: number | null
+  effective_deconstruct_item_char_limit?: number
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ModelSelectOption {
+  value: string
+  label: string
+  provider: string
+  model: string
+  isGlobalDefault: boolean
+}
+
+const PROVIDER_LABEL_MAP: Record<string, string> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic Claude',
+  deepseek: 'DeepSeek',
+  qwen: '通义千问',
+}
+
+const modelValue = (provider: string, model: string) => (
+  model.includes(':') ? model : `${provider}:${model}`
+)
+
+const normalizeModel = (provider: string, model: string) => {
+  if (provider === 'deepseek' && model === 'deepseek-v3') {
+    return 'deepseek-v4-flash'
+  }
+  return model
+}
+
+export function useModelOptions() {
+  const [configs, setConfigs] = useState<ModelConfig[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await apiClient.get<ApiResponse<{ items: ModelConfig[]; total: number }>>('/config/models')
+      setConfigs(res.data.data.items || [])
+    } catch {
+      setConfigs([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    refresh()
+  }, [refresh])
+
+  const modelOptions = useMemo<ModelSelectOption[]>(() => (
+    configs.map((config) => {
+      const model = normalizeModel(config.provider, config.default_model)
+      return {
+        value: modelValue(config.provider, model),
+        label: `${PROVIDER_LABEL_MAP[config.provider] || config.provider} · ${model}${config.is_global_default ? '（全局默认）' : ''}`,
+        provider: config.provider,
+        model,
+        isGlobalDefault: config.is_global_default,
+      }
+    })
+  ), [configs])
+
+  const defaultModel = useMemo(
+    () => modelOptions.find((option) => option.isGlobalDefault)?.value || modelOptions[0]?.value,
+    [modelOptions],
+  )
+
+  return {
+    configs,
+    modelOptions,
+    defaultModel,
+    loading,
+    refresh,
+    hasModels: modelOptions.length > 0,
+  }
+}

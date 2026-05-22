@@ -1,0 +1,346 @@
+.writer-page {
+  height: 100%;
+}
+
+.writer-shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.writer-shell-ai-collapsed {
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+
+.writer-chapter-panel,
+.writer-editor,
+.writer-ai-panel {
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.writer-chapter-panel {
+  min-width: 0;
+  padding: 12px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  position: sticky;
+  top: 12px;
+}
+
+.writer-editor {
+  min-width: 0;
+  padding: 16px;
+}
+
+.writer-ai-panel {
+  min-width: 0;
+  padding: 14px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  position: sticky;
+  resize: horizontal;
+  top: 12px;
+  width: clamp(280px, 24vw, 560px);
+}
+
+.writer-panel-head,
+.writer-editor-head,
+.writer-history-head,
+.writer-ai-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.writer-ai-head {
+  border-bottom: 1px solid #f0f0f0;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+}
+
+.writer-panel-head {
+  margin-bottom: 12px;
+  background: #fff;
+  border-bottom: 1px solid #f0f0f0;
+  padding-bottom: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.writer-editor-head {
+  margin-bottom: 16px;
+}
+
+.writer-chapter-item {
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 10px !important;
+}
+
+.writer-chapter-item .ant-list-item-meta {
+  min-width: 0;
+}
+
+.writer-chapter-item .ant-list-item-meta-title,
+.writer-chapter-item .ant-list-item-meta-description {
+  min-width: 0;
+}
+
+.writer-chapter-item:hover {
+  background: #fafafa;
+}
+
+.writer-chapter-item-active {
+  background: #e6f4ff;
+}
+
+.writer-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 0.7fr);
+  gap: 12px;
+}
+
+.writer-content-input {
+  font-size: 15px;
+  line-height: 1.9;
+}
+
+/* AI output area */
+.writer-ai-output {
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  padding: 10px;
+  min-height: 160px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: #fafafa;
+}
+
+.writer-ai-run-log {
+  background: #fff;
+  border: 1px solid #e6f4ff;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  max-height: 170px;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.writer-ai-run-log-item,
+.writer-assistant-tool-row {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.writer-ai-run-log-item .ant-typography:last-child,
+.writer-assistant-tool-row .ant-typography:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.writer-assistant-tools {
+  display: grid;
+  gap: 2px;
+}
+
+.writer-assistant-history-panel {
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  padding: 10px;
+}
+
+.writer-assistant-history-head,
+.writer-assistant-history-item,
+.writer-assistant-message-head,
+.writer-assistant-composer-actions,
+.writer-assistant-editing {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.writer-assistant-history-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.writer-assistant-history-item {
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 6px 4px 6px 8px;
+}
+
+.writer-assistant-history-item:hover {
+  background: #fafafa;
+}
+
+.writer-assistant-history-item-active {
+  background: #e6f4ff;
+}
+
+.writer-assistant-history-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.writer-assistant-message-head {
+  justify-content: flex-start;
+}
+
+.writer-assistant-composer {
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  bottom: 0;
+  box-shadow: 0 -8px 18px rgba(0, 0, 0, 0.03);
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  position: sticky;
+  z-index: 3;
+}
+
+.writer-assistant-editing {
+  align-items: flex-start;
+}
+
+.writer-ai-battle-turn {
+  border-left: 3px solid #1677ff;
+  margin-bottom: 12px;
+  padding-left: 10px;
+}
+
+.writer-ai-battle-turn:last-child {
+  margin-bottom: 0;
+}
+
+/* History */
+.writer-history-section {
+  border-top: 1px solid #f0f0f0;
+  margin-top: 18px;
+  padding-top: 16px;
+}
+
+.writer-history-head {
+  margin-bottom: 14px;
+}
+
+.writer-snapshot-timeline {
+  margin-top: 10px;
+}
+
+.writer-snapshot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Diff */
+.writer-diff-panel {
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  margin-top: 14px;
+  padding: 12px;
+}
+
+.writer-diff-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.writer-diff-change {
+  border-top: 1px solid #f0f0f0;
+  padding: 10px 0;
+}
+
+.writer-diff-change:first-of-type {
+  border-top: none;
+}
+
+.writer-diff-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.writer-diff-block {
+  border-radius: 6px;
+  margin: 0;
+  min-height: 42px;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
+.writer-diff-old {
+  background: #fff1f0;
+  border: 1px solid #ffccc7;
+}
+
+.writer-diff-new {
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+}
+
+@media (max-width: 1480px) {
+  .writer-shell {
+    grid-template-columns: 240px minmax(0, 1fr) auto;
+  }
+
+  .writer-shell-ai-collapsed {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1280px) {
+  .writer-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .writer-ai-panel {
+    max-height: none;
+    position: static;
+    resize: none;
+    width: auto;
+  }
+
+  .writer-form-grid,
+  .writer-diff-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .writer-panel-head,
+  .writer-editor-head,
+  .writer-history-head,
+  .writer-snapshot-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
