@@ -173,6 +173,11 @@ function WorkspaceAssistantChat({
   const [temperature, setTemperature] = useState(0.3)
   const [maxTokens, setMaxTokens] = useState<number | null>(null)
   const [autoApply, setAutoApply] = useState(true)
+  const [showSelectionTag, setShowSelectionTag] = useState(true)
+
+  useEffect(() => {
+    setShowSelectionTag(true)
+  }, [selectedText])
   const [outlineBatchCount, setOutlineBatchCount] = useState(3)
   const [narrativePerspective, setNarrativePerspective] = useState('third_person')
   const [writingStyle, setWritingStyle] = useState('natural')
@@ -756,6 +761,18 @@ function WorkspaceAssistantChat({
           </Text>
         )}
       </div>
+
+      {selectedText && selectedText.trim() && showSelectionTag && (
+        <div style={{ padding: '0 0 8px' }}>
+          <Tag
+            closable
+            onClose={() => setShowSelectionTag(false)}
+            color="blue"
+          >
+            已选中 {selectedText.length} 字
+          </Tag>
+        </div>
+      )}
 
       <div className="workspace-assistant-composer">
         <Input.TextArea

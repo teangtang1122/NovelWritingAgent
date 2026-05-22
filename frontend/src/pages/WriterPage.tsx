@@ -464,7 +464,8 @@ function WriterPage({ projectId }: WriterPageProps) {
                   autoSize={{ minRows: 18, maxRows: 28 }}
                   showCount
                   onSelect={captureEditorSelection}
-                  onClick={captureEditorSelection}
+                  onMouseUp={captureEditorSelection}
+                  onBlur={captureEditorSelection}
                   onKeyUp={captureEditorSelection}
                 />
               </Form.Item>
