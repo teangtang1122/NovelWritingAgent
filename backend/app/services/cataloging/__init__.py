@@ -1,0 +1,1 @@
+"""Project cataloging pipeline."""

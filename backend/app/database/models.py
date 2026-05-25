@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    Column, String, Text, Integer, DateTime, Boolean, ForeignKey, Date,
+    Column, String, Text, Integer, DateTime, Boolean, ForeignKey, Date, Float,
 )
 from sqlalchemy.orm import relationship
 from .session import Base
@@ -42,6 +42,7 @@ class Project(Base):
     writing_logs = relationship("WritingLog", back_populates="project", cascade="all, delete-orphan")
     deconstruction_reports = relationship("DeconstructionReport", back_populates="project", cascade="all, delete-orphan")
     assistant_conversations = relationship("AssistantConversation", back_populates="project", cascade="all, delete-orphan")
+    cataloging_jobs = relationship("CatalogingJob", back_populates="project", cascade="all, delete-orphan")
 
 
 # ---------------------------------------------------------------------------
@@ -55,11 +56,18 @@ class WorldbuildingEntry(Base):
     dimension = Column(String(50), nullable=False)  # geography/history/factions/power_system/races/culture
     title = Column(String(200), nullable=False)
     content = Column(Text, nullable=False)
+    first_seen_chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="SET NULL"), nullable=True)
+    last_updated_chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="SET NULL"), nullable=True)
+    status = Column(String(30), default="active")
+    confidence = Column(Float, nullable=True)
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     project = relationship("Project", back_populates="worldbuilding_entries")
+    versions = relationship("WorldbuildingVersion", back_populates="entry", cascade="all, delete-orphan")
+    timeline_events = relationship("WorldbuildingTimeline", back_populates="entry", cascade="all, delete-orphan")
+    chapter_links = relationship("ChapterWorldbuilding", back_populates="worldbuilding_entry", cascade="all, delete-orphan")
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +86,17 @@ class Character(Base):
     role_type = Column(String(50), nullable=True)  # protagonist/supporting/antagonist/etc.
     current_version = Column(Integer, default=1)
     is_evolution_tracked = Column(Boolean, default=True)  # FR-018
+    life_status = Column(String(50), nullable=True)
+    current_location = Column(String(200), nullable=True)
+    realm_or_level = Column(String(200), nullable=True)
+    physical_state = Column(Text, nullable=True)
+    mental_state = Column(Text, nullable=True)
+    current_goal = Column(Text, nullable=True)
+    active_conflict = Column(Text, nullable=True)
+    abilities_state = Column(Text, nullable=True)
+    items_or_assets = Column(Text, nullable=True)
+    last_seen_chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="SET NULL"), nullable=True)
+    last_updated_chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -154,6 +173,10 @@ class OutlineNode(Base):
     title = Column(String(200), nullable=False)
     summary = Column(Text, nullable=True)
     status = Column(String(20), default="pending")  # pending/in_progress/completed
+    source_chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="SET NULL"), nullable=True)
+    actual_summary = Column(Text, nullable=True)
+    planned_summary = Column(Text, nullable=True)
+    cataloging_status = Column(String(30), nullable=True)
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -206,6 +229,7 @@ class Chapter(Base):
     snapshots = relationship("ChapterSnapshot", back_populates="chapter", cascade="all, delete-orphan")
     summary = relationship("ChapterSummary", back_populates="chapter", uselist=False, cascade="all, delete-orphan")
     character_appearances = relationship("ChapterCharacter", back_populates="chapter", cascade="all, delete-orphan")
+    worldbuilding_links = relationship("ChapterWorldbuilding", back_populates="chapter", cascade="all, delete-orphan")
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +247,22 @@ class ChapterCharacter(Base):
 
     chapter = relationship("Chapter", back_populates="character_appearances")
     character = relationship("Character", back_populates="chapter_appearances")
+
+
+# ---------------------------------------------------------------------------
+# 10b. chapter_worldbuilding 鈥?绔犺妭涓栫晫瑙傚叧鑱旇〃
+# ---------------------------------------------------------------------------
+class ChapterWorldbuilding(Base):
+    __tablename__ = "chapter_worldbuilding"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False)
+    worldbuilding_entry_id = Column(String(36), ForeignKey("worldbuilding_entries.id", ondelete="CASCADE"), nullable=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    chapter = relationship("Chapter", back_populates="worldbuilding_links")
+    worldbuilding_entry = relationship("WorldbuildingEntry", back_populates="chapter_links")
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +388,41 @@ class CharacterTimeline(Base):
 
 
 # ---------------------------------------------------------------------------
+# 17b. worldbuilding_versions 鈥?涓栫晫瑙傜増鏈揩鐓ц〃
+# ---------------------------------------------------------------------------
+class WorldbuildingVersion(Base):
+    __tablename__ = "worldbuilding_versions"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    entry_id = Column(String(36), ForeignKey("worldbuilding_entries.id", ondelete="CASCADE"), nullable=False)
+    version_number = Column(Integer, nullable=False)
+    snapshot_data = Column(Text, nullable=False)
+    change_summary = Column(Text, nullable=True)
+    source_chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    entry = relationship("WorldbuildingEntry", back_populates="versions")
+
+
+# ---------------------------------------------------------------------------
+# 17c. worldbuilding_timeline 鈥?涓栫晫瑙傛椂闂寸嚎琛?
+# ---------------------------------------------------------------------------
+class WorldbuildingTimeline(Base):
+    __tablename__ = "worldbuilding_timeline"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    entry_id = Column(String(36), ForeignKey("worldbuilding_entries.id", ondelete="CASCADE"), nullable=False)
+    chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False)
+    event_description = Column(Text, nullable=False)
+    event_type = Column(String(50), nullable=False, default="fact_change")
+    evidence = Column(Text, nullable=True)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    entry = relationship("WorldbuildingEntry", back_populates="timeline_events")
+
+
+# ---------------------------------------------------------------------------
 # 18. assistant_conversations — 写作助手对话会话表
 # ---------------------------------------------------------------------------
 class AssistantConversation(Base):
@@ -388,6 +463,96 @@ class AssistantMessage(Base):
 # ---------------------------------------------------------------------------
 # 20. assistant_memories — 智能体持久记忆表
 # ---------------------------------------------------------------------------
+class CatalogingJob(Base):
+    __tablename__ = "cataloging_jobs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    status = Column(String(30), nullable=False, default="queued")
+    execution_mode = Column(String(20), nullable=False, default="auto")
+    current_chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="SET NULL"), nullable=True)
+    last_completed_chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="SET NULL"), nullable=True)
+    blocked_chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="SET NULL"), nullable=True)
+    context_integrity = Column(String(30), nullable=False, default="clean")
+    total_chapters = Column(Integer, default=0)
+    completed_chapters = Column(Integer, default=0)
+    failed_chapters = Column(Integer, default=0)
+    model = Column(String(200), nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    project = relationship("Project", back_populates="cataloging_jobs")
+    chapter_runs = relationship("CatalogingChapterRun", back_populates="job", cascade="all, delete-orphan")
+    candidates = relationship("CatalogingCandidate", back_populates="job", cascade="all, delete-orphan")
+
+
+class CatalogingChapterRun(Base):
+    __tablename__ = "cataloging_chapter_runs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    job_id = Column(String(36), ForeignKey("cataloging_jobs.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False)
+    status = Column(String(30), nullable=False, default="pending")
+    chapter_order = Column(Integer, default=0)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+    raw_output = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    job = relationship("CatalogingJob", back_populates="chapter_runs")
+    chapter = relationship("Chapter")
+    candidates = relationship("CatalogingCandidate", back_populates="chapter_run", cascade="all, delete-orphan")
+
+
+class CatalogingCandidate(Base):
+    __tablename__ = "cataloging_candidates"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    job_id = Column(String(36), ForeignKey("cataloging_jobs.id", ondelete="CASCADE"), nullable=False)
+    chapter_run_id = Column(String(36), ForeignKey("cataloging_chapter_runs.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False)
+    item_type = Column(String(50), nullable=False)
+    operation = Column(String(30), nullable=False, default="upsert")
+    target_type = Column(String(50), nullable=True)
+    target_id = Column(String(36), nullable=True)
+    target_name = Column(String(200), nullable=True)
+    raw_payload = Column(Text, nullable=False)
+    edited_payload = Column(Text, nullable=True)
+    status = Column(String(30), nullable=False, default="pending")
+    confidence = Column(Float, nullable=True)
+    evidence = Column(Text, nullable=True)
+    sort_order = Column(Integer, default=0)
+    source_task = Column(String(50), nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    job = relationship("CatalogingJob", back_populates="candidates")
+    chapter_run = relationship("CatalogingChapterRun", back_populates="candidates")
+    chapter = relationship("Chapter")
+
+
+class CatalogingApplyLog(Base):
+    __tablename__ = "cataloging_apply_logs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    job_id = Column(String(36), ForeignKey("cataloging_jobs.id", ondelete="CASCADE"), nullable=False)
+    chapter_run_id = Column(String(36), ForeignKey("cataloging_chapter_runs.id", ondelete="CASCADE"), nullable=False)
+    candidate_id = Column(String(36), ForeignKey("cataloging_candidates.id", ondelete="CASCADE"), nullable=False)
+    target_type = Column(String(50), nullable=True)
+    target_id = Column(String(36), nullable=True)
+    operation = Column(String(30), nullable=False)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    applied_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class AssistantMemory(Base):
     __tablename__ = "assistant_memories"
 

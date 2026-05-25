@@ -41,6 +41,10 @@ class WorldbuildingEntryResponse(BaseModel):
     dimension: str
     title: str
     content: str
+    status: Optional[str] = None
+    confidence: Optional[float] = None
+    first_seen_chapter_id: Optional[str] = None
+    last_updated_chapter_id: Optional[str] = None
     sort_order: int
     created_at: datetime
     updated_at: datetime
@@ -54,4 +58,3 @@ class WorldbuildingAIExpandRequest(BaseModel):
     dimension: WorldbuildingDimension = Field(..., description="目标世界观维度")
     concept: str = Field(..., min_length=1, max_length=500, description="用户输入的概念或关键词")
     model: Optional[str] = Field(None, description="可选模型标识，例如 openai:gpt-4o")
-

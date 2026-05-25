@@ -70,6 +70,15 @@ def create_character(project_id: str, payload: CharacterCreate, db: Session = De
         background=payload.background,
         abilities=dumps_list(payload.abilities),
         role_type=payload.role_type,
+        life_status=payload.life_status,
+        current_location=payload.current_location,
+        realm_or_level=payload.realm_or_level,
+        physical_state=payload.physical_state,
+        mental_state=payload.mental_state,
+        current_goal=payload.current_goal,
+        active_conflict=payload.active_conflict,
+        abilities_state=payload.abilities_state,
+        items_or_assets=payload.items_or_assets,
         is_evolution_tracked=payload.is_evolution_tracked,
     )
     db.add(character)

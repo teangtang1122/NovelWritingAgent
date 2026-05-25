@@ -42,6 +42,10 @@ class ApiClient {
     return this.client.put<T>(url, data)
   }
 
+  patch<T>(url: string, data?: unknown) {
+    return this.client.patch<T>(url, data)
+  }
+
   delete<T>(url: string) {
     return this.client.delete<T>(url)
   }

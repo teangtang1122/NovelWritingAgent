@@ -15,7 +15,7 @@ from .core.exceptions import (
 )
 from .database.session import engine, Base
 from .database.migrations import ensure_runtime_schema
-from .routers import projects, config, worldbuilding, characters, outline, chapters, ai_writer, stats, export, deconstruct, importer
+from .routers import projects, config, worldbuilding, characters, outline, chapters, ai_writer, stats, export, deconstruct, importer, cataloging
 from .version import APP_VERSION
 
 settings = get_settings()
@@ -75,6 +75,7 @@ app.include_router(stats.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
 app.include_router(deconstruct.router, prefix="/api/v1")
 app.include_router(importer.router, prefix="/api/v1")
+app.include_router(cataloging.router, prefix="/api/v1")
 
 
 @app.get("/")

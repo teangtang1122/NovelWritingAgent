@@ -8,7 +8,7 @@ from ..ai.gateway import LLMGateway
 from ..core.db_helpers import get_project_or_404
 from ..core.exceptions import NotFoundError, ValidationError
 from ..core.response import ApiResponse
-from ..database.models import Project, WorldbuildingEntry
+from ..database.models import Project, WorldbuildingEntry, WorldbuildingTimeline, WorldbuildingVersion
 from ..database.session import get_db
 from ..schemas.worldbuilding import (
     WorldbuildingDimension,
@@ -145,3 +145,58 @@ def delete_worldbuilding_entry(
 
 
 
+
+@router.get("/projects/{project_id}/worldbuilding/{entry_id}/versions")
+def list_worldbuilding_versions(project_id: str, entry_id: str, db: Session = Depends(get_db)):
+    """Get worldbuilding version history."""
+    get_project_or_404(db, project_id)
+    entry = _get_entry_or_404(db, project_id, entry_id)
+    versions = (
+        db.query(WorldbuildingVersion)
+        .filter(WorldbuildingVersion.entry_id == entry.id)
+        .order_by(WorldbuildingVersion.version_number.desc(), WorldbuildingVersion.created_at.desc())
+        .all()
+    )
+    return ApiResponse.success(data={
+        "items": [
+            {
+                "id": item.id,
+                "entry_id": item.entry_id,
+                "version_number": item.version_number,
+                "change_summary": item.change_summary,
+                "source_chapter_id": item.source_chapter_id,
+                "created_at": item.created_at.isoformat() if item.created_at else None,
+            }
+            for item in versions
+        ],
+        "total": len(versions),
+    })
+
+
+@router.get("/projects/{project_id}/worldbuilding/{entry_id}/timeline")
+def list_worldbuilding_timeline(project_id: str, entry_id: str, db: Session = Depends(get_db)):
+    """Get worldbuilding timeline entries."""
+    get_project_or_404(db, project_id)
+    entry = _get_entry_or_404(db, project_id, entry_id)
+    events = (
+        db.query(WorldbuildingTimeline)
+        .filter(WorldbuildingTimeline.entry_id == entry.id)
+        .order_by(WorldbuildingTimeline.sort_order.asc(), WorldbuildingTimeline.created_at.asc())
+        .all()
+    )
+    return ApiResponse.success(data={
+        "items": [
+            {
+                "id": item.id,
+                "entry_id": item.entry_id,
+                "chapter_id": item.chapter_id,
+                "event_description": item.event_description,
+                "event_type": item.event_type,
+                "evidence": item.evidence,
+                "sort_order": item.sort_order,
+                "created_at": item.created_at.isoformat() if item.created_at else None,
+            }
+            for item in events
+        ],
+        "total": len(events),
+    })

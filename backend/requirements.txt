@@ -7,8 +7,8 @@ pydantic-settings==2.1.0
 cryptography==42.0.0
 python-multipart==0.0.6
 aiohttp==3.9.1
-httpx==0.26.0
-openai==1.10.0
+httpx==0.28.1
+openai==1.109.1
 anthropic==0.18.0
 python-dotenv==1.0.0
 python-docx==1.2.0

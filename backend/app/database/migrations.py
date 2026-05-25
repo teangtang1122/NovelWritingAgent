@@ -1,4 +1,4 @@
-"""Runtime schema sync — auto-adds missing tables and columns from SQLAlchemy metadata."""
+"""Runtime schema sync: auto-add missing tables and columns from metadata."""
 from __future__ import annotations
 
 from sqlalchemy import inspect, text
@@ -32,7 +32,7 @@ def _sql_default(col) -> str:
 
     default_arg = None
     if col.server_default is not None:
-        # server_default is a SQL expression — use it directly
+        # server_default is a SQL expression; use it directly.
         return f" DEFAULT ({col.server_default.arg})" if col.server_default.arg else ""
     if col.default is not None:
         default_arg = col.default.arg
@@ -40,7 +40,7 @@ def _sql_default(col) -> str:
             return ""
 
     if callable(default_arg):
-        # Python callable (e.g. generate_uuid, datetime.utcnow) — can't translate to SQL
+        # Python callable defaults cannot be translated to SQL safely.
         return ""
     if isinstance(default_arg, bool):
         return f" DEFAULT {1 if default_arg else 0}"
@@ -55,19 +55,18 @@ def _sql_default(col) -> str:
 def ensure_runtime_schema(engine: Engine) -> None:
     """Auto-sync DB schema with all tables in SQLAlchemy metadata.
 
-    - New tables: handled by create_all() which runs before this.
-    - New columns on existing tables: detected and added via ALTER TABLE.
+    New tables are handled by create_all() before this runs. Existing tables are
+    checked column-by-column and any missing columns are appended in place.
     """
     from .session import Base
 
-    inspector = inspect(engine)
     with engine.begin() as conn:
         for table_name, table in Base.metadata.tables.items():
+            inspector = inspect(conn)
             if not inspector.has_table(table_name):
-                continue  # create_all() handles brand-new tables
+                continue
 
             existing = {col["name"] for col in inspector.get_columns(table_name)}
-
             for column in table.columns:
                 if column.name in existing:
                     continue
@@ -76,8 +75,8 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 nullable = "" if column.nullable else " NOT NULL"
                 default_clause = _sql_default(column)
                 if not column.nullable and not default_clause:
-                    # Can't add a NOT NULL column without a default to a table
-                    # that already has rows. Fall back to nullable for safety.
+                    # SQLite cannot add a NOT NULL column without a default when
+                    # rows may already exist. Prefer preserving user data.
                     nullable = ""
 
                 sql = (

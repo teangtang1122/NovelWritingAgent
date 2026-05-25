@@ -1,0 +1,317 @@
+"""Sequential SSE orchestrator for project cataloging."""
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from typing import Any, AsyncGenerator
+
+from sqlalchemy.orm import Session
+
+from ...ai.gateway import LLMGateway
+from ...database.models import CatalogingCandidate, CatalogingChapterRun, CatalogingJob, Chapter
+from ...database.session import SessionLocal
+from .applier import apply_candidates_for_run, candidate_to_dict
+from .candidate_store import try_create_candidate
+from .constants import CATALOGING_MAX_TOKENS, CATALOGING_TIMEOUT_SECONDS
+from .context import build_light_context, ordered_chapters
+from .jsonl import clean_jsonl_text
+from .job_control import refresh_job_progress
+from .model_selection import cataloging_extra_body
+from .prompts import CATALOGING_SYSTEM_PROMPT, build_cataloging_user_prompt
+
+
+def sse_event(data: dict[str, Any]) -> str:
+    return f"data: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n\n"
+
+
+def job_to_dict(job: CatalogingJob) -> dict[str, Any]:
+    return {
+        "id": job.id,
+        "project_id": job.project_id,
+        "status": job.status,
+        "execution_mode": job.execution_mode,
+        "current_chapter_id": job.current_chapter_id,
+        "last_completed_chapter_id": job.last_completed_chapter_id,
+        "blocked_chapter_id": job.blocked_chapter_id,
+        "context_integrity": job.context_integrity,
+        "total_chapters": job.total_chapters or 0,
+        "completed_chapters": job.completed_chapters or 0,
+        "failed_chapters": job.failed_chapters or 0,
+        "model": job.model,
+        "error": job.error,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+    }
+
+
+def run_to_dict(run: CatalogingChapterRun) -> dict[str, Any]:
+    chapter = run.chapter
+    return {
+        "id": run.id,
+        "job_id": run.job_id,
+        "chapter_id": run.chapter_id,
+        "chapter_title": chapter.title if chapter else "",
+        "status": run.status,
+        "chapter_order": run.chapter_order,
+        "error": run.error,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+    }
+
+
+def create_cataloging_job(
+    db: Session,
+    project_id: str,
+    execution_mode: str,
+    model: str | None,
+    chapter_ids: list[str] | None,
+) -> CatalogingJob:
+    chapters = ordered_chapters(db, project_id, chapter_ids)
+    job = CatalogingJob(
+        project_id=project_id,
+        status="queued",
+        execution_mode=execution_mode if execution_mode in {"auto", "manual"} else "auto",
+        total_chapters=len(chapters),
+        completed_chapters=0,
+        failed_chapters=0,
+        model=model,
+    )
+    db.add(job)
+    db.flush()
+    for index, chapter in enumerate(chapters):
+        db.add(CatalogingChapterRun(
+            job_id=job.id,
+            project_id=project_id,
+            chapter_id=chapter.id,
+            status="pending",
+            chapter_order=index,
+        ))
+    db.commit()
+    db.refresh(job)
+    return job
+
+
+async def stream_cataloging_job(project_id: str, job_id: str) -> AsyncGenerator[str, None]:
+    db = SessionLocal()
+    try:
+        yield sse_event({"type": "status", "message": "作品建档任务开始", "job_id": job_id})
+        while True:
+            job = _get_job(db, project_id, job_id)
+            if job.status in {"completed", "failed", "cancelled", "paused", "paused_on_failure"}:
+                yield sse_event({"type": "job", "job": job_to_dict(job)})
+                yield "data: [DONE]\n\n"
+                return
+
+            run = _next_actionable_run(db, job)
+            if not run:
+                refresh_job_progress(db, job)
+                job.status = "completed"
+                job.completed_at = datetime.utcnow()
+                job.updated_at = datetime.utcnow()
+                db.commit()
+                yield sse_event({"type": "completed", "job": job_to_dict(job)})
+                yield "data: [DONE]\n\n"
+                return
+
+            if run.status == "awaiting_confirmation":
+                db.refresh(job)
+                if job.execution_mode != "auto":
+                    job.status = "waiting_confirmation"
+                    job.blocked_chapter_id = run.chapter_id
+                    db.commit()
+                    yield sse_event({"type": "waiting_confirmation", "job": job_to_dict(job), "run": run_to_dict(run)})
+                    yield "data: [DONE]\n\n"
+                    return
+                async for event in _apply_run(db, job, run):
+                    yield event
+                continue
+
+            if run.status == "failed":
+                job.status = "paused_on_failure"
+                job.blocked_chapter_id = run.chapter_id
+                job.error = run.error
+                refresh_job_progress(db, job)
+                db.commit()
+                yield sse_event({"type": "paused_on_failure", "job": job_to_dict(job), "run": run_to_dict(run), "error": run.error})
+                yield "data: [DONE]\n\n"
+                return
+
+            async for event in _extract_run(db, job, run):
+                yield event
+
+            db.refresh(job)
+            db.refresh(run)
+            if job.status in {"cancelled", "paused"}:
+                yield sse_event({"type": job.status, "job": job_to_dict(job), "run": run_to_dict(run)})
+                yield "data: [DONE]\n\n"
+                return
+            if run.status == "failed":
+                continue
+            if job.execution_mode == "manual":
+                run.status = "awaiting_confirmation"
+                job.status = "waiting_confirmation"
+                job.blocked_chapter_id = run.chapter_id
+                db.commit()
+                yield sse_event({"type": "waiting_confirmation", "job": job_to_dict(job), "run": run_to_dict(run)})
+                yield "data: [DONE]\n\n"
+                return
+
+            async for event in _apply_run(db, job, run):
+                yield event
+    finally:
+        db.close()
+
+
+async def _extract_run(db: Session, job: CatalogingJob, run: CatalogingChapterRun) -> AsyncGenerator[str, None]:
+    chapter = db.query(Chapter).filter(Chapter.id == run.chapter_id, Chapter.project_id == job.project_id).first()
+    if not chapter:
+        run.status = "failed"
+        run.error = "章节不存在"
+        db.commit()
+        yield sse_event({"type": "chapter_failed", "run": run_to_dict(run), "error": run.error})
+        return
+
+    run.status = "extracting"
+    run.started_at = run.started_at or datetime.utcnow()
+    job.status = "running"
+    job.current_chapter_id = chapter.id
+    job.blocked_chapter_id = None
+    db.commit()
+    yield sse_event({"type": "chapter_started", "job": job_to_dict(job), "run": run_to_dict(run)})
+
+    context = build_light_context(db, job.project_id, chapter)
+    messages = [
+        {"role": "system", "content": CATALOGING_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": build_cataloging_user_prompt(
+                json.dumps(context, ensure_ascii=False),
+                chapter.title,
+                chapter.content or "",
+            ),
+        },
+    ]
+    raw_parts: list[str] = []
+    buffer = ""
+    bad_lines: list[str] = []
+    candidate_count = db.query(CatalogingCandidate).filter(CatalogingCandidate.chapter_run_id == run.id).count()
+    has_summary = db.query(CatalogingCandidate).filter(
+        CatalogingCandidate.chapter_run_id == run.id,
+        CatalogingCandidate.item_type == "chapter_summary",
+    ).first() is not None
+
+    try:
+        stream = LLMGateway.stream_chat_completion(
+            messages=messages,
+            model=job.model,
+            temperature=0.1,
+            max_tokens=CATALOGING_MAX_TOKENS,
+            timeout=CATALOGING_TIMEOUT_SECONDS,
+            retry=1,
+            extra_body=cataloging_extra_body(job.model),
+        )
+        async for chunk in stream:
+            raw_parts.append(chunk)
+            buffer += chunk
+            lines = buffer.splitlines(keepends=True)
+            if lines and not lines[-1].endswith(("\n", "\r")):
+                buffer = lines.pop()
+            else:
+                buffer = ""
+            for line in lines:
+                created = try_create_candidate(db, job, run, line, candidate_count)
+                if created.get("bad_line"):
+                    bad_lines.append(created["bad_line"])
+                    yield sse_event({"type": "parse_warning", "run": run_to_dict(run), "line": created["bad_line"][:500], "error": created["error"]})
+                candidate = created.get("candidate")
+                if candidate:
+                    candidate_count += 1
+                    has_summary = has_summary or candidate.item_type == "chapter_summary"
+                    db.commit()
+                    yield sse_event({"type": "candidate_created", "candidate": candidate_to_dict(candidate), "run": run_to_dict(run)})
+        tail = clean_jsonl_text(buffer)
+        if tail:
+            created = try_create_candidate(db, job, run, tail, candidate_count)
+            if created.get("bad_line"):
+                bad_lines.append(created["bad_line"])
+            if created.get("candidate"):
+                candidate = created["candidate"]
+                candidate_count += 1
+                has_summary = has_summary or candidate.item_type == "chapter_summary"
+                db.commit()
+                yield sse_event({"type": "candidate_created", "candidate": candidate_to_dict(candidate), "run": run_to_dict(run)})
+    except Exception as exc:
+        run.status = "failed"
+        run.error = str(exc)
+        run.raw_output = "".join(raw_parts)[-60000:]
+        job.status = "paused_on_failure"
+        job.blocked_chapter_id = run.chapter_id
+        job.error = run.error
+        db.commit()
+        yield sse_event({"type": "chapter_failed", "run": run_to_dict(run), "error": run.error})
+        return
+
+    run.raw_output = "".join(raw_parts)[-60000:]
+    if bad_lines:
+        run.status = "failed"
+        run.error = f"{len(bad_lines)} 行 JSONL 解析失败，已暂停在当前章节"
+        job.status = "paused_on_failure"
+        job.blocked_chapter_id = run.chapter_id
+        job.error = run.error
+        db.commit()
+        yield sse_event({"type": "chapter_failed", "run": run_to_dict(run), "error": run.error, "bad_lines": bad_lines[:5]})
+        return
+    if not has_summary:
+        run.status = "failed"
+        run.error = "模型未输出 chapter_summary，已暂停在当前章节"
+        job.status = "paused_on_failure"
+        job.blocked_chapter_id = run.chapter_id
+        job.error = run.error
+        db.commit()
+        yield sse_event({"type": "chapter_failed", "run": run_to_dict(run), "error": run.error})
+        return
+
+    run.status = "awaiting_confirmation"
+    run.completed_at = datetime.utcnow()
+    run.error = None
+    db.commit()
+    yield sse_event({"type": "chapter_extracted", "run": run_to_dict(run), "candidate_count": candidate_count})
+
+
+async def _apply_run(db: Session, job: CatalogingJob, run: CatalogingChapterRun) -> AsyncGenerator[str, None]:
+    run.status = "applying"
+    job.status = "running"
+    db.commit()
+    yield sse_event({"type": "chapter_applying", "job": job_to_dict(job), "run": run_to_dict(run)})
+    events = apply_candidates_for_run(db, job, run)
+    has_failed = any(event["type"] == "candidate_apply_failed" for event in events)
+    for event in events:
+        db.commit()
+        yield sse_event(event)
+    run.status = "completed_with_warnings" if has_failed else "completed"
+    run.completed_at = datetime.utcnow()
+    job.last_completed_chapter_id = run.chapter_id
+    job.current_chapter_id = None
+    job.blocked_chapter_id = None
+    job.error = None
+    refresh_job_progress(db, job)
+    db.commit()
+    yield sse_event({"type": "chapter_completed", "job": job_to_dict(job), "run": run_to_dict(run), "warnings": has_failed})
+
+
+def _next_actionable_run(db: Session, job: CatalogingJob) -> CatalogingChapterRun | None:
+    return (
+        db.query(CatalogingChapterRun)
+        .filter(CatalogingChapterRun.job_id == job.id)
+        .filter(CatalogingChapterRun.status.notin_(["completed", "completed_with_warnings", "skipped_by_user"]))
+        .order_by(CatalogingChapterRun.chapter_order.asc())
+        .first()
+    )
+
+
+def _get_job(db: Session, project_id: str, job_id: str) -> CatalogingJob:
+    job = db.query(CatalogingJob).filter(CatalogingJob.id == job_id, CatalogingJob.project_id == project_id).first()
+    if not job:
+        raise ValueError("作品建档任务不存在")
+    return job

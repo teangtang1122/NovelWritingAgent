@@ -17,6 +17,17 @@ class CharacterBase(BaseModel):
     is_evolution_tracked: bool = Field(True, description="是否开启自动追踪")
 
 
+    life_status: Optional[str] = Field(None, max_length=50, description="当前生死状态")
+    current_location: Optional[str] = Field(None, max_length=200, description="当前位置")
+    realm_or_level: Optional[str] = Field(None, max_length=200, description="境界/等级")
+    physical_state: Optional[str] = Field(None, description="身体情况")
+    mental_state: Optional[str] = Field(None, description="心理状态")
+    current_goal: Optional[str] = Field(None, description="当前目标")
+    active_conflict: Optional[str] = Field(None, description="当前冲突")
+    abilities_state: Optional[str] = Field(None, description="能力当前状态")
+    items_or_assets: Optional[str] = Field(None, description="持有物/资源")
+
+
 class CharacterCreate(CharacterBase):
     """Schema for creating a character."""
 
@@ -30,6 +41,15 @@ class CharacterUpdate(BaseModel):
     background: Optional[str] = None
     abilities: Optional[list[str]] = None
     role_type: Optional[str] = Field(None, max_length=50)
+    life_status: Optional[str] = Field(None, max_length=50)
+    current_location: Optional[str] = Field(None, max_length=200)
+    realm_or_level: Optional[str] = Field(None, max_length=200)
+    physical_state: Optional[str] = None
+    mental_state: Optional[str] = None
+    current_goal: Optional[str] = None
+    active_conflict: Optional[str] = None
+    abilities_state: Optional[str] = None
+    items_or_assets: Optional[str] = None
     is_evolution_tracked: Optional[bool] = None
     change_summary: Optional[str] = Field(None, description="本次变更摘要")
 
@@ -45,6 +65,17 @@ class CharacterResponse(BaseModel):
     background: Optional[str]
     abilities: list[str]
     role_type: Optional[str]
+    life_status: Optional[str]
+    current_location: Optional[str]
+    realm_or_level: Optional[str]
+    physical_state: Optional[str]
+    mental_state: Optional[str]
+    current_goal: Optional[str]
+    active_conflict: Optional[str]
+    abilities_state: Optional[str]
+    items_or_assets: Optional[str]
+    last_seen_chapter_id: Optional[str]
+    last_updated_chapter_id: Optional[str]
     current_version: int
     is_evolution_tracked: bool
     created_at: datetime
