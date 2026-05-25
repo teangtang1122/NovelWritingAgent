@@ -282,7 +282,7 @@ class APIConfig(Base):
     __tablename__ = "api_configs"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    provider = Column(String(50), nullable=False, unique=True)  # openai/anthropic/deepseek/qwen
+    provider = Column(String(50), nullable=False, unique=True)  # openai/anthropic/deepseek/qwen/gemini
     api_key_encrypted = Column(Text, nullable=False)
     default_model = Column(String(100), nullable=False)
     is_global_default = Column(Boolean, default=False)

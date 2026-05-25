@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ....ai.gateway import LLMGateway
+from ....core.json_repair import parse_json_object
 from ....database.models import (
     Character,
     CharacterRelationship,
@@ -125,6 +126,24 @@ PLOT_DESIGN_TOOL = {
         },
     },
 }
+
+
+def _parse_plot_design_payload(raw: str) -> dict | None:
+    parsed = parse_json_object(raw)
+    if not isinstance(parsed, dict):
+        return None
+    if isinstance(parsed.get("arguments"), dict):
+        parsed = parsed["arguments"]
+    elif isinstance(parsed.get("arguments"), str):
+        nested = parse_json_object(parsed["arguments"])
+        if isinstance(nested, dict):
+            parsed = nested
+    for key in ("design_plot_output", "plot_design", "plot", "data"):
+        nested = parsed.get(key)
+        if isinstance(nested, dict):
+            parsed = nested
+            break
+    return parsed if isinstance(parsed, dict) else None
 
 
 async def design_plot(
@@ -258,22 +277,16 @@ async def design_plot(
         return {"tool": "design_plot", "status": "error", "detail": f"LLM 调用失败：{exc}", "data": {}}
 
     tool_calls = result.get("tool_calls") or []
-    if not tool_calls:
-        return {
-            "tool": "design_plot",
-            "status": "error",
-            "detail": "LLM 返回的剧情设计无法解析",
-            "data": {"raw": str(result.get("content", ""))[:2000]},
-        }
-
-    try:
-        parsed = _json.loads(tool_calls[0]["function"]["arguments"])
-    except (_json.JSONDecodeError, AttributeError):
+    raw_for_error = str(result.get("content", ""))
+    if tool_calls:
+        raw_for_error = str(tool_calls[0].get("function", {}).get("arguments", ""))
+    parsed = _parse_plot_design_payload(raw_for_error)
+    if not parsed:
         return {
             "tool": "design_plot",
             "status": "error",
             "detail": "LLM 返回的剧情设计无法解析为JSON",
-            "data": {"raw": tool_calls[0].get("function", {}).get("arguments", "")[:2000]},
+            "data": {"raw": raw_for_error[:2000]},
         }
 
     if not isinstance(parsed, dict):

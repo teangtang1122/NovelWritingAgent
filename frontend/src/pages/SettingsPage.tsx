@@ -64,6 +64,7 @@ const PROVIDER_OPTIONS = [
   { value: 'anthropic', label: 'Anthropic Claude' },
   { value: 'deepseek', label: 'DeepSeek（v4-pro / v4-flash）' },
   { value: 'qwen', label: '通义千问' },
+  { value: 'gemini', label: 'Google Gemini' },
 ]
 
 const PROVIDER_LABEL_MAP: Record<string, string> = {
@@ -71,6 +72,7 @@ const PROVIDER_LABEL_MAP: Record<string, string> = {
   anthropic: 'Anthropic Claude',
   deepseek: 'DeepSeek',
   qwen: '通义千问',
+  gemini: 'Google Gemini',
 }
 
 const PROVIDER_COLOR_MAP: Record<string, string> = {
@@ -78,6 +80,7 @@ const PROVIDER_COLOR_MAP: Record<string, string> = {
   anthropic: 'purple',
   deepseek: 'blue',
   qwen: 'orange',
+  gemini: 'cyan',
 }
 
 const DEEPSEEK_MODEL_OPTIONS: ModelOption[] = [
@@ -85,22 +88,41 @@ const DEEPSEEK_MODEL_OPTIONS: ModelOption[] = [
   { id: 'deepseek-v4-flash', display_name: 'deepseek-v4-flash' },
 ]
 
+const GEMINI_MODEL_OPTIONS: ModelOption[] = [
+  { id: 'gemini-3-pro-preview', display_name: 'gemini-3-pro-preview' },
+  { id: 'gemini-3-flash-preview', display_name: 'gemini-3-flash-preview' },
+  { id: 'gemini-2.5-pro', display_name: 'gemini-2.5-pro' },
+  { id: 'gemini-2.5-flash', display_name: 'gemini-2.5-flash' },
+  { id: 'gemini-2.5-flash-lite', display_name: 'gemini-2.5-flash-lite' },
+]
+
 const FALLBACK_OUTPUT_LIMIT = 16000
 const MODEL_OUTPUT_LIMITS: Record<string, number> = {
   'deepseek:deepseek-v4-pro': 384000,
   'deepseek:deepseek-v4-flash': 384000,
+  'gemini:gemini-3-pro-preview': 65536,
+  'gemini:gemini-3-flash-preview': 65536,
+  'gemini:gemini-2.5-pro': 65536,
+  'gemini:gemini-2.5-flash': 65536,
+  'gemini:gemini-2.5-flash-lite': 65536,
 }
 const PROVIDER_OUTPUT_LIMITS: Record<string, number> = {
   deepseek: 384000,
+  gemini: 65536,
 }
 
-const fallbackModelOptions = (provider?: string): ModelOption[] => (
-  provider === 'deepseek' ? DEEPSEEK_MODEL_OPTIONS : []
-)
+const fallbackModelOptions = (provider?: string): ModelOption[] => {
+  if (provider === 'deepseek') return DEEPSEEK_MODEL_OPTIONS
+  if (provider === 'gemini') return GEMINI_MODEL_OPTIONS
+  return []
+}
 
 const normalizeDefaultModel = (provider: string, model: string) => {
   if (provider === 'deepseek' && model === 'deepseek-v3') {
     return 'deepseek-v4-flash'
+  }
+  if (provider === 'gemini' && model.startsWith('models/')) {
+    return model.slice('models/'.length)
   }
   return model
 }
@@ -110,6 +132,17 @@ const isDeepSeekModelSupported = (model: string) => (
 )
 
 const normalizeProviderModelOptions = (provider: string, options: ModelOption[]) => {
+  if (provider === 'gemini') {
+    const normalized = options.map((option) => {
+      const id = normalizeDefaultModel(provider, option.id)
+      return {
+        id,
+        display_name: normalizeDefaultModel(provider, option.display_name || id),
+      }
+    })
+    const unique = Array.from(new Map(normalized.map((option) => [option.id, option])).values())
+    return unique.length > 0 ? unique : GEMINI_MODEL_OPTIONS
+  }
   if (provider !== 'deepseek') return options
   const normalized = options
     .map((option) => ({
@@ -624,7 +657,7 @@ function SettingsPage() {
           <Form.Item
             name="max_output_tokens"
             label="模型最大输出 tokens"
-            extra="默认按模型能力上限填充；DeepSeek v4-pro / v4-flash 默认为 384,000。"
+            extra="默认按模型能力上限填充；DeepSeek v4-pro / v4-flash 默认为 384,000，Gemini 默认为 65,536。"
             rules={[{ required: true, message: '请填写最大输出 tokens' }]}
           >
             <InputNumber min={1} max={1000000} style={{ width: '100%' }} />

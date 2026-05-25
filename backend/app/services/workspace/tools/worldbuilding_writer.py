@@ -82,22 +82,23 @@ async def worldbuilding_writer(
         return {"tool": "worldbuilding_writer", "status": "error", "detail": f"世界观条目生成失败: {exc}", "data": {}}
 
     tool_calls = result.get("tool_calls") or []
-    if not tool_calls:
-        return {
-            "tool": "worldbuilding_writer",
-            "status": "error",
-            "detail": "世界观条目生成结果解析失败",
-            "data": {"raw": str(result.get("content", ""))[:500]},
-        }
-
+    raw_for_error = str(result.get("content", ""))
     try:
-        parsed = _json.loads(tool_calls[0]["function"]["arguments"])
-    except (_json.JSONDecodeError, AttributeError):
+        if tool_calls:
+            raw_args = tool_calls[0]["function"]["arguments"]
+            raw_for_error = raw_args
+            parsed = _json.loads(raw_args)
+        else:
+            clean = raw_for_error.strip().removeprefix("```json").removesuffix("```").strip()
+            parsed = _json.loads(clean)
+            if isinstance(parsed, dict) and isinstance(parsed.get("entry"), dict):
+                parsed = parsed["entry"]
+    except (_json.JSONDecodeError, AttributeError, TypeError, KeyError):
         return {
             "tool": "worldbuilding_writer",
             "status": "error",
             "detail": "世界观条目生成结果解析失败",
-            "data": {"raw": tool_calls[0].get("function", {}).get("arguments", "")[:500]},
+            "data": {"raw": raw_for_error[:500]},
         }
 
     if not parsed.get("title"):

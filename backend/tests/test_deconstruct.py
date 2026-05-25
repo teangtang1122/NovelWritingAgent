@@ -9,7 +9,7 @@ os.environ["DATABASE_URL"] = "sqlite:///./test_novel_agent.db"
 
 from fastapi.testclient import TestClient
 
-from app.database.models import Character, DeconstructionReport, OutlineNode, Project
+from app.database.models import Character, CharacterAIConfig, CharacterRelationship, DeconstructionReport, OutlineNode, Project
 from app.database.session import Base, SessionLocal, engine
 from app.main import app
 
@@ -73,7 +73,33 @@ class DeconstructTestCase(unittest.TestCase):
                     "role": "protagonist",
                     "mention_count": 8,
                     "importance": "high",
+                    "appearance": "黑发灰眸，衣袖常沾墨痕。",
+                    "personality": "谨慎但会在关键时刻冒险。",
                     "arc_description": "从迷茫到开始行动",
+                    "speech_style": "短句多，先观察再发问。",
+                    "relationship_network": [
+                        {"target_name": "许微", "relationship_type": "同伴", "description": "共同追查线索"}
+                    ],
+                    "appearance_records": [
+                        {"chapter_title": "第一章", "role_in_scene": "主角", "summary": "获得线索后决定追查"}
+                    ],
+                    "timeline_events": [
+                        {"event_type": "key_decision", "description": "决定追查秘密", "emotional_state_change": "由迷茫转为主动"}
+                    ],
+                    "ai_config": {
+                        "tone_style": "calm",
+                        "catchphrases": ["先看证据"],
+                        "verbosity": "brief",
+                        "emotion_tendency": "calm",
+                        "custom_system_prompt": "你正在扮演林澈。保持谨慎、克制和证据优先，不要擅自知道未发生的剧情。",
+                    },
+                },
+                {
+                    "name": "许微",
+                    "role": "supporting",
+                    "mention_count": 3,
+                    "importance": "medium",
+                    "personality": "行动快，愿意配合林澈。",
                 }
             ],
             "highlights": [
@@ -119,12 +145,20 @@ class DeconstructTestCase(unittest.TestCase):
         self.assertEqual(imported.status_code, 200)
         data = imported.json()["data"]
         self.assertEqual(data["outline_count"], 2)
-        self.assertEqual(data["character_count"], 1)
+        self.assertEqual(data["character_count"], 2)
+        self.assertEqual(data["relationship_count"], 1)
 
         db = SessionLocal()
         try:
             self.assertEqual(db.query(OutlineNode).filter(OutlineNode.project_id == project_id).count(), 2)
-            self.assertEqual(db.query(Character).filter(Character.project_id == project_id).count(), 1)
+            self.assertEqual(db.query(Character).filter(Character.project_id == project_id).count(), 2)
+            lin = db.query(Character).filter(Character.project_id == project_id, Character.name == "林澈").first()
+            self.assertIsNotNone(lin)
+            self.assertIn("黑发灰眸", lin.appearance)
+            self.assertIn("说话风格", lin.background)
+            config = db.query(CharacterAIConfig).filter(CharacterAIConfig.character_id == lin.id).first()
+            self.assertIsNotNone(config)
+            self.assertIn("扮演林澈", config.custom_system_prompt)
+            self.assertEqual(db.query(CharacterRelationship).filter(CharacterRelationship.project_id == project_id).count(), 1)
         finally:
             db.close()
-

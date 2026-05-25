@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ....database.models import Character, CharacterVersion
+from ....database.models import Character, CharacterAIConfig, CharacterVersion
 from ..utils import character_payload, find_character_by_name_or_id
 
 
@@ -19,12 +19,18 @@ async def create_character(
     name = str(args.get("name") or "").strip()
     if not name:
         return {"tool": "create_character", "status": "skipped", "detail": "角色名为空"}
+    background_parts = [str(args.get("background") or "").strip()]
+    for label, key in [("说话风格", "speech_style"), ("当前动机", "motivation"), ("核心冲突", "conflict")]:
+        value = str(args.get(key) or "").strip()
+        if value:
+            background_parts.append(f"{label}：{value}")
+    background = "\n".join(part for part in background_parts if part)
     character = Character(
         project_id=project_id,
         name=name[:100],
         appearance=str(args.get("appearance") or "")[:4000],
         personality=str(args.get("personality") or "")[:4000],
-        background=str(args.get("background") or "")[:8000],
+        background=background[:8000],
         abilities=json.dumps(
             args.get("abilities") if isinstance(args.get("abilities"), list) else [],
             ensure_ascii=False,
@@ -34,6 +40,21 @@ async def create_character(
     )
     db.add(character)
     db.flush()
+    ai_config_data = args.get("ai_config") if isinstance(args.get("ai_config"), dict) else {}
+    prompt = str(
+        ai_config_data.get("custom_system_prompt")
+        or args.get("custom_system_prompt")
+        or ""
+    ).strip()
+    if prompt or ai_config_data:
+        db.add(CharacterAIConfig(
+            character_id=character.id,
+            tone_style=str(ai_config_data.get("tone_style") or args.get("tone_style") or "neutral")[:100],
+            catchphrases=json.dumps(ai_config_data.get("catchphrases") or [], ensure_ascii=False),
+            verbosity=str(ai_config_data.get("verbosity") or "moderate")[:50],
+            emotion_tendency=str(ai_config_data.get("emotion_tendency") or "neutral")[:100],
+            custom_system_prompt=prompt or None,
+        ))
     return {
         "tool": "create_character",
         "status": "ok",
@@ -55,8 +76,35 @@ async def update_character(
         if field in args:
             setattr(character, field, str(args.get(field) or "")[:limit])
             changed = True
+    extra_background = []
+    for label, key in [("说话风格", "speech_style"), ("当前动机", "motivation"), ("核心冲突", "conflict")]:
+        if key in args and str(args.get(key) or "").strip():
+            extra_background.append(f"{label}：{str(args.get(key)).strip()}")
+    if extra_background:
+        current_background = str(character.background or "").strip()
+        addition = "\n".join(extra_background)
+        character.background = f"{current_background}\n\n{addition}".strip()[:8000]
+        changed = True
     if "abilities" in args and isinstance(args.get("abilities"), list):
         character.abilities = json.dumps(args.get("abilities"), ensure_ascii=False)
+        changed = True
+    ai_config_data = args.get("ai_config") if isinstance(args.get("ai_config"), dict) else {}
+    if ai_config_data or "custom_system_prompt" in args:
+        config = character.ai_config or db.query(CharacterAIConfig).filter(CharacterAIConfig.character_id == character.id).first()
+        if not config:
+            config = CharacterAIConfig(character_id=character.id)
+            db.add(config)
+        if ai_config_data.get("tone_style"):
+            config.tone_style = str(ai_config_data.get("tone_style"))[:100]
+        if ai_config_data.get("catchphrases") is not None:
+            config.catchphrases = json.dumps(ai_config_data.get("catchphrases") or [], ensure_ascii=False)
+        if ai_config_data.get("verbosity"):
+            config.verbosity = str(ai_config_data.get("verbosity"))[:50]
+        if ai_config_data.get("emotion_tendency"):
+            config.emotion_tendency = str(ai_config_data.get("emotion_tendency"))[:100]
+        prompt = str(ai_config_data.get("custom_system_prompt") or args.get("custom_system_prompt") or "").strip()
+        if prompt:
+            config.custom_system_prompt = prompt
         changed = True
     if changed:
         character.current_version = (character.current_version or 1) + 1

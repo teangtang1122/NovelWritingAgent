@@ -9,7 +9,7 @@ MAP_OUTPUT_RULES = (
     "3. 顶层字段必须完整，字段名必须使用模板中的英文名，不得新增中文字段名。\n"
     "4. 这是事实卡片，不是最终档案。只记录可用于后续合并的事实，不要写长篇角色档案、完整大纲或长世界观条目。\n"
     "5. 数量上限：characters最多9个，events最多9个，world_facts最多6个，clues最多5个，themes最多6个，techniques最多6个。\n"
-    "6. 长度上限：fact/appearance 每项最多120个中文字符，role_hint/speech_style 最多60个中文字符，relationships/appearances 数组每项最多60字。\n"
+    "6. 长度上限：facts/actions/traits/relationship.description/appearance.summary 每项最多90个中文字符，appearance 最多120个中文字符，role_hint/speech_style 最多60个中文字符。\n"
     "7. 如果内容太多，优先保留主线事件、角色变化、冲突转折、设定规则和伏笔线索。\n"
     "8. 整个JSON输出必须紧凑完整，不得在字符串或数组中间截断。宁可少写几条也要保证JSON完整闭合。\n"
 )
@@ -20,7 +20,7 @@ MAP_SYSTEM_PROMPT = (
     "【核心要求】\n"
     "1. 必须只输出一个合法JSON对象——不要输出Markdown代码块、解释文字、前缀或后缀。\n"
     "2. 角色名必须使用原文姓名；事件必须写清谁做了什么、造成什么结果。\n"
-    "3. 如果本段出现外貌、衣着、年龄、体态、神态、说话习惯、关系变化或出场行为，只记录为短字符串，不要展开成嵌套长档案。\n"
+    "3. 如果本段出现外貌、衣着、年龄、体态、神态、说话习惯、关系变化或出场行为，必须记录到角色字段中，供后续合并成角色卡。\n"
     "4. 只提取事实，不扩写、不评价、不生成最终档案。没有信息时使用空数组 [] 或空字符串 ''，但不得省略顶层字段。\n"
     "5. JSON必须可被 json.loads 直接解析，不得包含尾随逗号、注释或非标准语法。\n"
     "6. 宁可输出空数组或少写几条，也必须保证JSON以 } 完整闭合。截断的JSON会导致整段作废。\n\n"
@@ -32,7 +32,7 @@ MAP_SYSTEM_PROMPT = (
 )
 
 MAP_JSON_TEMPLATE = (
-    '{"characters":[{"name":"","role_hint":"","mentions":0,"facts":[""],"appearance":"","speech_style":"","relationships":[""],"appearances":[""]}],'
+    '{"characters":[{"name":"","role_hint":"","mentions":0,"facts":[""],"actions":[""],"traits":[""],"appearance":"","speech_style":"","relationships":[{"target_name":"","relationship_type":"","description":""}],"appearances":[{"chapter_title":"","scene":"","role_in_scene":"","summary":""}]}],'
     '"events":[{"summary":"","type":"intro|conflict|reveal|turn|climax|resolution|setup|other","characters":[""],"importance":"high|medium|low"}],'
     '"world_facts":[{"dimension":"geography|history|factions|power_system|races|culture","name":"","fact":""}],'
     '"clues":[{"item":"","detail":""}],'
@@ -52,14 +52,15 @@ def map_instructions(options: dict) -> str:
     """Build map-phase instruction text for chunk analysis."""
     parts = [
         "【分块事实卡片要求】",
-        "1. characters 只记录角色名、身份提示、本段事实短句、外貌/说话风格、关系短句和出场短句，不写完整档案。",
-        "2. facts/relationships/appearances 都必须是短字符串数组，不要输出对象数组。",
+        "1. characters 只记录角色名、身份提示、本段事实短句、动作、性格特征、外貌/说话风格、关系和出场记录，不写完整档案。",
+        "2. facts/actions/traits 必须是短字符串数组；relationships/appearances 必须按模板输出对象数组，字段为空也保留。",
         "3. world_facts 只记录明确设定事实，例如地点、势力、修炼规则、历史、文化、种族；没有就空数组。",
         "4. clues 记录伏笔、线索、未解谜团或后续可能回收的信息。",
         "5. themes 每条不超过8字；techniques 只写本段明确出现的写作手法。",
         "6. pacing 判断：slow=描写/思考为主；medium=事件推进与描写交替；fast=连续事件/对话驱动；intense=高潮战斗/重大揭示。",
         "7. events 只记录主线事件事实：summary 写谁做了什么以及结果，不确定的信息不要猜。",
-        "8. 这是给合并模型看的事实原料，宁可短而准，不要长而散。",
+        "8. appearances.chapter_title 优先填写当前片段标题；没有标题则留空。appearance.summary 写该角色在这个场景中的行动或状态。",
+        "9. 这是给合并模型看的事实原料，宁可短而准，不要长而散。",
     ]
     return "\n".join(parts)
 
@@ -135,18 +136,21 @@ def reduce_instructions(options: dict) -> str:
     instructions = [
         "【整合规则】",
         "1. 输入是分块事实卡片，不是最终报告。你要基于 characters/actions/events/world_facts/clues/themes/techniques 生成完整、可导入的角色档案、大纲和世界观。",
-        "2. 角色去重：严格按 name 字段合并同名角色。合并 role_hint、actions、traits 和事件中的行为证据，补全 appearance/personality/background/abilities/ai_config；没有原文依据的外貌不要编造，留空或写未明确描写。",
-        "3. 大纲组织：从 events 中提取事件线，按时间顺序组织为 卷（volume）→ 章（chapter）。每章 summary 必须包含目标、冲突、行动、结果、钩子。相近事件合并为同一章。",
-        "4. 世界观拆分：从 world_facts 中抽取独立设定条目。一个地点、一条规则、一个势力、一段历史分别成条，不要写成总括段。",
-        "5. 伏笔和高光：从 clues 与 events 中提炼 plot_nodes/highlights，保留重要揭示、转折、高潮和后续钩子。",
-        "6. 节奏曲线（rhythm_curve）：综合各分块 pacing，标注舒缓、推进、高潮、转折位置。",
-        "7. 写作模式（patterns）：综合 techniques/themes，总结反复出现的写法、主题和结构特点。",
-        "8. 未启用模块：如果某个模块选项为关闭状态，对应字段输出空数组 [] 或空对象 {}，但不省略该字段本身。",
+        "2. 角色去重：严格按 name 字段合并同名角色。合并 role_hint、facts、actions、traits、relationships、appearances 和事件中的行为证据，补全 appearance/personality/background/abilities/ai_config。",
+        "3. 角色卡必须服务写作：personality 写行为模式和内在矛盾，background 写经历与当前处境，motivation/conflict 写当前驱动力，speech_style 写句长、语气、称呼习惯、禁用表达。",
+        "4. 外貌规则：原文有明确外貌则优先采用并标 appearance_source=original；没有明确外貌时，根据年龄、身份、气质、能力和出场场景生成一段克制外貌，标 appearance_source=inferred；混合则标 mixed。",
+        "5. AI扮演提示词：ai_config.custom_system_prompt 必须能直接给角色AI使用，包含身份、当前处境、目标/恐惧、说话方式、关系处理、能力边界、禁止越界信息，长度约250-500字。",
+        "6. 大纲组织：从 events 中提取事件线，按时间顺序组织为 卷（volume）→ 章（chapter）。每章 summary 必须包含目标、冲突、行动、结果、钩子。相近事件合并为同一章。",
+        "7. 世界观拆分：从 world_facts 中抽取独立设定条目。一个地点、一条规则、一个势力、一段历史分别成条，不要写成总括段。",
+        "8. 伏笔和高光：从 clues 与 events 中提炼 plot_nodes/highlights，保留重要揭示、转折、高潮和后续钩子。",
+        "9. 节奏曲线（rhythm_curve）：综合各分块 pacing，标注舒缓、推进、高潮、转折位置。",
+        "10. 写作模式（patterns）：综合 techniques/themes，总结反复出现的写法、主题和结构特点。",
+        "11. 未启用模块：如果某个模块选项为关闭状态，对应字段输出空数组 [] 或空对象 {}，但不省略该字段本身。",
     ]
     if options.get("golden_three"):
         instructions.append(
             "\n【黄金三章模块】\n"
-            "9. 黄金三章只能依据提示中单独提供的「前三章原文摘录」分析，不能用全书后文倒推开篇：\n"
+            "12. 黄金三章只能依据提示中单独提供的「前三章原文摘录」分析，不能用全书后文倒推开篇：\n"
             "- 评价开篇钩子的有效性。\n"
             "- 明确主角初始目标和核心冲突。\n"
             "- 分析前三章各自承担的功能和衔接效果。\n"

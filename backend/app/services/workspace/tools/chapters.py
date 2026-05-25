@@ -16,6 +16,7 @@ from ....database.models import (
     Project,
 )
 from ....services.style_rules import _repair_forbidden_sentence_text
+from ..generated_drafts import resolve_chapter_draft_content
 from ..utils import find_outline_by_title_or_id
 
 
@@ -55,13 +56,20 @@ async def create_chapter(
 ) -> dict:
     title = str(args.get("title") or "").strip()
     content = str(args.get("content") or "")
+    content = resolve_chapter_draft_content(
+        project_id=project_id,
+        provided_content=content,
+        draft_id=str(args.get("draft_id") or args.get("content_ref") or "").strip() or None,
+        outline_node_id=str(args.get("outline_node_id") or "").strip() or None,
+    )
     if not title or not content.strip():
         return {"tool": "create_chapter", "status": "skipped", "detail": "章节标题或正文为空"}
 
     involved = _character_names(args.get("involved_characters"))
 
     project = db.query(Project).filter(Project.id == project_id).first()
-    if project and content.strip():
+    skip_style_repair = bool(args.get("skip_style_repair") or args.get("skip_forbidden_repair"))
+    if project and content.strip() and not skip_style_repair:
         content, _violations, _remaining = await _repair_forbidden_sentence_text(
             content, project, str(args.get("model") or "") or None
         )
@@ -100,8 +108,8 @@ async def create_chapter(
     return {
         "tool": "create_chapter",
         "status": "ok",
-        "detail": f"已创建章节：{chapter.title}",
-        "data": {"id": chapter.id, "title": chapter.title},
+        "detail": f"已创建章节：{chapter.title}（{len(content)} 字）",
+        "data": {"id": chapter.id, "title": chapter.title, "word_count": len(content)},
     }
 
 
@@ -145,8 +153,15 @@ async def update_chapter(
         chapter.title = str(args.get("title")).strip()[:200]
     if "content" in args:
         new_content = str(args.get("content") or "")
+        new_content = resolve_chapter_draft_content(
+            project_id=project_id,
+            provided_content=new_content,
+            draft_id=str(args.get("draft_id") or args.get("content_ref") or "").strip() or None,
+            outline_node_id=str(args.get("outline_node_id") or "").strip() or None,
+        )
         project = db.query(Project).filter(Project.id == project_id).first()
-        if project and new_content.strip():
+        skip_style_repair = bool(args.get("skip_style_repair") or args.get("skip_forbidden_repair"))
+        if project and new_content.strip() and not skip_style_repair:
             new_content, _violations, _remaining = await _repair_forbidden_sentence_text(
                 new_content, project, str(args.get("model") or "") or None
             )
@@ -189,8 +204,8 @@ async def update_chapter(
     return {
         "tool": "update_chapter",
         "status": "ok",
-        "detail": f"已更新章节：{chapter.title}",
-        "data": {"id": chapter.id, "title": chapter.title},
+        "detail": f"已更新章节：{chapter.title}（{len(chapter.content or '')} 字）",
+        "data": {"id": chapter.id, "title": chapter.title, "word_count": len(chapter.content or "")},
     }
 
 

@@ -17,7 +17,7 @@ Covers:
     - POST   /api/v1/chat/completion/stream     — streaming chat (SSE)
 
   Adapters:
-    - OpenAI, Anthropic Claude, DeepSeek, 通义千问
+    - OpenAI, Anthropic Claude, DeepSeek, 通义千问, Gemini
 
   Crypto:
     - Encrypt/decrypt roundtrip
@@ -129,7 +129,7 @@ class TestAPIConfigListAPI(unittest.TestCase):
         providers = [
             {"provider": "openai", "api_key": "sk-openai", "default_model": "gpt-4o"},
             {"provider": "anthropic", "api_key": "sk-claude", "default_model": "claude-3-5-sonnet-20241022"},
-            {"provider": "deepseek", "api_key": "sk-deepseek", "default_model": "deepseek-chat"},
+            {"provider": "deepseek", "api_key": "sk-deepseek", "default_model": "deepseek-v4-flash"},
         ]
         for cfg in providers:
             self.client.post(f"{API_PREFIX}/config/models", json=cfg)
@@ -153,7 +153,7 @@ class TestAPIConfigListAPI(unittest.TestCase):
         )
         self.client.post(
             f"{API_PREFIX}/config/models",
-            json={"provider": "deepseek", "api_key": "sk-second", "default_model": "deepseek-chat"},
+            json={"provider": "deepseek", "api_key": "sk-second", "default_model": "deepseek-v4-flash"},
         )
 
         response = self.client.get(f"{API_PREFIX}/config/models")
@@ -213,15 +213,16 @@ class TestAPIConfigCreateAPI(unittest.TestCase):
         self.assertNotIn("api_key", data)
 
     # ------------------------------------------------------------------
-    # TC-06: Create config for all four supported providers
+    # TC-06: Create config for all supported providers
     # ------------------------------------------------------------------
     def test_create_all_providers(self):
-        """POST /config/models supports all four providers."""
+        """POST /config/models supports all providers."""
         providers = [
             ("openai", "sk-openai-xxx", "gpt-4o"),
             ("anthropic", "sk-anthropic-xxx", "claude-3-5-sonnet-20241022"),
-            ("deepseek", "sk-deepseek-xxx", "deepseek-chat"),
+            ("deepseek", "sk-deepseek-xxx", "deepseek-v4-flash"),
             ("qwen", "sk-qwen-xxx", "qwen-max"),
+            ("gemini", "sk-gemini-xxx", "gemini-2.5-flash"),
         ]
         for provider, key, model in providers:
             response = self.client.post(
@@ -232,9 +233,9 @@ class TestAPIConfigCreateAPI(unittest.TestCase):
                              f"Failed to create config for {provider}")
             self.assertEqual(response.json()["data"]["provider"], provider)
 
-        # Verify all four exist
+        # Verify all providers exist
         list_resp = self.client.get(f"{API_PREFIX}/config/models")
-        self.assertEqual(list_resp.json()["data"]["total"], 4)
+        self.assertEqual(list_resp.json()["data"]["total"], 5)
 
     # ------------------------------------------------------------------
     # TC-07: Update existing config (re-add same provider)
@@ -626,18 +627,26 @@ class TestGlobalModelAPI(unittest.TestCase):
 
     def _create_config(self, provider: str, is_global_default: bool = False):
         """Helper: create a config and optionally set as global default."""
+        default_models = {
+            "openai": "openai-model",
+            "anthropic": "anthropic-model",
+            "deepseek": "deepseek-v4-flash",
+            "qwen": "qwen-model",
+            "gemini": "gemini-2.5-flash",
+        }
+        default_model = default_models.get(provider, f"{provider}-model")
         self.client.post(
             f"{API_PREFIX}/config/models",
             json={
                 "provider": provider,
                 "api_key": f"sk-{provider}-test",
-                "default_model": f"{provider}-model",
+                "default_model": default_model,
             },
         )
         if is_global_default:
             self.client.put(
                 f"{API_PREFIX}/config/global-model",
-                json={"provider": provider, "model": f"{provider}-model"},
+                json={"provider": provider, "model": default_model},
             )
 
     # ------------------------------------------------------------------
@@ -715,13 +724,13 @@ class TestGlobalModelAPI(unittest.TestCase):
         # Switch to deepseek
         self.client.put(
             f"{API_PREFIX}/config/global-model",
-            json={"provider": "deepseek", "model": "deepseek-chat"},
+            json={"provider": "deepseek", "model": "deepseek-v4-flash"},
         )
 
         # Verify switch
         resp = self.client.get(f"{API_PREFIX}/config/global-model")
         self.assertEqual(resp.json()["data"]["provider"], "deepseek")
-        self.assertEqual(resp.json()["data"]["model"], "deepseek-chat")
+        self.assertEqual(resp.json()["data"]["model"], "deepseek-v4-flash")
 
         # Verify only one is_global_default in DB
         db = SessionLocal()
@@ -875,14 +884,19 @@ class TestLLMGatewayModelParsing(unittest.TestCase):
         self.assertEqual(model, "claude-3-5-sonnet-20241022")
 
     def test_parse_model_deepseek_prefix(self):
-        provider, model = LLMGateway._parse_model("deepseek:deepseek-chat")
+        provider, model = LLMGateway._parse_model("deepseek:deepseek-v4-flash")
         self.assertEqual(provider, "deepseek")
-        self.assertEqual(model, "deepseek-chat")
+        self.assertEqual(model, "deepseek-v4-flash")
 
     def test_parse_model_qwen_prefix(self):
         provider, model = LLMGateway._parse_model("qwen:qwen-max")
         self.assertEqual(provider, "qwen")
         self.assertEqual(model, "qwen-max")
+
+    def test_parse_model_gemini_prefix(self):
+        provider, model = LLMGateway._parse_model("gemini:gemini-2.5-flash")
+        self.assertEqual(provider, "gemini")
+        self.assertEqual(model, "gemini-2.5-flash")
 
     # ------------------------------------------------------------------
     # TC-33: Parse model without provider prefix falls back to resolution
@@ -918,6 +932,12 @@ class TestLLMGatewayModelParsing(unittest.TestCase):
         self.assertEqual(provider, "qwen")
         self.assertEqual(model, "qwen-plus")
 
+    def test_parse_model_without_prefix_gemini(self):
+        """Model name containing 'gemini' resolves to gemini provider."""
+        provider, model = LLMGateway._parse_model("gemini-2.5-flash")
+        self.assertEqual(provider, "gemini")
+        self.assertEqual(model, "gemini-2.5-flash")
+
     def test_parse_model_without_prefix_defaults_to_openai(self):
         """Unknown model without prefix defaults to openai."""
         provider, model = LLMGateway._parse_model("gpt-4o")
@@ -943,6 +963,10 @@ class TestLLMGatewayModelParsing(unittest.TestCase):
         adapter_cls = LLMGateway._get_adapter("qwen")
         self.assertEqual(adapter_cls.__name__, "QwenAdapter")
 
+    def test_get_adapter_gemini(self):
+        adapter_cls = LLMGateway._get_adapter("gemini")
+        self.assertEqual(adapter_cls.__name__, "GeminiAdapter")
+
     # ------------------------------------------------------------------
     # TC-35: Get adapter for unsupported provider
     # ------------------------------------------------------------------
@@ -966,8 +990,8 @@ class TestLLMGatewayModelParsing(unittest.TestCase):
     # TC-37: ADAPTER_MAP covers all expected providers
     # ------------------------------------------------------------------
     def test_adapter_map_coverage(self):
-        """ADAPTER_MAP contains all four supported providers."""
-        expected = {"openai", "anthropic", "deepseek", "qwen"}
+        """ADAPTER_MAP contains all supported providers."""
+        expected = {"openai", "anthropic", "deepseek", "qwen", "gemini"}
         self.assertEqual(set(ADAPTER_MAP.keys()), expected)
 
 
@@ -1322,11 +1346,13 @@ class TestAdapterMessageConversion(unittest.TestCase):
         from app.ai.anthropic_adapter import AnthropicAdapter
         from app.ai.deepseek_adapter import DeepSeekAdapter
         from app.ai.qwen_adapter import QwenAdapter
+        from app.ai.gemini_adapter import GeminiAdapter
 
         self.assertEqual(OpenAIAdapter(api_key="sk-test").provider_name, "openai")
         self.assertEqual(AnthropicAdapter(api_key="sk-test").provider_name, "anthropic")
         self.assertEqual(DeepSeekAdapter(api_key="sk-test").provider_name, "deepseek")
         self.assertEqual(QwenAdapter(api_key="sk-test").provider_name, "qwen")
+        self.assertEqual(GeminiAdapter(api_key="sk-test").provider_name, "gemini")
 
     # ------------------------------------------------------------------
     # TC-51: DeepSeek adapter uses default base_url
@@ -1348,6 +1374,14 @@ class TestAdapterMessageConversion(unittest.TestCase):
         self.assertEqual(
             QwenAdapter.DEFAULT_BASE_URL,
             "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        )
+
+    def test_gemini_adapter_default_base_url(self):
+        """Gemini adapter has correct DEFAULT_BASE_URL."""
+        from app.ai.gemini_adapter import GeminiAdapter
+        self.assertEqual(
+            GeminiAdapter.DEFAULT_BASE_URL,
+            "https://generativelanguage.googleapis.com/v1beta/openai/",
         )
 
     # ------------------------------------------------------------------
@@ -1412,14 +1446,14 @@ class TestConfigLLMIntegration(unittest.TestCase):
             json={
                 "provider": "deepseek",
                 "api_key": "sk-deepseek-test-key",
-                "default_model": "deepseek-chat",
+                "default_model": "deepseek-v4-flash",
             },
         )
 
         # Step 2: Set as global default
         resp = self.client.put(
             f"{API_PREFIX}/config/global-model",
-            json={"provider": "deepseek", "model": "deepseek-chat"},
+            json={"provider": "deepseek", "model": "deepseek-v4-flash"},
         )
         self.assertEqual(resp.status_code, 200)
 
@@ -1433,7 +1467,7 @@ class TestConfigLLMIntegration(unittest.TestCase):
         mock_choice = MagicMock()
         mock_choice.message.content = "DeepSeek 回复"
         mock_completion.choices = [mock_choice]
-        mock_completion.model = "deepseek-chat"
+        mock_completion.model = "deepseek-v4-flash"
         mock_usage = MagicMock()
         mock_usage.prompt_tokens = 10
         mock_usage.completion_tokens = 20
@@ -1446,7 +1480,7 @@ class TestConfigLLMIntegration(unittest.TestCase):
             f"{API_PREFIX}/chat/completion",
             json={
                 "messages": [{"role": "user", "content": "你好"}],
-                "model": "deepseek:deepseek-chat",
+                "model": "deepseek:deepseek-v4-flash",
             },
         )
         self.assertEqual(response.status_code, 200)
@@ -1496,7 +1530,7 @@ class TestConfigLLMIntegration(unittest.TestCase):
         )
         self.client.post(
             f"{API_PREFIX}/config/models",
-            json={"provider": "deepseek", "api_key": "sk-deepseek", "default_model": "deepseek-chat"},
+            json={"provider": "deepseek", "api_key": "sk-deepseek", "default_model": "deepseek-v4-flash"},
         )
 
         # Set openai as default
@@ -1512,7 +1546,7 @@ class TestConfigLLMIntegration(unittest.TestCase):
         # Switch to deepseek
         self.client.put(
             f"{API_PREFIX}/config/global-model",
-            json={"provider": "deepseek", "model": "deepseek-chat"},
+            json={"provider": "deepseek", "model": "deepseek-v4-flash"},
         )
 
         # Verify deepseek is now default

@@ -36,6 +36,7 @@ const PROVIDER_LABEL_MAP: Record<string, string> = {
   anthropic: 'Anthropic Claude',
   deepseek: 'DeepSeek',
   qwen: '通义千问',
+  gemini: 'Google Gemini',
 }
 
 const modelValue = (provider: string, model: string) => (
@@ -45,6 +46,9 @@ const modelValue = (provider: string, model: string) => (
 const normalizeModel = (provider: string, model: string) => {
   if (provider === 'deepseek' && model === 'deepseek-v3') {
     return 'deepseek-v4-flash'
+  }
+  if (provider === 'gemini' && model.startsWith('models/')) {
+    return model.slice('models/'.length)
   }
   return model
 }

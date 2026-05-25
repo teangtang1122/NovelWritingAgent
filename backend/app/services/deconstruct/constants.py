@@ -22,6 +22,7 @@ CHEAP_MODEL_BY_PROVIDER = {
     "openai": "gpt-4o-mini",
     "anthropic": "claude-3-5-haiku-latest",
     "qwen": "qwen-turbo",
+    "gemini": "gemini-2.5-flash-lite",
 }
 
 REDUCE_INPUT_PROFILES = [

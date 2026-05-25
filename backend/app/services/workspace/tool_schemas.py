@@ -207,6 +207,14 @@ CREATE_CHARACTER = _fn(
             "description": "能力/技能列表",
         },
         "role_type": {"type": "string", "description": "角色类型：protagonist|supporting|antagonist|mentor|other，默认supporting"},
+        "speech_style": {"type": "string", "description": "说话风格，可合并进背景/AI提示词"},
+        "motivation": {"type": "string", "description": "当前动机，可合并进背景/AI提示词"},
+        "conflict": {"type": "string", "description": "核心冲突，可合并进背景/AI提示词"},
+        "ai_config": {
+            "type": "object",
+            "description": "角色AI扮演配置，含 tone_style/catchphrases/verbosity/emotion_tendency/custom_system_prompt",
+        },
+        "custom_system_prompt": {"type": "string", "description": "角色AI扮演提示词，可直接存入角色AI配置"},
     },
     ["name"],
 )
@@ -226,6 +234,11 @@ UPDATE_CHARACTER = _fn(
             "description": "更新能力列表（替换全部）",
         },
         "role_type": {"type": "string", "description": "更新角色类型：protagonist|supporting|antagonist|mentor|other"},
+        "ai_config": {
+            "type": "object",
+            "description": "更新角色AI扮演配置，含 tone_style/catchphrases/verbosity/emotion_tendency/custom_system_prompt",
+        },
+        "custom_system_prompt": {"type": "string", "description": "更新角色AI扮演提示词"},
     },
 )
 
@@ -278,10 +291,13 @@ DELETE_RELATIONSHIP = _fn(
 
 CREATE_CHAPTER = _fn(
     "create_chapter",
-    "创建新章节。正文将自动修复禁用句式。创建前须已有对应大纲节点。",
+    "创建新章节。正文将自动修复禁用句式。创建前须已有对应大纲节点。若正文来自chapter_writer，优先传draft_id/content_ref，避免复制长正文导致截断。",
     {
         "title": {"type": "string", "description": "章节标题"},
         "content": {"type": "string", "description": "章节正文，1800-2500字。内部换行用\\n。对白可自由使用引号。"},
+        "draft_id": {"type": "string", "description": "chapter_writer返回的草稿ID。优先使用它保存完整正文，避免长正文在工具参数中截断。"},
+        "content_ref": {"type": "string", "description": "同draft_id，chapter_writer返回的正文引用。"},
+        "skip_style_repair": {"type": "boolean", "description": "是否跳过保存时禁用句式自动修复，默认false。"},
         "outline_node_id": {"type": "string", "description": "对应的大纲节点ID（优先）。也可用 outline_node_title/outline_title"},
         "summary": {"type": "string", "description": "章节摘要，可选"},
         "involved_characters": {
@@ -290,16 +306,19 @@ CREATE_CHAPTER = _fn(
             "description": "本章出场的角色名列表",
         },
     },
-    ["title", "content"],
+    ["title"],
 )
 
 UPDATE_CHAPTER = _fn(
     "update_chapter",
-    "更新章节。用ID或标题定位。正文将自动修复禁用句式。",
+    "更新章节。用ID或标题定位。正文将自动修复禁用句式。若正文来自chapter_writer，优先传draft_id/content_ref，避免复制长正文导致截断。",
     {
         "id": {"type": "string", "description": "章节ID（优先使用）。也可用 chapter_id/title/chapter_title/outline_node_id 定位"},
         "title": {"type": "string", "description": "更新章节标题"},
         "content": {"type": "string", "description": "更新章节正文"},
+        "draft_id": {"type": "string", "description": "chapter_writer返回的草稿ID。优先使用它保存完整正文，避免长正文在工具参数中截断。"},
+        "content_ref": {"type": "string", "description": "同draft_id，chapter_writer返回的正文引用。"},
+        "skip_style_repair": {"type": "boolean", "description": "是否跳过保存时禁用句式自动修复，默认false。"},
         "summary": {"type": "string", "description": "更新章节摘要"},
         "outline_node_id": {"type": "string", "description": "更新关联大纲节点"},
         "involved_characters": {
@@ -416,9 +435,11 @@ DESIGN_PLOT = _fn(
 
 DETECT_CHARACTER_CHANGES = _fn(
     "detect_character_changes",
-    "检测章节中追踪角色的变化（技能/经历/关系/性格）。两种模式：1) 传content+title检测未保存的正文（只返回变化，不写库）；2) 传chapter_id检测已保存的章节（自动保存变化日志和时间线）。",
+    "检测章节中追踪角色的变化（技能/经历/关系/性格）。三种模式：1) 传draft_id/content_ref检测chapter_writer草稿；2) 传content+title检测未保存正文；3) 传chapter_id检测已保存章节（自动保存变化日志和时间线）。",
     {
         "content": {"type": "string", "description": "章节正文（检测未保存的正文时使用，与title配合）"},
+        "draft_id": {"type": "string", "description": "chapter_writer返回的草稿ID，可替代content"},
+        "content_ref": {"type": "string", "description": "同draft_id"},
         "title": {"type": "string", "description": "章节标题（与content配合使用）"},
         "chapter_id": {"type": "string", "description": "已保存的章节ID（检测已保存章节时使用，会自动写入变化日志）"},
     },
@@ -426,12 +447,14 @@ DETECT_CHARACTER_CHANGES = _fn(
 
 DETECT_NEW_WORLDBUILDING = _fn(
     "detect_new_worldbuilding",
-    "检测章节正文中引入的新世界观设定——对照已有设定条目，找出正文中出现但尚未录入数据库的地点、规则、势力、种族、文化习俗等。只读不写，返回建议条目列表和原文参考。创建章节前，在 evaluate_chapter 通过后调用此工具。",
+    "检测章节正文中引入的新世界观设定——对照已有设定条目，找出正文中出现但尚未录入数据库的地点、规则、势力、种族、文化习俗等。只读不写，返回建议条目列表和原文参考。可传draft_id/content_ref或chapter_id，避免复制长正文。",
     {
-        "content": {"type": "string", "description": "章节正文（必填）"},
+        "content": {"type": "string", "description": "章节正文（可选；优先用draft_id或chapter_id）"},
+        "draft_id": {"type": "string", "description": "chapter_writer返回的草稿ID，可替代content"},
+        "content_ref": {"type": "string", "description": "同draft_id"},
+        "chapter_id": {"type": "string", "description": "已保存章节ID，可替代content"},
         "title": {"type": "string", "description": "章节标题（可选）"},
     },
-    ["content"],
 )
 
 DETECT_WORLDBUILDING_CONFLICTS = _fn(
@@ -475,9 +498,11 @@ CHAPTER_WRITER = _fn(
 
 EVALUATE_CHAPTER = _fn(
     "evaluate_chapter",
-    "对章节正文进行8维度80分评估（开头吸引力/情节推进/角色塑造/对话质量/悬念设置/节奏控制/展示性描写/语言质量）。传入content+title评估未保存的正文，或传入chapter_id评估已保存的章节。",
+    "对章节正文进行8维度80分评估（开头吸引力/情节推进/角色塑造/对话质量/悬念设置/节奏控制/展示性描写/语言质量）。传入draft_id/content_ref或content+title评估未保存正文，或传入chapter_id评估已保存章节。",
     {
         "content": {"type": "string", "description": "章节正文（评估未保存的正文时使用，与chapter_id二选一）"},
+        "draft_id": {"type": "string", "description": "chapter_writer返回的草稿ID，可替代content"},
+        "content_ref": {"type": "string", "description": "同draft_id"},
         "title": {"type": "string", "description": "章节标题（与content配合使用）"},
         "chapter_id": {"type": "string", "description": "已保存的章节ID（评估已保存的章节时使用）"},
     },

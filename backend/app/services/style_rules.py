@@ -389,6 +389,17 @@ def _mechanical_repair_forbidden_sentences(text: str) -> str:
     return repaired
 
 
+def _repair_candidate_keeps_text(original: str, candidate: str) -> bool:
+    """Style repair must preserve the full text, not return a partial rewrite."""
+    original_len = len((original or "").strip())
+    candidate_len = len((candidate or "").strip())
+    if not candidate_len:
+        return False
+    if original_len < 500:
+        return candidate_len >= max(20, int(original_len * 0.5))
+    return candidate_len >= int(original_len * 0.75)
+
+
 async def _repair_forbidden_sentence_text(
     text: str,
     project: Project,
@@ -416,7 +427,7 @@ async def _repair_forbidden_sentence_text(
             retry=1,
         )
         candidate = _strip_plain_text_response(result.get("content", ""))
-        if candidate:
+        if candidate and _repair_candidate_keeps_text(repaired, candidate):
             repaired = candidate
         remaining = _detect_forbidden_sentence_violations(repaired, project)
         if not remaining:

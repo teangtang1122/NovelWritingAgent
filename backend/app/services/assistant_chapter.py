@@ -24,7 +24,7 @@ async def _execute_workspace_action(db: Session, project_id: str, action: dict) 
     tool = str(action.get("tool") or "").strip()
     args = action.get("arguments") if isinstance(action.get("arguments"), dict) else {}
 
-    if tool == "create_chapter" and args.get("content"):
+    if tool == "create_chapter" and args.get("content") and not (args.get("draft_id") or args.get("content_ref")):
         project = get_project_or_404(db, project_id)
         violations = _detect_forbidden_sentence_violations(str(args.get("content")), project)
         if violations:

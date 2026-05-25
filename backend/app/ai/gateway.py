@@ -12,6 +12,7 @@ from .openai_adapter import OpenAIAdapter
 from .anthropic_adapter import AnthropicAdapter
 from .deepseek_adapter import DeepSeekAdapter
 from .qwen_adapter import QwenAdapter
+from .gemini_adapter import GeminiAdapter
 
 
 # Provider → Adapter class mapping
@@ -20,6 +21,7 @@ ADAPTER_MAP = {
     "anthropic": AnthropicAdapter,
     "deepseek": DeepSeekAdapter,
     "qwen": QwenAdapter,
+    "gemini": GeminiAdapter,
 }
 
 # Default timeout and retry settings
@@ -74,6 +76,8 @@ class LLMGateway:
                 return "deepseek", model_name
             if "qwen" in model_name.lower() or "qwq" in model_name.lower():
                 return "qwen", model_name
+            if "gemini" in model_name.lower():
+                return "gemini", model_name
             # Default to openai
             return "openai", model_name
         finally:

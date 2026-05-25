@@ -31,6 +31,7 @@ from ....services.context_builders import (
     _build_recent_summaries,
 )
 from ....services.style_rules import _detect_forbidden_sentence_violations
+from ..generated_drafts import resolve_chapter_draft_content
 
 
 async def suggest_conflicts(
@@ -135,7 +136,12 @@ async def detect_character_changes(
     chapter_text: str = ""
     chapter_id: str = ""
 
-    raw_content = str(args.get("content") or "").strip()
+    raw_content = resolve_chapter_draft_content(
+        project_id=project_id,
+        provided_content=str(args.get("content") or "").strip(),
+        draft_id=str(args.get("draft_id") or args.get("content_ref") or "").strip() or None,
+        outline_node_id=str(args.get("outline_node_id") or "").strip() or None,
+    ).strip()
     if raw_content:
         chapter_text = raw_content
         chapter_title = str(args.get("title") or args.get("chapter_title") or "").strip() or "未命名章节"
@@ -406,11 +412,24 @@ async def detect_new_worldbuilding(
     suggested new entries for settings the chapter introduces but aren't yet
     recorded in the database. Read-only — no DB writes.
     """
-    chapter_text = str(args.get("content") or "").strip()
+    chapter_text = resolve_chapter_draft_content(
+        project_id=project_id,
+        provided_content=str(args.get("content") or "").strip(),
+        draft_id=str(args.get("draft_id") or args.get("content_ref") or "").strip() or None,
+        outline_node_id=str(args.get("outline_node_id") or "").strip() or None,
+    ).strip()
     chapter_title = str(args.get("title") or "").strip() or "未命名章节"
 
     if not chapter_text:
-        return {"tool": "detect_new_worldbuilding", "status": "skipped", "detail": "缺少章节正文（content）", "data": {"entries": [], "total": 0}}
+        chapter_id = str(args.get("chapter_id") or "").strip()
+        if chapter_id:
+            chapter = db.query(Chapter).filter(Chapter.id == chapter_id, Chapter.project_id == project_id).first()
+            if chapter:
+                chapter_title = chapter.title or chapter_title
+                chapter_text = (chapter.content or "").strip()
+
+    if not chapter_text:
+        return {"tool": "detect_new_worldbuilding", "status": "skipped", "detail": "缺少章节ID、草稿ID或正文内容", "data": {"entries": [], "total": 0}}
 
     # Build lightweight summary of existing entries for the LLM
     entries = (
@@ -515,7 +534,12 @@ async def evaluate_chapter(
     chapter_title: str = ""
     chapter_content: str = ""
 
-    raw_content = str(args.get("content") or "").strip()
+    raw_content = resolve_chapter_draft_content(
+        project_id=project_id,
+        provided_content=str(args.get("content") or "").strip(),
+        draft_id=str(args.get("draft_id") or args.get("content_ref") or "").strip() or None,
+        outline_node_id=str(args.get("outline_node_id") or "").strip() or None,
+    ).strip()
     if raw_content:
         chapter_content = raw_content
         chapter_title = str(args.get("title") or args.get("chapter_title") or "").strip() or "未命名章节"

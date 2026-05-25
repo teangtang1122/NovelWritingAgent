@@ -49,8 +49,9 @@ class DeepSeekAdapter(BaseAdapter):
             kwargs["extra_body"] = extra_body
         if tools:
             kwargs["tools"] = tools
-        if tool_choice is not None:
-            kwargs["tool_choice"] = tool_choice
+        # DeepSeek V4 thinking mode rejects OpenAI's tool_choice parameter even
+        # though it accepts the tools array. Let the model choose tools from the
+        # prompt instead of forcing the choice at API level.
         try:
             response = await client.chat.completions.create(**kwargs)
             choice = response.choices[0]
@@ -122,8 +123,9 @@ class DeepSeekAdapter(BaseAdapter):
             kwargs["extra_body"] = extra_body
         if tools:
             kwargs["tools"] = tools
-        if tool_choice is not None:
-            kwargs["tool_choice"] = tool_choice
+        # DeepSeek V4 thinking mode rejects OpenAI's tool_choice parameter even
+        # though it accepts the tools array. Let the model choose tools from the
+        # prompt instead of forcing the choice at API level.
         try:
             stream = await client.chat.completions.create(**kwargs)
             tool_call_buffers: dict[int, dict] = {}

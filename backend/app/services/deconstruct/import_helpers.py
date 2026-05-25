@@ -83,6 +83,61 @@ def merge_character_background(char: dict) -> str:
     return "\n".join(parts)
 
 
+def _is_unknown_text(value: object) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return True
+    unknown_markers = ["未明确", "未知", "暂无", "没有描写", "原文未明确", "不详"]
+    return any(marker in text for marker in unknown_markers)
+
+
+def prefer_richer_text(existing: object, incoming: object, limit: int) -> Optional[str]:
+    """Keep user text unless incoming clearly fills a blank or weak field."""
+    current = str(existing or "").strip()
+    new = str(incoming or "").strip()
+    if not new:
+        return current or None
+    if _is_unknown_text(current):
+        return new[:limit]
+    if _is_unknown_text(new):
+        return current[:limit]
+    if len(new) > len(current) * 1.35 and len(current) < limit * 0.6:
+        return new[:limit]
+    return current[:limit] or None
+
+
+def append_unique_section(existing: object, section_title: str, incoming: object, limit: int) -> Optional[str]:
+    current = str(existing or "").strip()
+    new = str(incoming or "").strip()
+    if not new:
+        return current or None
+    if not current or _is_unknown_text(current):
+        return new[:limit]
+    if new in current:
+        return current[:limit]
+    section = f"{section_title}：{new}"
+    if section in current:
+        return current[:limit]
+    return f"{current}\n\n{section}"[:limit]
+
+
+def merge_ability_values(existing_json: object, incoming: object) -> Optional[str]:
+    values: list[str] = []
+    try:
+        parsed = json.loads(str(existing_json or "[]"))
+        if isinstance(parsed, list):
+            values.extend(str(item).strip() for item in parsed if str(item).strip())
+    except (json.JSONDecodeError, TypeError):
+        if existing_json:
+            values.append(str(existing_json).strip())
+    if isinstance(incoming, list):
+        values.extend(str(item).strip() for item in incoming if str(item).strip())
+    elif incoming:
+        values.append(str(incoming).strip())
+    deduped = list(dict.fromkeys(item for item in values if item))
+    return json.dumps(deduped, ensure_ascii=False) if deduped else None
+
+
 def default_character_prompt(char: dict) -> str:
     name = str(char.get("name") or "该角色").strip()
     relationships = char.get("relationship_network") or char.get("relationships") or []
@@ -349,6 +404,29 @@ def chapter_analyses_from_report(db: Session, project_id: str, report_data: dict
             "characters": characters[:12],
         })
     return analyses
+
+
+def source_chunk_chapter_lookup(db: Session, project_id: str, report_data: dict) -> dict[int, Chapter]:
+    """Map raw map chunk indexes back to source chapters when possible."""
+    source_chapters = ordered_source_chapters(db, project_id, report_data)
+    source_chunks = report_data.get("source_chunks") or []
+    if not source_chapters or not source_chunks:
+        return {}
+    title_to_index = {
+        normalize_match_text(chapter.title): index
+        for index, chapter in enumerate(source_chapters)
+    }
+    result: dict[int, Chapter] = {}
+    current_index = 0
+    for chunk_index, chunk in enumerate(source_chunks):
+        for marker in chapter_marker_titles(chunk):
+            marker_key = normalize_match_text(marker)
+            if marker_key in title_to_index:
+                current_index = title_to_index[marker_key]
+                break
+        if current_index < len(source_chapters):
+            result[chunk_index] = source_chapters[current_index]
+    return result
 
 
 def flatten_structure_chapters(structure: dict, volume_nodes: list[OutlineNode]) -> list[dict]:

@@ -12,6 +12,10 @@ CHARACTER_CRAFT_RULES = (
     '5. 背景故事解释"为什么"——角色的过去如何塑造了他现在的行为模式？\n'
     "6. 能力有代价——每个能力/技能都应该有对应的限制、弱点或代价。没有制衡的能力是空洞的。\n"
     "7. 角色有成长空间——写出角色当前的状态和潜在的发展方向。让读者能看到角色的变化弧线。\n\n"
+    "【AI扮演配置要求】\n"
+    "- 必须生成 ai_config.custom_system_prompt，长度约250-500字，可直接用于角色AI扮演。\n"
+    "- 提示词要包含身份、当前处境、目标/恐惧、说话方式、关系处理、能力边界、禁止越界信息。\n"
+    "- speech_style 要具体到句长、语气、称呼、表达习惯，避免只写“冷静”“温柔”。\n\n"
     "【角色类型参考】\n"
     "- protagonist（主角）：故事的核心视角，必须有清晰的目标、内在矛盾和成长弧线。\n"
     "- antagonist（反派）：与主角目标对立，但必须有合理的动机。最好的反派认为自己是对的。\n"
@@ -39,6 +43,8 @@ CHARACTER_WRITER_SYSTEM_BASE = (
     "根据提供的项目上下文和用户需求，创建一份完整的角色卡片。\n"
     "如果用户要求创建多个角色，确保每个角色的性格、动机和说话方式有明显区分。\n\n"
     "请调用 create_character 函数提交角色卡片。"
+    "如果当前模型环境无法使用函数调用，则只输出严格 JSON 对象，不要 Markdown，不要解释；"
+    "JSON 顶层包含 name、appearance、personality、background、abilities、role_type、speech_style、motivation、conflict、ai_config、design_notes。"
 )
 
 

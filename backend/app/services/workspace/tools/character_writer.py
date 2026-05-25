@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ....ai.gateway import LLMGateway
+from ....core.json_repair import parse_json_object
 from ....database.models import Character, Project
 from ....prompts.character_writer_prompts import build_character_writer_messages
 from ....services.context_builders import _build_world_context as _build_world_ctx
@@ -26,6 +27,20 @@ CHARACTER_CARD_TOOL = {
                 "background": {"type": "string", "description": "背景故事（200-400字，解释角色为什么成为现在的样子）"},
                 "abilities": {"type": "array", "items": {"type": "string"}, "description": "能力列表"},
                 "role_type": {"type": "string", "enum": ["protagonist", "supporting", "antagonist", "mentor", "other"], "description": "角色类型"},
+                "speech_style": {"type": "string", "description": "说话方式：句长、语气、称呼习惯、常见表达"},
+                "motivation": {"type": "string", "description": "当前动机/目标"},
+                "conflict": {"type": "string", "description": "内在或外在核心冲突"},
+                "ai_config": {
+                    "type": "object",
+                    "description": "角色AI扮演配置",
+                    "properties": {
+                        "tone_style": {"type": "string"},
+                        "catchphrases": {"type": "array", "items": {"type": "string"}},
+                        "verbosity": {"type": "string"},
+                        "emotion_tendency": {"type": "string"},
+                        "custom_system_prompt": {"type": "string"},
+                    },
+                },
                 "design_notes": {"type": "string", "description": "设计说明——核心矛盾、与已有角色的关系张力、预期成长弧线"},
             },
             "required": ["name", "appearance", "personality", "background", "abilities", "role_type", "design_notes"],
@@ -106,22 +121,24 @@ async def character_writer(
         return {"tool": "character_writer", "status": "error", "detail": f"角色生成失败: {exc}", "data": {}}
 
     tool_calls = result.get("tool_calls") or []
-    if not tool_calls:
-        return {
-            "tool": "character_writer",
-            "status": "error",
-            "detail": "角色生成结果解析失败",
-            "data": {"raw": str(result.get("content", ""))[:500]},
-        }
-
+    raw_for_error = str(result.get("content", ""))
+    if tool_calls:
+        raw_for_error = str(tool_calls[0].get("function", {}).get("arguments", ""))
+    parsed = None
     try:
-        parsed = _json.loads(tool_calls[0]["function"]["arguments"])
-    except (_json.JSONDecodeError, AttributeError):
+        parsed = _json.loads(raw_for_error) if tool_calls else parse_json_object(raw_for_error)
+        if isinstance(parsed, dict) and isinstance(parsed.get("character"), dict):
+            parsed = parsed["character"]
+        if isinstance(parsed, dict) and isinstance(parsed.get("arguments"), str):
+            parsed = parse_json_object(parsed["arguments"]) or parsed
+    except (_json.JSONDecodeError, AttributeError, TypeError):
+        parsed = None
+    if not isinstance(parsed, dict):
         return {
             "tool": "character_writer",
             "status": "error",
             "detail": "角色生成结果解析失败",
-            "data": {"raw": tool_calls[0].get("function", {}).get("arguments", "")[:500]},
+            "data": {"raw": raw_for_error[:500]},
         }
 
     if not parsed.get("name"):

@@ -29,6 +29,7 @@ PROVIDER_DEFAULT_BASE_URLS: dict[str, str] = {
     "anthropic": "https://api.anthropic.com",
     "deepseek": "https://api.deepseek.com",
     "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
 }
 
 PROVIDER_LABELS: dict[str, str] = {
@@ -36,6 +37,7 @@ PROVIDER_LABELS: dict[str, str] = {
     "anthropic": "Anthropic Claude",
     "deepseek": "DeepSeek",
     "qwen": "通义千问",
+    "gemini": "Google Gemini",
 }
 
 DEEPSEEK_SUPPORTED_MODELS = {"deepseek-v4-pro", "deepseek-v4-flash"}
@@ -58,6 +60,8 @@ def _resolve_base_url(provider: str, base_url_override: str | None) -> str:
 
 def _normalize_model_for_provider(provider: str, model: str, *, strict: bool = True) -> str:
     """Normalize provider-specific legacy model names and reject unsupported known models."""
+    if provider == "gemini":
+        return model.removeprefix("models/")
     if provider != "deepseek":
         return model
     normalized = DEEPSEEK_MODEL_ALIASES.get(model, model)
@@ -69,6 +73,13 @@ def _normalize_model_for_provider(provider: str, model: str, *, strict: bool = T
 
 def _normalize_model_list_for_provider(provider: str, models: list[dict]) -> list[dict]:
     """Return model options that are valid for the provider's current API contract."""
+    if provider == "gemini":
+        normalized: dict[str, dict] = {}
+        for model in models:
+            model_id = _normalize_model_for_provider(provider, model.get("id", ""), strict=False)
+            if model_id:
+                normalized[model_id] = {"id": model_id, "display_name": model_id}
+        return list(normalized.values())
     if provider != "deepseek":
         return models
     normalized: dict[str, dict] = {}
@@ -124,7 +135,7 @@ def list_model_configs(db: Session = Depends(get_db)):
 def create_or_update_model_config(payload: APIConfigCreate, db: Session = Depends(get_db)):
     """Add or update an API config (encrypts API Key before storage)."""
     # Validate provider
-    valid_providers = {"openai", "anthropic", "deepseek", "qwen"}
+    valid_providers = {"openai", "anthropic", "deepseek", "qwen", "gemini"}
     if payload.provider not in valid_providers:
         raise ValidationError(f"不支持的提供商: {payload.provider}，支持: {', '.join(valid_providers)}")
 

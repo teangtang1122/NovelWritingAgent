@@ -30,10 +30,14 @@ from .import_helpers import (
     flatten_structure_chapters,
     get_or_create_outline_node,
     load_outline_lookup,
+    append_unique_section,
+    merge_ability_values,
     merge_character_background,
     ordered_source_chapters,
     outline_summary,
+    prefer_richer_text,
     role_in_scene_for,
+    source_chunk_chapter_lookup,
     summary_key_events,
     upsert_chapter_summary,
 )
@@ -76,6 +80,7 @@ def import_deconstruct_report(
     ]
     lookup = chapter_lookup(db, project_id)
     source_chapters = ordered_source_chapters(db, project_id, data)
+    chunk_chapter_lookup = source_chunk_chapter_lookup(db, project_id, data)
     fallback_chapter = next(iter(lookup.values()), None)
     existing_chapter_appearances = {
         (row.chapter_id, row.character_id, row.appearance_type, row.description or "")
@@ -107,21 +112,23 @@ def import_deconstruct_report(
             background = merge_character_background(char)
             character = existing_characters.get(name)
             created = False
+            appearance = str(char.get("appearance") or "") or None
+            personality = str(char.get("personality") or "") or None
             if character:
                 character.role_type = character.role_type or role_type
-                character.appearance = character.appearance or str(char.get("appearance") or "") or None
-                character.personality = character.personality or str(char.get("personality") or "") or None
-                character.background = character.background or background or None
-                character.abilities = character.abilities or (json.dumps(abilities, ensure_ascii=False) if abilities else None)
+                character.appearance = prefer_richer_text(character.appearance, appearance, 4000)
+                character.personality = prefer_richer_text(character.personality, personality, 4000)
+                character.background = append_unique_section(character.background, "拆书补充", background, 8000)
+                character.abilities = merge_ability_values(character.abilities, abilities)
             else:
                 character = Character(
                     project_id=project_id,
                     name=name[:100],
                     role_type=role_type,
-                    appearance=str(char.get("appearance") or "") or None,
-                    personality=str(char.get("personality") or "") or None,
+                    appearance=appearance,
+                    personality=personality,
                     background=background or None,
-                    abilities=json.dumps(abilities, ensure_ascii=False) if abilities else None,
+                    abilities=merge_ability_values(None, abilities),
                     is_evolution_tracked=True,
                 )
                 db.add(character)
@@ -214,7 +221,10 @@ def import_deconstruct_report(
             for record in char.get("appearance_records") or []:
                 if not isinstance(record, dict):
                     continue
-                chapter = find_chapter_by_title(lookup, record.get("chapter_title"))
+                chapter = (
+                    find_chapter_by_title(lookup, record.get("chapter_title"))
+                    or chunk_chapter_lookup.get(safe_int(record.get("source_chunk"), -1))
+                )
                 description = str(record.get("summary") or record.get("scene") or "").strip()
                 role_in_scene = str(record.get("role_in_scene") or "出场")[:50]
                 if chapter and description:

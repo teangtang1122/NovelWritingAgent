@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ....ai.gateway import LLMGateway
-from ....database.models import Character, CharacterRelationship, Chapter, Project
+from ....database.models import Character, CharacterRelationship, OutlineNode, Project
 from ....prompts.chapter_writer_prompts import build_chapter_writer_messages
 from ....services.context_builders import (
     _build_outline_context,
@@ -14,6 +14,7 @@ from ....services.context_builders import (
     _build_world_context,
 )
 from ....prompts.style_prompts import build_style_context
+from ..generated_drafts import store_chapter_draft
 
 
 async def chapter_writer(
@@ -140,11 +141,28 @@ async def chapter_writer(
             "data": {},
         }
 
+    outline_title = ""
+    if outline_node_id:
+        outline = (
+            db.query(OutlineNode)
+            .filter(OutlineNode.project_id == project_id, OutlineNode.id == outline_node_id)
+            .first()
+        )
+        outline_title = outline.title if outline else ""
+    draft_id = store_chapter_draft(
+        project_id=project_id,
+        content=content,
+        title=outline_title,
+        outline_node_id=outline_node_id,
+    )
+
     return {
         "tool": "chapter_writer",
         "status": "ok",
         "detail": f"已生成章节正文（{len(content)} 字）",
         "data": {
+            "draft_id": draft_id,
+            "content_ref": draft_id,
             "content": content,
             "word_count": len(content),
             "model": result.get("model", ""),

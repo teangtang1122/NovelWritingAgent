@@ -41,6 +41,8 @@ PLOT_DESIGN_SYSTEM = (
     "- 禁止凭空创造世界观中不存在的设定。\n"
     "- 禁止输出设计维度以外的内容。\n\n"
     "完成后请调用 design_plot_output 函数提交设计方案。"
+    "如果当前模型环境无法使用函数调用，则只输出严格 JSON 对象，不要 Markdown，不要解释；"
+    "JSON 顶层必须包含 scenes、character_actions、conflicts、emotional_arc、consistency_check、new_characters_needed、engagement_assessment、summary。"
 )
 
 

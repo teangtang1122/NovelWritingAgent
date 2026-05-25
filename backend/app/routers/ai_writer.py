@@ -51,6 +51,7 @@ from ..prompts.workspace_assistant import (
     build_workspace_assistant_initial_user_message,
     format_tool_result_message,
     format_previous_search_context,
+    redact_tool_result_for_model,
     _compress_search_result,
     MAX_ITERATIONS,
 )
@@ -655,7 +656,7 @@ async def _execute_workspace_action(db: Session, project_id: str, action: dict) 
     tool = str(action.get("tool") or "").strip()
     args = action.get("arguments") if isinstance(action.get("arguments"), dict) else {}
 
-    if tool == "create_chapter" and args.get("content"):
+    if tool == "create_chapter" and args.get("content") and not (args.get("draft_id") or args.get("content_ref")):
         project = get_project_or_404(db, project_id)
         violations = _detect_forbidden_sentence_violations(str(args.get("content")), project)
         if violations:
@@ -1002,6 +1003,7 @@ async def workspace_assistant_stream(
                 scope=payload.scope,
                 outline_batch_count=payload.outline_batch_count,
                 auto_apply=payload.auto_apply,
+                mode=payload.assistant_mode,
             )
             initial_user = build_workspace_assistant_initial_user_message(
                 project_title=project.title,
@@ -1369,7 +1371,7 @@ async def workspace_assistant_stream(
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
-                        "content": json.dumps(ar, ensure_ascii=False),
+                        "content": json.dumps(redact_tool_result_for_model(ar), ensure_ascii=False),
                     })
 
                 yield _sse_event({
@@ -1452,8 +1454,21 @@ async def workspace_assistant_stream(
                 yield _sse_event({"type": "tool", **log})
 
             # --- Phase 5: Finalize ---
+            failed_logs = [
+                log for log in tool_logs
+                if str(log.get("status") or "").lower() == "error"
+            ]
+            final_reply_for_save = final_reply or "已完成。"
+            if failed_logs:
+                failed_text = "；".join(
+                    f"{log.get('tool')}: {log.get('detail') or '执行失败'}"
+                    for log in failed_logs[:3]
+                )
+                final_reply_for_save = (
+                    f"{final_reply_for_save}\n\n注意：本轮有工具执行失败，相关数据可能未保存：{failed_text}"
+                ).strip()
             response_payload = {
-                "reply": final_reply or "已完成。",
+                "reply": final_reply_for_save,
                 "actions": all_actions,
                 "applied_actions": applied_actions,
                 "tool_logs": tool_logs,

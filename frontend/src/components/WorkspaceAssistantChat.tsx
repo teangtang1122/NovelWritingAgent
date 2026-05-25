@@ -47,6 +47,7 @@ function stripDefaults(patterns: string): string {
 }
 
 type WorkspaceAssistantScope = 'outline' | 'characters' | 'worldbuilding' | 'project'
+type WorkspaceAssistantMode = 'fast' | 'quality'
 
 interface ApiResponse<T> {
   code: number
@@ -196,12 +197,13 @@ function WorkspaceAssistantChat({
   const [messages, setMessages] = useState<WorkspaceAssistantMessage[]>([])
   const [input, setInput] = useState('')
   const [generating, setGenerating] = useState(false)
-  const [currentIteration, setCurrentIteration] = useState(0)
+
   const [historyLoading, setHistoryLoading] = useState(false)
   const [runLogs, setRunLogs] = useState<WorkspaceRunLog[]>([])
   const [temperature, setTemperature] = useState(0.3)
   const [maxTokens, setMaxTokens] = useState<number | null>(null)
   const [autoApply, setAutoApply] = useState(true)
+  const [assistantMode, setAssistantMode] = useState<WorkspaceAssistantMode>('fast')
   const [showAllRunLogs, setShowAllRunLogs] = useState(false)
   const [showSelectionTag, setShowSelectionTag] = useState(true)
 
@@ -411,7 +413,6 @@ function WorkspaceAssistantChat({
     }
 
     setGenerating(true)
-    setCurrentIteration(0)
     setRunLogs([{ key: `${Date.now()}-start`, tool: scope, status: 'running', message: '正在提交给AI助手' }])
     setShowAllRunLogs(false)
     const controller = new AbortController()
@@ -446,6 +447,7 @@ function WorkspaceAssistantChat({
           selected_text: selectedText || undefined,
           selected_text_chapter_id: selectedTextChapterId || undefined,
           model: model || defaultModel || undefined,
+          assistant_mode: assistantMode,
           temperature,
           max_tokens: maxTokens || undefined,
           auto_apply: autoApply,
@@ -492,14 +494,14 @@ function WorkspaceAssistantChat({
         } else if (event.type === 'tool') {
           const detail = event.detail || event.message || event.tool
           const log = { tool: event.tool || 'tool', status: event.status || 'ok', detail }
-          addRunLog({ tool: log.tool, status: log.status, message: `${log.tool}: ${detail}` })
+          if (log.tool !== 'planner') {
+            addRunLog({ tool: log.tool, status: log.status, message: `${log.tool}: ${detail}` })
+          }
           appendToolLog(log)
         } else if (event.type === 'iteration_start') {
-          const iter = (event as { iteration: number; message: string }).iteration
-          setCurrentIteration(iter)
-          addRunLog({ tool: 'agent', status: 'running', message: (event as any).message || `第 ${iter} 轮推理` })
+          // silently track iteration progress
         } else if (event.type === 'iteration_end') {
-          addRunLog({ tool: 'agent', status: 'ok', message: (event as any).message || '推理完成' })
+          // silently track, don't show in run log
         } else if (event.type === 'search_start') {
           const ev = event as { tool: string; args?: Record<string, unknown>; iteration: number }
           const argsStr = JSON.stringify(ev.args || {}).slice(0, 80)
@@ -614,6 +616,19 @@ function WorkspaceAssistantChat({
                   placeholder={modelOptions.length ? '选择AI模型' : '请先在系统设置配置模型'}
                   notFoundContent={modelsLoading ? '加载模型中...' : '暂无已配置模型'}
                 />
+                <div>
+                  <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>助手模式</Text>
+                  <Select
+                    size="small"
+                    value={assistantMode}
+                    onChange={(value) => setAssistantMode(value)}
+                    style={{ width: '100%' }}
+                    options={[
+                      { value: 'fast', label: '快速（默认）' },
+                      { value: 'quality', label: '质量' },
+                    ]}
+                  />
+                </div>
                 <Space style={{ width: '100%', justifyContent: 'space-between' }}>
                   <Text type="secondary">自动执行工具</Text>
                   <Switch size="small" checked={autoApply} onChange={setAutoApply} />
@@ -838,7 +853,7 @@ function WorkspaceAssistantChat({
         {generating && (
           <Text type="secondary">
             AI 助手正在分析
-            {currentIteration > 0 ? `（第 ${currentIteration} 轮搜索推理）` : '...'}
+            {'...'}
           </Text>
         )}
       </div>
