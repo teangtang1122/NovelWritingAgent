@@ -32,3 +32,4 @@ WORLD_DIMENSIONS = {"geography", "history", "factions", "power_system", "races",
 
 CATALOGING_MAX_TOKENS = 20000
 CATALOGING_TIMEOUT_SECONDS = 240
+CATALOGING_STAGE_MAX_ATTEMPTS = 3

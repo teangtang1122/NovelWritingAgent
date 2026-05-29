@@ -57,6 +57,10 @@ def load_facts_for_run(db: Session, run: CatalogingChapterRun) -> list[dict[str,
     return facts
 
 
+def clear_facts_for_run(db: Session, run: CatalogingChapterRun) -> None:
+    db.query(CatalogingFact).filter(CatalogingFact.chapter_run_id == run.id).delete(synchronize_session=False)
+
+
 def fact_to_dict(row: CatalogingFact) -> dict[str, Any]:
     try:
         payload = json.loads(row.raw_payload)

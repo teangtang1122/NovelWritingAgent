@@ -7,7 +7,7 @@ from typing import Any
 from ...database.models import Chapter
 
 
-def merge_text(existing: Any, incoming: Any, chapter: Chapter, *, limit: int = 8000) -> str | None:
+def merge_text(existing: Any, incoming: Any, chapter: Chapter | None, *, limit: int = 8000) -> str | None:
     new_text = str(incoming or "").strip()
     old_text = str(existing or "").strip()
     if not new_text:
@@ -18,11 +18,12 @@ def merge_text(existing: Any, incoming: Any, chapter: Chapter, *, limit: int = 8
         return old_text[:limit]
     if old_text in new_text:
         return new_text[:limit]
-    merged = f"{old_text}\n\n《{chapter.title}》：{new_text}"
+    source_title = chapter.title if chapter else "手动合并"
+    merged = f"{old_text}\n\n《{source_title}》：{new_text}"
     return merged[:limit]
 
 
-def merge_short_text(existing: Any, incoming: Any, chapter: Chapter, *, limit: int = 4000) -> str | None:
+def merge_short_text(existing: Any, incoming: Any, chapter: Chapter | None, *, limit: int = 4000) -> str | None:
     return merge_text(existing, incoming, chapter, limit=limit)
 
 

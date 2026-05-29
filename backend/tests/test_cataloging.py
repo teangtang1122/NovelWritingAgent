@@ -372,12 +372,27 @@ class CatalogingServiceTestCase(unittest.TestCase):
             db.add(project)
             db.flush()
             chapter = Chapter(project_id=project.id, title="第三章", content="爷爷就是陆老爷子。")
-            primary = Character(project_id=project.id, name="陆老爷子", role_type="mentor", background="陆家长辈。")
-            secondary = Character(project_id=project.id, name="爷爷", role_type="mentor", background="教导特昂糖吐纳。")
+            primary = Character(
+                project_id=project.id,
+                name="陆老爷子",
+                role_type="mentor",
+                background="陆家长辈。",
+                appearance="白发老者。",
+                personality="沉稳。",
+            )
+            secondary = Character(
+                project_id=project.id,
+                name="爷爷",
+                role_type="mentor",
+                background="教导特昂糖吐纳。",
+                appearance="坐在太师椅上的老人。",
+                personality="慈祥。",
+            )
             db.add_all([chapter, primary, secondary])
             db.flush()
             from app.database.models import ChapterCharacter, CharacterRelationship, CharacterTimeline
             db.add_all([
+                CharacterAlias(project_id=project.id, character_id=primary.id, alias="爷爷", alias_type="alias", description="旧称呼"),
                 ChapterCharacter(chapter_id=chapter.id, character_id=secondary.id, appearance_type="出场", description="爷爷教导糖糖"),
                 CharacterTimeline(character_id=secondary.id, chapter_id=chapter.id, event_description="决定教特昂糖吐纳", event_type="decision"),
                 CharacterRelationship(project_id=project.id, character_a_id=secondary.id, character_b_id=primary.id, relationship_type="同一人", description="称呼不同"),
@@ -390,6 +405,7 @@ class CatalogingServiceTestCase(unittest.TestCase):
             preview = build_character_merge_preview(db, project.id, primary.id, secondary.id, {"aliases": ["爷爷"]})
             self.assertEqual(preview["stats"]["secondary_chapter_appearances"], 1)
             self.assertIn("爷爷", preview["aliases"])
+            self.assertIn("手动合并", preview["merged_preview"]["appearance"])
 
             merge_characters(db, project.id, primary.id, secondary.id, {"aliases": ["爷爷"], "confidence_reason": "同一人物不同称呼"})
             db.commit()
@@ -469,6 +485,119 @@ class CatalogingServiceTestCase(unittest.TestCase):
             self.assertTrue(any('"type":"fact_extracted"' in event for event in events))
             self.assertEqual(db.query(CatalogingFact).count(), 2)
             self.assertEqual(db.query(CatalogingCandidate).count(), 2)
+            self.assertEqual(run.status, "awaiting_confirmation")
+        finally:
+            cataloging_orchestrator.LLMGateway.stream_chat_completion = original_stream
+            db.close()
+
+    def test_extract_run_retries_fact_stage_without_duplicate_facts(self):
+        db = self.Session()
+        original_stream = cataloging_orchestrator.LLMGateway.stream_chat_completion
+        calls = []
+
+        async def fake_stream(cls, messages, **kwargs):
+            calls.append(messages[0]["content"])
+            if len(calls) == 1:
+                body = json.dumps({
+                    "fact_type": "chapter_overview",
+                    "payload": {"summary": "partial"},
+                }, ensure_ascii=False) + "\n"
+                yield body
+                raise RuntimeError("peer closed connection without sending complete message body")
+            if len(calls) == 2:
+                body = json.dumps({
+                    "fact_type": "chapter_overview",
+                    "payload": {"summary": "final"},
+                }, ensure_ascii=False) + "\n"
+            else:
+                body = json.dumps({
+                    "type": "chapter_summary",
+                    "payload": {"summary_text": "final", "key_events": ["ok"]},
+                }, ensure_ascii=False) + "\n"
+            yield body
+
+        try:
+            project = Project(title="Fact Retry Project")
+            db.add(project)
+            db.flush()
+            chapter = Chapter(project_id=project.id, title="Retry", content="Retry content.")
+            db.add(chapter)
+            db.commit()
+            job = create_cataloging_job(db, project.id, "manual", None, [])
+            run = job.chapter_runs[0]
+            cataloging_orchestrator.LLMGateway.stream_chat_completion = classmethod(fake_stream)
+
+            async def collect():
+                return [event async for event in cataloging_orchestrator._extract_run(db, job, run)]
+
+            events = asyncio.run(collect())
+
+            self.assertEqual(len(calls), 3)
+            self.assertTrue(any('"type":"cataloging_retry"' in event and '"stage":"fact_extraction"' in event for event in events))
+            self.assertEqual(db.query(CatalogingFact).count(), 1)
+            fact = db.query(CatalogingFact).first()
+            self.assertIn("final", fact.raw_payload)
+            self.assertEqual(run.status, "awaiting_confirmation")
+        finally:
+            cataloging_orchestrator.LLMGateway.stream_chat_completion = original_stream
+            db.close()
+
+    def test_extract_run_retries_candidate_stage_and_clears_partial_candidates(self):
+        db = self.Session()
+        original_stream = cataloging_orchestrator.LLMGateway.stream_chat_completion
+        calls = []
+
+        async def fake_stream(cls, messages, **kwargs):
+            calls.append(messages[0]["content"])
+            if len(calls) == 1:
+                body = json.dumps({
+                    "fact_type": "chapter_overview",
+                    "payload": {"summary": "candidate retry"},
+                }, ensure_ascii=False) + "\n"
+                yield body
+                return
+            if len(calls) == 2:
+                body = json.dumps({
+                    "type": "chapter_summary",
+                    "payload": {"summary_text": "partial", "key_events": ["partial"]},
+                }, ensure_ascii=False) + "\n"
+                yield body
+                raise RuntimeError("incomplete chunked read")
+            body = "\n".join([
+                json.dumps({
+                    "type": "chapter_summary",
+                    "payload": {"summary_text": "final", "key_events": ["ok"]},
+                }, ensure_ascii=False),
+                json.dumps({
+                    "type": "outline_create",
+                    "payload": {"title": "Retry", "node_type": "chapter", "summary": "final"},
+                }, ensure_ascii=False),
+            ]) + "\n"
+            yield body
+
+        try:
+            project = Project(title="Candidate Retry Project")
+            db.add(project)
+            db.flush()
+            chapter = Chapter(project_id=project.id, title="Retry", content="Retry content.")
+            db.add(chapter)
+            db.commit()
+            job = create_cataloging_job(db, project.id, "manual", None, [])
+            run = job.chapter_runs[0]
+            cataloging_orchestrator.LLMGateway.stream_chat_completion = classmethod(fake_stream)
+
+            async def collect():
+                return [event async for event in cataloging_orchestrator._extract_run(db, job, run)]
+
+            events = asyncio.run(collect())
+
+            self.assertEqual(len(calls), 3)
+            self.assertTrue(any('"type":"cataloging_retry"' in event and '"stage":"candidate_resolution"' in event for event in events))
+            self.assertEqual(db.query(CatalogingFact).count(), 1)
+            self.assertEqual(db.query(CatalogingCandidate).count(), 2)
+            summaries = db.query(CatalogingCandidate).filter(CatalogingCandidate.item_type == "chapter_summary").all()
+            self.assertEqual(len(summaries), 1)
+            self.assertIn("final", summaries[0].raw_payload)
             self.assertEqual(run.status, "awaiting_confirmation")
         finally:
             cataloging_orchestrator.LLMGateway.stream_chat_completion = original_stream

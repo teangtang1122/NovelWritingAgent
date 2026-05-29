@@ -12,10 +12,10 @@ from ...database.models import CatalogingCandidate, CatalogingChapterRun, Catalo
 from ...database.session import SessionLocal
 from .applier import apply_candidates_for_run, candidate_to_dict
 from .candidate_store import try_create_candidate
-from .constants import CATALOGING_MAX_TOKENS, CATALOGING_TIMEOUT_SECONDS
+from .constants import CATALOGING_MAX_TOKENS, CATALOGING_STAGE_MAX_ATTEMPTS, CATALOGING_TIMEOUT_SECONDS
 from .context import ordered_chapters
 from .facts import facts_text, try_parse_fact_line
-from .fact_store import clear_candidates_for_run, create_fact, load_facts_for_run
+from .fact_store import clear_candidates_for_run, clear_facts_for_run, create_fact, load_facts_for_run
 from .jsonl import clean_jsonl_text
 from .job_control import refresh_job_progress
 from .model_selection import cataloging_extra_body
@@ -209,51 +209,79 @@ async def _extract_run(db: Session, job: CatalogingJob, run: CatalogingChapterRu
             })
         else:
             yield sse_event({"type": "cataloging_stage", "message": "第一阶段：裸读章节，抽取事实线索", "run": run_to_dict(run)})
-            fact_stream = LLMGateway.stream_chat_completion(
-                messages=[
-                    {"role": "system", "content": FACT_EXTRACTION_SYSTEM_PROMPT},
-                    {"role": "user", "content": build_fact_extraction_prompt(chapter.title, chapter.content or "")},
-                ],
-                model=job.model,
-                temperature=0.1,
-                max_tokens=min(CATALOGING_MAX_TOKENS, 12000),
-                timeout=CATALOGING_TIMEOUT_SECONDS,
-                retry=1,
-                extra_body=cataloging_extra_body(job.model),
-            )
-            async for chunk in fact_stream:
-                raw_fact_parts.append(chunk)
-                fact_buffer += chunk
-                lines = fact_buffer.splitlines(keepends=True)
-                if lines and not lines[-1].endswith(("\n", "\r")):
-                    fact_buffer = lines.pop()
-                else:
-                    fact_buffer = ""
-                for line in lines:
-                    parsed = try_parse_fact_line(line)
-                    if parsed.get("bad_line"):
-                        fact_bad_lines.append(parsed["bad_line"])
-                        yield sse_event({"type": "fact_parse_warning", "run": run_to_dict(run), "line": parsed["bad_line"][:500], "error": parsed["error"]})
-                    fact = parsed.get("fact")
-                    if fact:
-                        facts.append(fact)
-                        create_fact(db, job, run, fact, len(facts) - 1)
-                        db.commit()
-                        yield sse_event({
-                            "type": "fact_extracted",
-                            "message": f"已抽取事实: {fact.get('fact_type')}",
-                            "fact": fact,
-                            "run": run_to_dict(run),
-                        })
-            tail = clean_jsonl_text(fact_buffer)
-            if tail:
-                parsed = try_parse_fact_line(tail)
-                if parsed.get("bad_line"):
-                    fact_bad_lines.append(parsed["bad_line"])
-                if parsed.get("fact"):
-                    facts.append(parsed["fact"])
-                    create_fact(db, job, run, parsed["fact"], len(facts) - 1)
+            for attempt in range(1, CATALOGING_STAGE_MAX_ATTEMPTS + 1):
+                fact_buffer = ""
+                fact_bad_lines = []
+                if attempt > 1:
+                    facts = []
+                    raw_fact_parts.append(f"\n\n=== FACT EXTRACTION RETRY {attempt} ===\n")
+                try:
+                    fact_stream = LLMGateway.stream_chat_completion(
+                        messages=[
+                            {"role": "system", "content": FACT_EXTRACTION_SYSTEM_PROMPT},
+                            {"role": "user", "content": build_fact_extraction_prompt(chapter.title, chapter.content or "")},
+                        ],
+                        model=job.model,
+                        temperature=0.1,
+                        max_tokens=min(CATALOGING_MAX_TOKENS, 12000),
+                        timeout=CATALOGING_TIMEOUT_SECONDS,
+                        retry=1,
+                        extra_body=cataloging_extra_body(job.model),
+                    )
+                    async for chunk in fact_stream:
+                        raw_fact_parts.append(chunk)
+                        fact_buffer += chunk
+                        lines = fact_buffer.splitlines(keepends=True)
+                        if lines and not lines[-1].endswith(("\n", "\r")):
+                            fact_buffer = lines.pop()
+                        else:
+                            fact_buffer = ""
+                        for line in lines:
+                            parsed = try_parse_fact_line(line)
+                            if parsed.get("bad_line"):
+                                fact_bad_lines.append(parsed["bad_line"])
+                                yield sse_event({"type": "fact_parse_warning", "run": run_to_dict(run), "line": parsed["bad_line"][:500], "error": parsed["error"]})
+                            fact = parsed.get("fact")
+                            if fact:
+                                facts.append(fact)
+                                create_fact(db, job, run, fact, len(facts) - 1)
+                                db.commit()
+                                yield sse_event({
+                                    "type": "fact_extracted",
+                                    "message": f"已抽取事实: {fact.get('fact_type')}",
+                                    "fact": fact,
+                                    "run": run_to_dict(run),
+                                })
+                    tail = clean_jsonl_text(fact_buffer)
+                    if tail:
+                        parsed = try_parse_fact_line(tail)
+                        if parsed.get("bad_line"):
+                            fact_bad_lines.append(parsed["bad_line"])
+                        if parsed.get("fact"):
+                            facts.append(parsed["fact"])
+                            create_fact(db, job, run, parsed["fact"], len(facts) - 1)
+                            db.commit()
+                    if not facts:
+                        raise ValueError("模型未输出可用事实")
+                    break
+                except Exception as exc:
+                    if attempt >= CATALOGING_STAGE_MAX_ATTEMPTS:
+                        raise
+                    clear_facts_for_run(db, run)
                     db.commit()
+                    facts = []
+                    fact_buffer = ""
+                    fact_bad_lines = []
+                    raw_fact_parts.append(f"\n[FACT EXTRACTION FAILED: {exc}]\n")
+                    yield sse_event({
+                        "type": "cataloging_retry",
+                        "stage": "fact_extraction",
+                        "message": f"第一阶段失败，正在自动重试 {attempt + 1}/{CATALOGING_STAGE_MAX_ATTEMPTS}",
+                        "attempt": attempt + 1,
+                        "max_attempts": CATALOGING_STAGE_MAX_ATTEMPTS,
+                        "error": str(exc),
+                        "run": run_to_dict(run),
+                    })
 
         if not facts:
             raise ValueError("模型未输出可用事实，已暂停在当前章节")
@@ -269,57 +297,103 @@ async def _extract_run(db: Session, job: CatalogingJob, run: CatalogingChapterRu
             "run": run_to_dict(run),
         })
 
-        candidate_buffer = ""
         bad_lines: list[str] = []
-        candidate_stream = LLMGateway.stream_chat_completion(
-            messages=[
-                {"role": "system", "content": CATALOGING_RESOLUTION_SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": build_resolution_prompt(
-                        facts_text(facts),
-                        json.dumps(targeted_context, ensure_ascii=False),
-                        chapter.title,
-                    ),
-                },
-            ],
-            model=job.model,
-            temperature=0.1,
-            max_tokens=CATALOGING_MAX_TOKENS,
-            timeout=CATALOGING_TIMEOUT_SECONDS,
-            retry=1,
-            extra_body=cataloging_extra_body(job.model),
-        )
-        async for chunk in candidate_stream:
-            raw_candidate_parts.append(chunk)
-            candidate_buffer += chunk
-            lines = candidate_buffer.splitlines(keepends=True)
-            if lines and not lines[-1].endswith(("\n", "\r")):
-                candidate_buffer = lines.pop()
-            else:
-                candidate_buffer = ""
-            for line in lines:
-                created = try_create_candidate(db, job, run, line, candidate_count)
-                if created.get("bad_line"):
-                    bad_lines.append(created["bad_line"])
-                    yield sse_event({"type": "parse_warning", "run": run_to_dict(run), "line": created["bad_line"][:500], "error": created["error"]})
-                candidate = created.get("candidate")
-                if candidate:
-                    candidate_count += 1
-                    has_summary = has_summary or candidate.item_type == "chapter_summary"
-                    db.commit()
-                    yield sse_event({"type": "candidate_created", "candidate": candidate_to_dict(candidate), "run": run_to_dict(run)})
-        tail = clean_jsonl_text(candidate_buffer)
-        if tail:
-            created = try_create_candidate(db, job, run, tail, candidate_count)
-            if created.get("bad_line"):
-                bad_lines.append(created["bad_line"])
-            if created.get("candidate"):
-                candidate = created["candidate"]
-                candidate_count += 1
-                has_summary = has_summary or candidate.item_type == "chapter_summary"
+        for attempt in range(1, CATALOGING_STAGE_MAX_ATTEMPTS + 1):
+            candidate_buffer = ""
+            bad_lines = []
+            if attempt > 1:
+                raw_candidate_parts.append(f"\n\n=== CANDIDATE RESOLUTION RETRY {attempt} ===\n")
+            try:
+                candidate_stream = LLMGateway.stream_chat_completion(
+                    messages=[
+                        {"role": "system", "content": CATALOGING_RESOLUTION_SYSTEM_PROMPT},
+                        {
+                            "role": "user",
+                            "content": build_resolution_prompt(
+                                facts_text(facts),
+                                json.dumps(targeted_context, ensure_ascii=False),
+                                chapter.title,
+                            ),
+                        },
+                    ],
+                    model=job.model,
+                    temperature=0.1,
+                    max_tokens=CATALOGING_MAX_TOKENS,
+                    timeout=CATALOGING_TIMEOUT_SECONDS,
+                    retry=1,
+                    extra_body=cataloging_extra_body(job.model),
+                )
+                async for chunk in candidate_stream:
+                    raw_candidate_parts.append(chunk)
+                    candidate_buffer += chunk
+                    lines = candidate_buffer.splitlines(keepends=True)
+                    if lines and not lines[-1].endswith(("\n", "\r")):
+                        candidate_buffer = lines.pop()
+                    else:
+                        candidate_buffer = ""
+                    for line in lines:
+                        created = try_create_candidate(db, job, run, line, candidate_count)
+                        if created.get("bad_line"):
+                            bad_lines.append(created["bad_line"])
+                            yield sse_event({"type": "parse_warning", "run": run_to_dict(run), "line": created["bad_line"][:500], "error": created["error"]})
+                        candidate = created.get("candidate")
+                        if candidate:
+                            candidate_count += 1
+                            has_summary = has_summary or candidate.item_type == "chapter_summary"
+                            db.commit()
+                            yield sse_event({"type": "candidate_created", "candidate": candidate_to_dict(candidate), "run": run_to_dict(run)})
+                tail = clean_jsonl_text(candidate_buffer)
+                if tail:
+                    created = try_create_candidate(db, job, run, tail, candidate_count)
+                    if created.get("bad_line"):
+                        bad_lines.append(created["bad_line"])
+                    if created.get("candidate"):
+                        candidate = created["candidate"]
+                        candidate_count += 1
+                        has_summary = has_summary or candidate.item_type == "chapter_summary"
+                        db.commit()
+                        yield sse_event({"type": "candidate_created", "candidate": candidate_to_dict(candidate), "run": run_to_dict(run)})
+                retry_reason = ""
+                if bad_lines:
+                    retry_reason = f"{len(bad_lines)} 行 JSONL 解析失败"
+                elif not has_summary:
+                    retry_reason = "模型未输出 chapter_summary"
+                if not retry_reason:
+                    break
+                if attempt >= CATALOGING_STAGE_MAX_ATTEMPTS:
+                    break
+                clear_candidates_for_run(db, run)
                 db.commit()
-                yield sse_event({"type": "candidate_created", "candidate": candidate_to_dict(candidate), "run": run_to_dict(run)})
+                candidate_count = 0
+                has_summary = False
+                yield sse_event({
+                    "type": "cataloging_retry",
+                    "stage": "candidate_resolution",
+                    "message": f"第二阶段失败，正在自动重试 {attempt + 1}/{CATALOGING_STAGE_MAX_ATTEMPTS}",
+                    "attempt": attempt + 1,
+                    "max_attempts": CATALOGING_STAGE_MAX_ATTEMPTS,
+                    "error": retry_reason,
+                    "run": run_to_dict(run),
+                })
+            except Exception as exc:
+                if attempt >= CATALOGING_STAGE_MAX_ATTEMPTS:
+                    raise
+                clear_candidates_for_run(db, run)
+                db.commit()
+                candidate_count = 0
+                has_summary = False
+                candidate_buffer = ""
+                bad_lines = []
+                raw_candidate_parts.append(f"\n[CANDIDATE RESOLUTION FAILED: {exc}]\n")
+                yield sse_event({
+                    "type": "cataloging_retry",
+                    "stage": "candidate_resolution",
+                    "message": f"第二阶段失败，正在自动重试 {attempt + 1}/{CATALOGING_STAGE_MAX_ATTEMPTS}",
+                    "attempt": attempt + 1,
+                    "max_attempts": CATALOGING_STAGE_MAX_ATTEMPTS,
+                    "error": str(exc),
+                    "run": run_to_dict(run),
+                })
     except Exception as exc:
         run.status = "failed"
         run.error = str(exc)
