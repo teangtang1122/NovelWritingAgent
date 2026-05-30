@@ -338,6 +338,9 @@ async def stream_rerun_failed_chunks(
         total_words = int(data.get("total_words") or sum(len(chunk) for chunk in chunks))
         title = data.get("title") or report.source_filename or project.title
         options = data.get("options") or module_options_from_payload(payload)
+        options["characters"] = False
+        options["outline"] = False
+        options["worldbuilding"] = False
         options["analysis_mode"] = analysis_mode_from_payload(payload)
         if payload.map_model or payload.reduce_model or payload.model:
             map_model, reduce_model = models_from_payload(payload)

@@ -12,9 +12,12 @@ from .constants import CHEAP_MODEL_BY_PROVIDER, DEFAULT_MAP_CONCURRENCY, MAP_MAX
 def module_options_from_payload(payload) -> dict:
     return {
         "golden_three": payload.include_golden_three,
-        "characters": payload.include_characters,
-        "outline": payload.include_outline,
-        "worldbuilding": payload.include_worldbuilding,
+        # Deconstruct is now a reading-analysis report. Project initialization
+        # imports live in the cataloging workflow, so these legacy asset modules
+        # stay disabled even if an older frontend sends them as true.
+        "characters": False,
+        "outline": False,
+        "worldbuilding": False,
         "rhythm": payload.include_rhythm,
         "patterns": payload.include_patterns,
         "analysis_mode": analysis_mode_from_payload(payload),

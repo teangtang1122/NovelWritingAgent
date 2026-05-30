@@ -112,7 +112,11 @@ async def outline_writer(
 
     style_ctx = build_style_context(project, include_anti_ai=False)
     from ....services.context_builders import _build_world_context as _wc
-    world_ctx = _wc(db, project_id)
+    world_ctx = _wc(
+        db,
+        project_id,
+        query_context="\n".join([requirements, parent_context, existing_outline[-3000:]]),
+    )
 
     messages = build_outline_writer_messages(
         style_context=style_ctx,

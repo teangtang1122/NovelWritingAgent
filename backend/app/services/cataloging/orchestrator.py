@@ -12,7 +12,12 @@ from ...database.models import CatalogingCandidate, CatalogingChapterRun, Catalo
 from ...database.session import SessionLocal
 from .applier import apply_candidates_for_run, candidate_to_dict
 from .candidate_store import try_create_candidate
-from .constants import CATALOGING_MAX_TOKENS, CATALOGING_STAGE_MAX_ATTEMPTS, CATALOGING_TIMEOUT_SECONDS
+from .constants import (
+    CATALOGING_FACTS_PROMPT_LIMIT,
+    CATALOGING_MAX_TOKENS,
+    CATALOGING_STAGE_MAX_ATTEMPTS,
+    CATALOGING_TIMEOUT_SECONDS,
+)
 from .context import ordered_chapters
 from .facts import facts_text, try_parse_fact_line
 from .fact_store import clear_candidates_for_run, clear_facts_for_run, create_fact, load_facts_for_run
@@ -310,8 +315,8 @@ async def _extract_run(db: Session, job: CatalogingJob, run: CatalogingChapterRu
                         {
                             "role": "user",
                             "content": build_resolution_prompt(
-                                facts_text(facts),
-                                json.dumps(targeted_context, ensure_ascii=False),
+                                facts_text(facts, limit=CATALOGING_FACTS_PROMPT_LIMIT),
+                                json.dumps(targeted_context, ensure_ascii=False, separators=(",", ":")),
                                 chapter.title,
                             ),
                         },

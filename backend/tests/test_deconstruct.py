@@ -49,24 +49,89 @@ class DeconstructTestCase(unittest.TestCase):
         return response.json()["data"]["id"]
 
     @patch("app.services.deconstruct.map_reduce.LLMGateway.chat_completion", new_callable=AsyncMock)
-    def test_deconstruct_report_can_be_queried_and_imported(self, mock_chat):
+    def test_deconstruct_report_can_be_queried_without_import_assets(self, mock_chat):
         project_id = self.create_project()
         map_result = {
-            "characters": [{"name": "林澈", "role": "protagonist", "mentions": 8}],
+            "characters": [{"name": "林澈", "role_hint": "主角", "mentions": 8}],
             "events": [{"description": "主角获得线索", "type": "intro"}],
             "pacing": "fast",
-            "highlights": [{"type": "reveal", "description": "秘密揭开", "intensity": "high"}],
+            "clues": [{"item": "旧信", "detail": "秘密即将揭开"}],
+            "themes": ["追查"],
+            "techniques": ["悬念开局"],
         }
-        reduce_result = {
+        plot_result = {
+            "plot_nodes": [
+                {"description": "主角获得线索", "type": "intro", "position_pct": 10, "importance": "high"}
+            ],
+            "highlights": [
+                {"type": "reveal", "description": "秘密揭开", "position_pct": 30, "intensity": "high"}
+            ],
+        }
+        rhythm_result = {
+            "rhythm_curve": [{"position_pct": 10, "pace": "fast", "label": "开局推进"}],
+            "patterns": [{"type": "structure", "description": "悬念开局", "frequency": "frequent", "examples": []}],
+        }
+        golden_result = {
+            "golden_three": {
+                "hook": "主角获得线索",
+                "protagonist_goal": "追查秘密",
+                "core_conflict": "未知真相与危险阻碍",
+                "reader_expectation": "秘密揭晓",
+                "chapter_1_function": "建立钩子",
+                "chapter_2_function": "",
+                "chapter_3_function": "",
+                "problems": [],
+                "optimization_suggestions": [],
+            }
+        }
+        mock_chat.side_effect = [
+            {"content": json.dumps(map_result, ensure_ascii=False)},
+            {"content": json.dumps(plot_result, ensure_ascii=False)},
+            {"content": json.dumps(rhythm_result, ensure_ascii=False)},
+            {"content": json.dumps(golden_result, ensure_ascii=False)},
+        ]
+
+        response = self.client.post(
+            f"{API_PREFIX}/projects/{project_id}/deconstruct",
+            json={"text": "主角获得线索。" * 80, "title": "样本文本"},
+        )
+        self.assertEqual(response.status_code, 200)
+        report = response.json()["data"]
+        self.assertEqual(report["status"], "completed")
+        self.assertEqual(report["title"], "样本文本")
+        self.assertEqual(report["structure"]["volumes"], [])
+        self.assertEqual(report["characters"], [])
+        self.assertEqual(report["worldbuilding_entries"], [])
+        self.assertEqual(report["plot_nodes"][0]["description"], "主角获得线索")
+
+        db = SessionLocal()
+        try:
+            stored = db.query(DeconstructionReport).filter(DeconstructionReport.id == report["id"]).first()
+            self.assertIsNotNone(stored)
+            self.assertEqual(stored.status, "completed")
+        finally:
+            db.close()
+
+        detail = self.client.get(f"{API_PREFIX}/projects/{project_id}/deconstruct/{report['id']}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["data"]["characters"], [])
+
+        status = self.client.get(f"{API_PREFIX}/projects/{project_id}/deconstruct/{report['id']}/status")
+        self.assertEqual(status.status_code, 200)
+        self.assertIn('"status":"completed"', status.text)
+
+    def test_legacy_deconstruct_report_can_still_be_imported(self):
+        project_id = self.create_project()
+        report_data = {
+            "title": "旧拆书报告",
+            "status": "completed",
+            "phase": "completed",
             "structure": {
                 "volumes": [
                     {"title": "第一卷", "chapters": [{"title": "第一章", "summary": "主角获得线索"}]}
                 ],
                 "total_estimated_chapters": 1,
             },
-            "plot_nodes": [
-                {"description": "主角获得线索", "type": "intro", "position_pct": 10, "importance": "high"}
-            ],
             "characters": [
                 {
                     "name": "林澈",
@@ -102,44 +167,32 @@ class DeconstructTestCase(unittest.TestCase):
                     "personality": "行动快，愿意配合林澈。",
                 }
             ],
-            "highlights": [
-                {"type": "reveal", "description": "秘密揭开", "position_pct": 30, "intensity": "high"}
-            ],
-            "rhythm_curve": [{"position_pct": 10, "pace": "fast", "label": "开局推进"}],
-            "patterns": [{"type": "structure", "description": "悬念开局", "frequency": "frequent", "examples": []}],
+            "highlights": [],
+            "chunk_results": [],
+            "logs": [],
+            "total_chunks": 1,
+            "completed_chunks": 1,
+            "failed_chunks": 0,
+            "total_words": 480,
+            "created_at": "2026-01-01T00:00:00",
         }
-        mock_chat.side_effect = [
-            {"content": json.dumps(map_result, ensure_ascii=False)},
-            {"content": json.dumps(reduce_result, ensure_ascii=False)},
-        ]
-
-        response = self.client.post(
-            f"{API_PREFIX}/projects/{project_id}/deconstruct",
-            json={"text": "主角获得线索。" * 80, "title": "样本文本"},
-        )
-        self.assertEqual(response.status_code, 200)
-        report = response.json()["data"]
-        self.assertEqual(report["status"], "completed")
-        self.assertEqual(report["title"], "样本文本")
-
         db = SessionLocal()
         try:
-            stored = db.query(DeconstructionReport).filter(DeconstructionReport.id == report["id"]).first()
-            self.assertIsNotNone(stored)
-            self.assertEqual(stored.status, "completed")
+            report = DeconstructionReport(
+                project_id=project_id,
+                source_filename="旧拆书报告",
+                status="completed",
+                report_data=json.dumps(report_data, ensure_ascii=False),
+            )
+            db.add(report)
+            db.commit()
+            db.refresh(report)
+            report_id = report.id
         finally:
             db.close()
 
-        detail = self.client.get(f"{API_PREFIX}/projects/{project_id}/deconstruct/{report['id']}")
-        self.assertEqual(detail.status_code, 200)
-        self.assertEqual(detail.json()["data"]["characters"][0]["name"], "林澈")
-
-        status = self.client.get(f"{API_PREFIX}/projects/{project_id}/deconstruct/{report['id']}/status")
-        self.assertEqual(status.status_code, 200)
-        self.assertIn('"status":"completed"', status.text)
-
         imported = self.client.post(
-            f"{API_PREFIX}/projects/{project_id}/deconstruct/{report['id']}/import",
+            f"{API_PREFIX}/projects/{project_id}/deconstruct/{report_id}/import",
             json={"import_outline": True, "import_characters": True},
         )
         self.assertEqual(imported.status_code, 200)

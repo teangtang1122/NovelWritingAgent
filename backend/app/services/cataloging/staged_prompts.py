@@ -12,6 +12,8 @@ FACT_EXTRACTION_SYSTEM_PROMPT = """你是“作品建档”的第一阶段事实
 3. 字符串里的换行、引号、反斜杠必须正确转义。
 4. 不做最终写入决策，不要输出 character_create、worldbuilding_create 等写库类型。
 5. 只根据本章正文抽取事实；不确定就写入 uncertainty 字段。
+6. 节省 token：只抽取会影响大纲、角色、关系、世界观或后续写作连续性的事实；不要复述普通动作流水账。
+7. evidence 写短依据，payload 用短语和数组表达，不要把原文大段复制进去。
 
 允许的 fact_type：
 - chapter_overview：本章整体摘要、关键事件、场景列表。
@@ -47,6 +49,7 @@ CATALOGING_RESOLUTION_SYSTEM_PROMPT = """你是“作品建档”的第二阶段
 3. 每条候选单独成行，不要把整章所有信息合并成一个大 JSON。
 4. chapter_summary 必须输出 1 条。
 5. 根据事实和相关卡片判断是创建、更新、关联还是提出角色合并候选。
+6. 节省 token：候选 payload 要“足够写库但不冗长”；不要重复粘贴旧资料，不要输出无变化字段。
 
 大纲要求：
 1. 每章至少输出 1 条 outline_create，node_type 为 "chapter"。
@@ -107,4 +110,4 @@ def build_resolution_prompt(facts_jsonl: str, context_json: str, chapter_title: 
 相关旧资料与索引：
 {context_json}
 
-请基于“事实 + 相关旧资料”输出最终候选 JSONL。"""
+请基于“事实 + 相关旧资料”输出最终候选 JSONL。旧资料是紧凑上下文，只有命中内容才展开；不要因为索引里出现名称就强行更新。"""

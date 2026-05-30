@@ -52,7 +52,12 @@ async def chapter_writer(
     # Context: outline
     outline_ctx = _build_outline_context(db, project_id, outline_node_id) if outline_node_id else "无指定大纲节点。"
     # Context: worldbuilding
-    world_ctx = _build_world_context(db, project_id, outline_node_id)
+    world_query_parts = [requirements]
+    if plot_design:
+        world_query_parts.append(str(plot_design)[:3000])
+    if roleplay_results:
+        world_query_parts.append(str(roleplay_results)[:3000])
+    world_ctx = _build_world_context(db, project_id, outline_node_id, query_context="\n".join(world_query_parts))
     # Context: recent summaries
     summaries = _build_recent_summaries(db, project_id, limit=5)
     # Context: style

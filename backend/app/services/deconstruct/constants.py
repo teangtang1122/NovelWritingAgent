@@ -57,6 +57,7 @@ REDUCE_INPUT_PROFILES = [
 ]
 
 REDUCE_SECTION_SOURCE_FIELDS = {
+    "plot_highlights": {"characters", "events", "clues", "themes", "pacing", "narrative_mode"},
     "outline": {"characters", "events", "clues", "themes"},
     "characters": {"characters", "events"},
     "worldbuilding": {"world_facts", "events", "characters"},

@@ -54,7 +54,7 @@ async def roleplay_character(
         return {"tool": "roleplay_character", "status": "skipped", "detail": "项目不存在", "data": {}}
 
     outline_ctx = _build_outline_context(db, project_id, outline_node_id) if outline_node_id else "无指定大纲节点。"
-    world_ctx = _build_world_context(db, project_id, outline_node_id)
+    world_ctx = _build_world_context(db, project_id, outline_node_id, query_context=situation)
     summaries = _build_recent_summaries(db, project_id, limit=5)
     style_ctx = build_style_context(project)
 
@@ -138,7 +138,7 @@ async def dialogue_battle(
     if not project:
         return {"tool": "dialogue_battle", "status": "skipped", "detail": "项目不存在", "data": []}
 
-    world_ctx = _build_world_context(db, project_id, outline_node_id)
+    world_ctx = _build_world_context(db, project_id, outline_node_id, query_context=scene)
     summaries = _build_recent_summaries(db, project_id, limit=5)
     outline_ctx = _build_outline_context(db, project_id, outline_node_id) if outline_node_id else "无指定大纲节点。"
     scene_chars = _build_scene_characters_context(db, project_id, outline_node_id)

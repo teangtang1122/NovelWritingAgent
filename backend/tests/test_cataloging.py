@@ -23,6 +23,7 @@ from app.database.models import (
 )
 from app.services.cataloging.applier import apply_candidates_for_run
 from app.services.cataloging.context import build_light_context
+from app.services.context_builders import _build_world_context
 from app.services.cataloging.job_control import (
     cancel_job,
     first_blocking_run,
@@ -200,6 +201,49 @@ class CatalogingServiceTestCase(unittest.TestCase):
             self.assertEqual(context["character_details"][0]["ai_style"]["tone_style"], "calm")
             self.assertEqual(context["worldbuilding_details"][0]["content"], "Arrays require anchor stones and fail when anchors are corrupted.")
             self.assertEqual(context["previous_character_states"][0]["active_conflict"], "must seal the gate")
+        finally:
+            db.close()
+
+    def test_world_context_selects_relevant_entries_beyond_initial_sort_window(self):
+        db = self.Session()
+        try:
+            project = Project(title="World Context Project")
+            db.add(project)
+            db.flush()
+            for index in range(40):
+                db.add(WorldbuildingEntry(
+                    project_id=project.id,
+                    dimension="culture",
+                    title=f"无关习俗{index}",
+                    content="普通年节礼仪，与当前归寂谷剧情无关。",
+                    sort_order=index,
+                ))
+            late_entry = WorldbuildingEntry(
+                project_id=project.id,
+                dimension="power_system",
+                title="归寂谷黄泉回路",
+                content="归寂谷可以用黄泉回路引导死气，但会受到归墟阵灵石余量限制。",
+                sort_order=999,
+            )
+            outline = OutlineNode(
+                project_id=project.id,
+                node_type="chapter",
+                title="第151章 旧档藏线",
+                summary="特昂糖在归寂谷查看旧档，追查黄泉回路与归墟阵灵石消耗。",
+                sort_order=151,
+            )
+            db.add_all([late_entry, outline])
+            db.commit()
+
+            context = _build_world_context(
+                db,
+                project.id,
+                outline.id,
+                query_context="继续写归寂谷黄泉回路和归墟阵灵石倒计时",
+            )
+
+            self.assertIn("归寂谷黄泉回路", context)
+            self.assertIn("已从 41 条世界观中筛选", context)
         finally:
             db.close()
 

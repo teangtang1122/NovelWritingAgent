@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy.orm import Session, selectinload
@@ -12,6 +13,7 @@ from ..core.utils import count_words as _count_words
 from ..database.models import (
     Chapter,
     ChapterSummary,
+    ChapterWorldbuilding,
     Character,
     CharacterRelationship,
     CharacterTimeline,
@@ -24,6 +26,20 @@ from ..database.models import (
 DIMENSION_LABELS = {
     "geography": "地理", "history": "历史", "factions": "势力",
     "power_system": "规则体系", "races": "种族", "culture": "文化",
+}
+
+WORLD_CONTEXT_MAX_ENTRIES = 32
+WORLD_CONTEXT_CORE_PER_DIMENSION = 2
+WORLD_CONTEXT_RECENT_LIMIT = 10
+WORLD_CONTEXT_RELEVANT_LIMIT = 20
+WORLD_CONTEXT_ENTRY_CHAR_LIMIT = 850
+
+WORLD_CONTEXT_STOPWORDS = {
+    "一个", "一些", "以及", "已经", "正在", "如果", "没有", "需要", "用户", "要求",
+    "生成", "创建", "修改", "更新", "章节", "本章", "前文", "后续", "下一章",
+    "大纲", "节点", "剧情", "摘要", "角色", "世界观", "设定", "背景", "内容",
+    "当前", "之前", "之后", "这个", "那个", "这里", "那里", "他们", "她们",
+    "进行", "出现", "发现", "继续", "相关", "信息", "写作", "正文",
 }
 
 def _get_outline_node_or_404(
@@ -50,21 +66,172 @@ def _get_outline_node_or_404(
 # Context builders
 # ---------------------------------------------------------------------------
 
-def _build_world_context(db: Session, project_id: str, outline_node_id: Optional[str] = None) -> str:
-    entries = (
+def _build_world_context(
+    db: Session,
+    project_id: str,
+    outline_node_id: Optional[str] = None,
+    query_context: str = "",
+    max_entries: int = WORLD_CONTEXT_MAX_ENTRIES,
+) -> str:
+    all_entries = (
         db.query(WorldbuildingEntry)
         .filter(WorldbuildingEntry.project_id == project_id)
         .order_by(WorldbuildingEntry.dimension.asc(), WorldbuildingEntry.sort_order.asc())
-        .limit(24)
         .all()
     )
-    if not entries:
+    if not all_entries:
         return "暂无世界观设定。"
+
+    outline_texts: list[str] = []
+    explicit_ids: set[str] = set()
+    if outline_node_id:
+        outline = (
+            db.query(OutlineNode)
+            .filter(OutlineNode.project_id == project_id, OutlineNode.id == outline_node_id)
+            .first()
+        )
+        if outline:
+            outline_texts.extend([outline.title or "", outline.summary or "", outline.actual_summary or "", outline.planned_summary or ""])
+            if outline.source_chapter_id:
+                explicit_ids.update(_worldbuilding_ids_for_chapters(db, [outline.source_chapter_id]))
+            chapter_ids = [
+                row.id
+                for row in db.query(Chapter.id)
+                .filter(Chapter.project_id == project_id, Chapter.outline_node_id == outline.id)
+                .all()
+            ]
+            explicit_ids.update(_worldbuilding_ids_for_chapters(db, chapter_ids))
+
+    recent_summary_texts = _recent_summary_texts(db, project_id, limit=4)
+    terms = _extract_world_context_terms(query_context, *outline_texts, *recent_summary_texts)
+    score_by_id = {entry.id: _worldbuilding_relevance_score(entry, terms) for entry in all_entries}
+
+    selected: list[WorldbuildingEntry] = []
+    reason_by_id: dict[str, str] = {}
+
+    def add_entries(entries: list[WorldbuildingEntry], reason: str) -> None:
+        for entry in entries:
+            if len(selected) >= max_entries:
+                return
+            if entry.id in reason_by_id:
+                continue
+            selected.append(entry)
+            reason_by_id[entry.id] = reason
+
+    explicit_entries = [entry for entry in all_entries if entry.id in explicit_ids]
+    add_entries(_sort_entries_by_recent(explicit_entries), "显式关联")
+
+    relevant_entries = [
+        entry for entry in all_entries
+        if entry.id not in reason_by_id and score_by_id.get(entry.id, 0) > 0
+    ]
+    relevant_entries.sort(
+        key=lambda entry: (
+            score_by_id.get(entry.id, 0),
+            _entry_time(entry),
+            -(entry.sort_order or 0),
+        ),
+        reverse=True,
+    )
+    add_entries(relevant_entries[:WORLD_CONTEXT_RELEVANT_LIMIT], "相关命中")
+
+    recent_entries = [
+        entry for entry in _sort_entries_by_recent(all_entries)
+        if entry.id not in reason_by_id
+    ][:WORLD_CONTEXT_RECENT_LIMIT]
+    add_entries(recent_entries, "最近更新")
+
+    core_entries: list[WorldbuildingEntry] = []
+    for dimension in DIMENSION_LABELS:
+        dim_entries = [
+            entry for entry in all_entries
+            if entry.dimension == dimension and entry.id not in reason_by_id
+        ]
+        dim_entries.sort(key=lambda entry: (entry.sort_order or 0, entry.created_at or datetime.min))
+        core_entries.extend(dim_entries[:WORLD_CONTEXT_CORE_PER_DIMENSION])
+    add_entries(core_entries, "基础设定")
+
+    if not selected:
+        add_entries(all_entries[:min(max_entries, 24)], "基础设定")
+
     lines = []
-    for entry in entries:
+    lines.append(f"已从 {len(all_entries)} 条世界观中筛选 {len(selected)} 条：")
+    for entry in selected:
         dim_label = DIMENSION_LABELS.get(entry.dimension, entry.dimension)
-        lines.append(f"[{dim_label}] {entry.title}: {entry.content[:1200]}")
+        reason = reason_by_id.get(entry.id, "相关")
+        content = (entry.content or "")[:WORLD_CONTEXT_ENTRY_CHAR_LIMIT]
+        lines.append(f"[{reason}][{dim_label}] {entry.title}: {content}")
     return "\n".join(lines)
+
+
+def _worldbuilding_ids_for_chapters(db: Session, chapter_ids: list[str]) -> set[str]:
+    if not chapter_ids:
+        return set()
+    return {
+        row.worldbuilding_entry_id
+        for row in db.query(ChapterWorldbuilding.worldbuilding_entry_id)
+        .filter(ChapterWorldbuilding.chapter_id.in_(chapter_ids))
+        .all()
+    }
+
+
+def _recent_summary_texts(db: Session, project_id: str, limit: int = 4) -> list[str]:
+    summaries = (
+        db.query(ChapterSummary)
+        .join(Chapter, Chapter.id == ChapterSummary.chapter_id)
+        .filter(Chapter.project_id == project_id)
+        .all()
+    )
+    if not summaries:
+        return []
+    summaries.sort(
+        key=lambda item: (
+            _chapter_order_number(item.chapter.title if item.chapter else "") or 0,
+            item.chapter.created_at if item.chapter else item.updated_at,
+        )
+    )
+    return [
+        f"{item.chapter.title if item.chapter else ''}\n{item.summary_text or ''}\n{item.key_events or ''}"
+        for item in summaries[-limit:]
+    ]
+
+
+def _extract_world_context_terms(*texts: str) -> set[str]:
+    joined = "\n".join(text for text in texts if text)
+    terms: set[str] = set()
+    for term in re.findall(r"[\u4e00-\u9fff]{2,12}|[A-Za-z][A-Za-z0-9_-]{2,30}", joined):
+        value = term.strip()
+        if not value or value in WORLD_CONTEXT_STOPWORDS:
+            continue
+        if value.isdigit():
+            continue
+        terms.add(value.lower() if value.isascii() else value)
+    return set(sorted(terms, key=lambda item: (-len(item), item))[:100])
+
+
+def _worldbuilding_relevance_score(entry: WorldbuildingEntry, terms: set[str]) -> int:
+    if not terms:
+        return 0
+    title = entry.title or ""
+    content = (entry.content or "")[:5000]
+    title_cmp = title.lower()
+    content_cmp = content.lower()
+    score = 0
+    for term in terms:
+        term_cmp = term.lower()
+        if term in title or term_cmp in title_cmp:
+            score += 8
+        elif term in content or term_cmp in content_cmp:
+            score += 2
+    return score
+
+
+def _entry_time(entry: WorldbuildingEntry) -> datetime:
+    return entry.updated_at or entry.created_at or datetime.min
+
+
+def _sort_entries_by_recent(entries: list[WorldbuildingEntry]) -> list[WorldbuildingEntry]:
+    return sorted(entries, key=lambda entry: (_entry_time(entry), entry.sort_order or 0), reverse=True)
 
 
 def _chinese_number_to_int(text: str) -> Optional[int]:

@@ -160,6 +160,7 @@ async def design_plot(
     requirements = str(args.get("requirements") or "").strip()
     feedback = str(args.get("feedback") or "").strip()
     previous_plot = args.get("previous_plot")  # For iteration
+    previous_plot_json = _json.dumps(previous_plot, ensure_ascii=False, indent=2) if previous_plot else ""
 
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -170,7 +171,12 @@ async def design_plot(
     outline_overview = _build_outline_overview(db, project_id, limit=40)
 
     # Context: worldbuilding
-    world_ctx = _build_world_context(db, project_id, outline_node_id)
+    world_ctx = _build_world_context(
+        db,
+        project_id,
+        outline_node_id,
+        query_context="\n".join([requirements, feedback, previous_plot_json if previous_plot else ""]),
+    )
 
     # Context: recent summaries
     summaries = _build_recent_summaries(db, project_id, limit=5)
@@ -240,8 +246,6 @@ async def design_plot(
                 f"- [{ch.created_at.strftime('%m-%d')}] {ch.title}: {(ch.summary.summary_text if ch.summary else ch.content or '')[:200]}"
                 for ch in existing
             )
-
-    previous_plot_json = _json.dumps(previous_plot, ensure_ascii=False, indent=2) if previous_plot else ""
 
     messages = build_plot_design_messages(
         project_title=project.title,

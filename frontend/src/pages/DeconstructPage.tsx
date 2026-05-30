@@ -23,11 +23,9 @@ import {
 import {
   ThunderboltOutlined,
   NodeIndexOutlined,
-  TeamOutlined,
   RiseOutlined,
   FieldTimeOutlined,
   BulbOutlined,
-  CheckOutlined,
   SyncOutlined,
 } from '@ant-design/icons'
 import { apiClient } from '../api/client'
@@ -257,9 +255,6 @@ function DeconstructPage({ projectId }: DeconstructPageProps) {
   const [analyzing, setAnalyzing] = useState(false)
   const [model, setModel] = useState<string | undefined>()
   const [includeGoldenThree, setIncludeGoldenThree] = useState(true)
-  const [includeCharacters, setIncludeCharacters] = useState(true)
-  const [includeOutline, setIncludeOutline] = useState(true)
-  const [includeWorldbuilding, setIncludeWorldbuilding] = useState(true)
   const [includeRhythm, setIncludeRhythm] = useState(true)
   const [includePatterns, setIncludePatterns] = useState(true)
   const [mapConcurrency, setMapConcurrency] = useState(4)
@@ -267,7 +262,6 @@ function DeconstructPage({ projectId }: DeconstructPageProps) {
   const [progressReport, setProgressReport] = useState<DeconstructReport | null>(null)
   const [result, setResult] = useState<DeconstructReport | null>(null)
   const [reports, setReports] = useState<ReportSummary[]>([])
-  const [importing, setImporting] = useState<'outline' | 'characters' | 'worldbuilding' | 'all' | null>(null)
   const [reduceStreamText, setReduceStreamText] = useState('')
   const [reduceStreaming, setReduceStreaming] = useState(false)
   const { modelOptions, defaultModel, loading: modelsLoading } = useModelOptions()
@@ -390,9 +384,9 @@ function DeconstructPage({ projectId }: DeconstructPageProps) {
           model: model || defaultModel || undefined,
           analysis_mode: 'fast',
           include_golden_three: includeGoldenThree,
-          include_characters: includeCharacters,
-          include_outline: includeOutline,
-          include_worldbuilding: includeWorldbuilding,
+          include_characters: false,
+          include_outline: false,
+          include_worldbuilding: false,
           include_rhythm: includeRhythm,
           include_patterns: includePatterns,
           map_concurrency: mapConcurrency,
@@ -402,9 +396,9 @@ function DeconstructPage({ projectId }: DeconstructPageProps) {
           model: model || defaultModel || undefined,
           analysis_mode: 'fast',
           include_golden_three: includeGoldenThree,
-          include_characters: includeCharacters,
-          include_outline: includeOutline,
-          include_worldbuilding: includeWorldbuilding,
+          include_characters: false,
+          include_outline: false,
+          include_worldbuilding: false,
           include_rhythm: includeRhythm,
           include_patterns: includePatterns,
           map_concurrency: mapConcurrency,
@@ -664,9 +658,9 @@ function DeconstructPage({ projectId }: DeconstructPageProps) {
       model: model || defaultModel || undefined,
       analysis_mode: 'fast',
       include_golden_three: includeGoldenThree,
-      include_characters: includeCharacters,
-      include_outline: includeOutline,
-      include_worldbuilding: includeWorldbuilding,
+      include_characters: false,
+      include_outline: false,
+      include_worldbuilding: false,
       include_rhythm: includeRhythm,
       include_patterns: includePatterns,
       map_concurrency: mapConcurrency,
@@ -838,44 +832,6 @@ function DeconstructPage({ projectId }: DeconstructPageProps) {
     )
   }
 
-  const handleImport = async (target: 'outline' | 'characters' | 'worldbuilding' | 'all') => {
-    if (!finalResult) return
-    setImporting(target)
-    try {
-      const res = await apiClient.post<ApiResponse<{ outline_count: number; character_count: number }>>(
-        `/projects/${projectId}/deconstruct/${finalResult.id}/import`,
-        {
-          import_outline: target === 'outline' || target === 'all',
-          import_characters: target === 'characters' || target === 'all',
-          import_worldbuilding: target === 'worldbuilding' || target === 'all',
-        },
-      )
-      const payload = res.data.data as {
-        outline_count: number
-        character_count: number
-        worldbuilding_count?: number
-        relationship_count?: number
-        appearance_count?: number
-        timeline_count?: number
-        outline_character_link_count?: number
-        chapter_summary_count?: number
-        chapter_outline_link_count?: number
-        chapter_character_link_count?: number
-      }
-      message.success(
-        `已导入 ${payload.outline_count} 个大纲节点、${payload.character_count} 个角色、${payload.worldbuilding_count || 0} 条世界观，` +
-        `关系 ${payload.relationship_count || 0} 条、出场 ${payload.appearance_count || 0} 条、大纲关联 ${payload.outline_character_link_count || 0} 条，` +
-        `章节摘要 ${payload.chapter_summary_count || 0} 条、章节大纲关联 ${payload.chapter_outline_link_count || 0} 条、章节角色关联 ${payload.chapter_character_link_count || 0} 条`
-      )
-      fetchPreview()
-      fetchReports()
-    } catch (err: any) {
-      message.error(err.message || '导入拆书结果失败')
-    } finally {
-      setImporting(null)
-    }
-  }
-
   const setAllChapters = () => {
     setSelectedChapterIds((preview?.chapters || []).map((chapter) => chapter.id))
   }
@@ -1041,22 +997,13 @@ function DeconstructPage({ projectId }: DeconstructPageProps) {
                 type="info"
                 showIcon
                 message="拆书默认使用快速方案"
-                description="分块阶段只提取极简事实卡片，失败时优先修复JSON；自动合并阶段再生成角色档案、大纲、世界观等完整内容。"
+                description="分块阶段只提取极简读法事实卡片，失败时优先修复JSON；自动合并阶段只生成黄金三章、情节高光、节奏曲线和写作模式。角色、大纲、世界观请使用作品建档。"
               />
               <div>
                 <Text strong style={{ display: 'block', marginBottom: 8 }}>拆书内容</Text>
                 <Space wrap>
                   <Checkbox checked={includeGoldenThree} onChange={(event) => setIncludeGoldenThree(event.target.checked)}>
                     黄金三章
-                  </Checkbox>
-                  <Checkbox checked={includeCharacters} onChange={(event) => setIncludeCharacters(event.target.checked)}>
-                    角色档案
-                  </Checkbox>
-                  <Checkbox checked={includeOutline} onChange={(event) => setIncludeOutline(event.target.checked)}>
-                    大纲结构
-                  </Checkbox>
-                  <Checkbox checked={includeWorldbuilding} onChange={(event) => setIncludeWorldbuilding(event.target.checked)}>
-                    世界观
                   </Checkbox>
                   <Checkbox checked={includeRhythm} onChange={(event) => setIncludeRhythm(event.target.checked)}>
                     节奏曲线
@@ -1121,7 +1068,7 @@ function DeconstructPage({ projectId }: DeconstructPageProps) {
                   <Alert
                     type="info"
                     showIcon
-                    message="正在自动合并分块结果，生成完整拆书报告"
+                    message="正在自动合并分块结果，生成读法分析报告"
                     description={
                       reduceStreamText ? (
                         <pre style={{
@@ -1255,48 +1202,6 @@ function DeconstructPage({ projectId }: DeconstructPageProps) {
 
       {finalResult && (
         <>
-          <Card title="导入到当前作品" style={{ marginBottom: 16 }}>
-            <Space wrap>
-              <Button
-                icon={<NodeIndexOutlined />}
-                onClick={() => handleImport('outline')}
-                loading={importing === 'outline'}
-                disabled={!finalResult.structure?.volumes?.length}
-              >
-                导入大纲
-              </Button>
-              <Button
-                icon={<TeamOutlined />}
-                onClick={() => handleImport('characters')}
-                loading={importing === 'characters'}
-                disabled={(finalResult.characters || []).length === 0}
-              >
-                导入角色
-              </Button>
-              <Button
-                icon={<BulbOutlined />}
-                onClick={() => handleImport('worldbuilding')}
-                loading={importing === 'worldbuilding'}
-                disabled={(finalResult.worldbuilding_entries || []).length === 0}
-              >
-                导入世界观
-              </Button>
-              <Button
-                type="primary"
-                icon={<CheckOutlined />}
-                onClick={() => handleImport('all')}
-                loading={importing === 'all'}
-                disabled={
-                  !finalResult.structure?.volumes?.length &&
-                  (finalResult.characters || []).length === 0 &&
-                  (finalResult.worldbuilding_entries || []).length === 0
-                }
-              >
-                全部导入
-              </Button>
-            </Space>
-          </Card>
-
           {finalResult.golden_three && (
             <Card title="黄金三章分析" style={{ marginBottom: 16 }}>
               <Row gutter={[12, 12]}>
@@ -1350,40 +1255,6 @@ function DeconstructPage({ projectId }: DeconstructPageProps) {
             </Card>
           )}
 
-          {(finalResult.structure?.volumes || []).length > 0 && (
-            <Card title={<span><NodeIndexOutlined /> 大纲结构</span>} style={{ marginBottom: 16 }}>
-              <Collapse
-                size="small"
-                items={(finalResult.structure?.volumes || []).map((volume, volumeIndex) => ({
-                  key: `volume-${volumeIndex}`,
-                  label: `${volume.title || `第 ${volumeIndex + 1} 卷`}（${(volume.chapters || []).length} 章）`,
-                  children: (
-                    <Space direction="vertical" style={{ width: '100%' }}>
-                      {volume.summary && <Paragraph>{volume.summary}</Paragraph>}
-                      {(volume.chapters || []).map((chapter, chapterIndex) => (
-                        <div key={`${volumeIndex}-${chapterIndex}`} style={{ padding: 8, background: '#fafafa', borderRadius: 4 }}>
-                          <Space wrap size={4} style={{ marginBottom: 4 }}>
-                            <Text strong>{chapter.title}</Text>
-                            {(chapter.characters || []).map((name) => <Tag key={name}>{name}</Tag>)}
-                          </Space>
-                          <Paragraph style={{ marginBottom: 4 }}>{chapter.summary}</Paragraph>
-                          {(chapter.goal || chapter.conflict || chapter.outcome || chapter.hook) && (
-                            <Paragraph style={{ marginBottom: 0, fontSize: 12 }} type="secondary">
-                              {chapter.goal ? `目标：${chapter.goal} ` : ''}
-                              {chapter.conflict ? `冲突：${chapter.conflict} ` : ''}
-                              {chapter.outcome ? `结果：${chapter.outcome} ` : ''}
-                              {chapter.hook ? `钩子：${chapter.hook}` : ''}
-                            </Paragraph>
-                          )}
-                        </div>
-                      ))}
-                    </Space>
-                  ),
-                }))}
-              />
-            </Card>
-          )}
-
           <Card title={<span><NodeIndexOutlined /> 情节节点时序</span>} style={{ marginBottom: 16 }}>
             {plotTypeTimeline.length > 0 ? (
               <div style={{ position: 'relative', padding: '10px 0' }}>
@@ -1432,129 +1303,25 @@ function DeconstructPage({ projectId }: DeconstructPageProps) {
             )}
           </Card>
 
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col xs={24} lg={12}>
-              <Card title={<span><TeamOutlined /> 角色分析</span>} style={{ height: '100%' }}>
-                {(finalResult.characters || []).length > 0 ? (
-                  <div>
-                    {(finalResult.characters || []).map((character, index) => (
-                      <div key={index} style={{ marginBottom: 8, padding: 8, background: '#fafafa', borderRadius: 4 }}>
-                        <Space size={4} style={{ marginBottom: 4 }}>
-                          <Text strong>{character.name}</Text>
-                          <Tag>{character.role_type || character.role || '未知'}</Tag>
-                          <Tag color={IMPORTANCE_COLOR[character.importance]}>{character.importance === 'high' ? '主要' : character.importance === 'medium' ? '次要' : '龙套'}</Tag>
-                          <Tag>{character.mention_count ?? 0} 次提及</Tag>
-                        </Space>
-                        {character.appearance && <Paragraph style={{ marginBottom: 4, fontSize: 12 }}><Text type="secondary">外貌：</Text>{character.appearance}</Paragraph>}
-                        {character.personality && <Paragraph style={{ marginBottom: 4, fontSize: 12 }}><Text type="secondary">性格：</Text>{character.personality}</Paragraph>}
-                        {character.background && <Paragraph style={{ marginBottom: 4, fontSize: 12 }}><Text type="secondary">背景：</Text>{character.background}</Paragraph>}
-                        {character.speech_style && <Paragraph style={{ marginBottom: 4, fontSize: 12 }}><Text type="secondary">说话风格：</Text>{character.speech_style}</Paragraph>}
-                        {(character.abilities || []).length > 0 && (
-                          <div style={{ marginBottom: 4 }}>
-                            <Text type="secondary" style={{ fontSize: 12 }}>能力：</Text>
-                            {(character.abilities || []).map((ability) => <Tag key={ability}>{ability}</Tag>)}
-                          </div>
-                        )}
-                        {character.motivation && <Paragraph style={{ marginBottom: 4, fontSize: 12 }}><Text type="secondary">动机：</Text>{character.motivation}</Paragraph>}
-                        {character.conflict && <Paragraph style={{ marginBottom: 4, fontSize: 12 }}><Text type="secondary">冲突：</Text>{character.conflict}</Paragraph>}
-                        {((character.relationship_network || character.relationships || []).length > 0) && (
-                          <div style={{ marginBottom: 4 }}>
-                            <Text type="secondary" style={{ fontSize: 12 }}>关系：</Text>
-                            {(character.relationship_network || character.relationships || []).slice(0, 4).map((rel, relIndex) => (
-                              <Tag key={`${rel.target_name}-${relIndex}`}>{rel.target_name} · {rel.relationship_type}</Tag>
-                            ))}
-                          </div>
-                        )}
-                        {(character.appearance_records || []).length > 0 && (
-                          <Paragraph style={{ marginBottom: 4, fontSize: 12 }}>
-                            <Text type="secondary">出场：</Text>
-                            {(character.appearance_records || []).slice(0, 2).map((item) => item.chapter_title || item.summary).filter(Boolean).join(' / ')}
-                          </Paragraph>
-                        )}
-                        {character.ai_config?.custom_system_prompt && (
-                          <details style={{ marginBottom: 4 }}>
-                            <summary style={{ cursor: 'pointer', fontSize: 12, color: '#1677ff' }}>角色扮演提示词</summary>
-                            <pre style={{ maxHeight: 160, overflow: 'auto', fontSize: 11, whiteSpace: 'pre-wrap', background: '#fff', padding: 8 }}>
-                              {character.ai_config.custom_system_prompt}
-                            </pre>
-                          </details>
-                        )}
-                        {character.arc_description && <Paragraph style={{ marginBottom: 0, fontSize: 12 }} type="secondary">{character.arc_description}</Paragraph>}
-                      </div>
-                    ))}
+          <Card title={<span><RiseOutlined /> 爽点/爆点分布</span>} style={{ marginBottom: 16 }}>
+            {(finalResult.highlights || []).length > 0 ? (
+              <div>
+                {(finalResult.highlights || []).map((highlight, index) => (
+                  <div key={index} style={{ marginBottom: 6, padding: '6px 10px', borderRadius: 4, borderLeft: `3px solid ${INTENSITY_COLOR[highlight.intensity] || '#999'}` }}>
+                    <Space size={4} style={{ marginBottom: 2 }}>
+                      <Tag color={highlight.type === 'climax' ? 'red' : highlight.type === 'reveal' ? 'blue' : highlight.type === 'emotional' ? 'orange' : 'purple'}>
+                        {highlight.type === 'climax' ? '高潮' : highlight.type === 'reveal' ? '揭示' : highlight.type === 'emotional' ? '情感' : '动作'}
+                      </Tag>
+                      <Tag>{highlight.intensity === 'high' ? '强' : highlight.intensity === 'medium' ? '中' : '弱'}</Tag>
+                    </Space>
+                    <Paragraph style={{ marginBottom: 0, fontSize: 12 }}>{highlight.description}</Paragraph>
                   </div>
-                ) : (
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未识别到角色" />
-                )}
-              </Card>
-            </Col>
-            <Col xs={24} lg={12}>
-              <Card title={<span><RiseOutlined /> 爽点/爆点分布</span>} style={{ height: '100%' }}>
-                {(finalResult.highlights || []).length > 0 ? (
-                  <div>
-                    {(finalResult.highlights || []).map((highlight, index) => (
-                      <div key={index} style={{ marginBottom: 6, padding: '6px 10px', borderRadius: 4, borderLeft: `3px solid ${INTENSITY_COLOR[highlight.intensity] || '#999'}` }}>
-                        <Space size={4} style={{ marginBottom: 2 }}>
-                          <Tag color={highlight.type === 'climax' ? 'red' : highlight.type === 'reveal' ? 'blue' : highlight.type === 'emotional' ? 'orange' : 'purple'}>
-                            {highlight.type === 'climax' ? '高潮' : highlight.type === 'reveal' ? '揭示' : highlight.type === 'emotional' ? '情感' : '动作'}
-                          </Tag>
-                          <Tag>{highlight.intensity === 'high' ? '强' : highlight.intensity === 'medium' ? '中' : '弱'}</Tag>
-                        </Space>
-                        <Paragraph style={{ marginBottom: 0, fontSize: 12 }}>{highlight.description}</Paragraph>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未识别到爽点/爆点" />
-                )}
-              </Card>
-            </Col>
-          </Row>
-
-          {(finalResult.worldbuilding_entries || []).length > 0 && (
-            <Card title={<span><BulbOutlined /> 世界观条目</span>} style={{ marginBottom: 16 }}>
-              <Row gutter={[12, 12]}>
-                {(finalResult.worldbuilding_entries || []).map((entry, index) => {
-                  const dimensionLabel: Record<string, string> = {
-                    geography: '地理',
-                    history: '历史',
-                    factions: '势力',
-                    power_system: '规则体系',
-                    races: '种族',
-                    culture: '文化',
-                  }
-                  return (
-                    <Col xs={24} md={12} key={`${entry.dimension}-${entry.title}-${index}`}>
-                      <div style={{ padding: 12, border: '1px solid #f0f0f0', borderRadius: 6, height: '100%' }}>
-                        <Space size={6} wrap style={{ marginBottom: 6 }}>
-                          <Tag color="purple">{dimensionLabel[entry.dimension] || entry.dimension}</Tag>
-                          <Text strong>{entry.title}</Text>
-                        </Space>
-                        <Paragraph style={{ whiteSpace: 'pre-wrap' }}>{entry.content}</Paragraph>
-                        {(entry.related_characters || []).length > 0 && (
-                          <div style={{ marginBottom: 4 }}>
-                            <Text type="secondary">相关角色：</Text>
-                            {(entry.related_characters || []).map((name) => <Tag key={name}>{name}</Tag>)}
-                          </div>
-                        )}
-                        {entry.plot_usage && (
-                          <Paragraph style={{ marginBottom: 4 }}>
-                            <Text type="secondary">剧情用途：</Text>{entry.plot_usage}
-                          </Paragraph>
-                        )}
-                        {(entry.constraints || []).length > 0 && (
-                          <div>
-                            <Text type="secondary">限制：</Text>
-                            {(entry.constraints || []).map((item, itemIndex) => <Tag key={`${item}-${itemIndex}`}>{item}</Tag>)}
-                          </div>
-                        )}
-                      </div>
-                    </Col>
-                  )
-                })}
-              </Row>
-            </Card>
-          )}
+                ))}
+              </div>
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未识别到爽点/爆点" />
+            )}
+          </Card>
 
           {finalResult.rhythm_curve && finalResult.rhythm_curve.length > 0 && (
             <Card title={<span><FieldTimeOutlined /> 叙事节奏曲线</span>} style={{ marginBottom: 16 }}>

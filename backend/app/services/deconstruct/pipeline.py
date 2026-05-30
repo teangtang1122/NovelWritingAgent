@@ -421,13 +421,7 @@ def default_reduce_result(options: dict) -> dict:
 
 
 def reduce_section_keys(options: dict) -> list[str]:
-    keys = []
-    if options.get("outline"):
-        keys.append("outline")
-    if options.get("characters"):
-        keys.append("characters")
-    if options.get("worldbuilding"):
-        keys.append("worldbuilding")
+    keys = ["plot_highlights"]
     if options.get("rhythm") or options.get("patterns"):
         keys.append("rhythm_patterns")
     if options.get("golden_three"):
@@ -436,7 +430,10 @@ def reduce_section_keys(options: dict) -> list[str]:
 
 
 def merge_reduce_section(target: dict, section_key: str, section_data: dict, options: dict) -> None:
-    if section_key == "outline":
+    if section_key == "plot_highlights":
+        target["plot_nodes"] = section_data.get("plot_nodes") or []
+        target["highlights"] = section_data.get("highlights") or []
+    elif section_key == "outline":
         target["structure"] = section_data.get("structure") or target["structure"]
         target["plot_nodes"] = section_data.get("plot_nodes") or []
         target["highlights"] = section_data.get("highlights") or []
@@ -450,13 +447,13 @@ def merge_reduce_section(target: dict, section_key: str, section_data: dict, opt
     elif section_key == "golden_three":
         target["golden_three"] = section_data.get("golden_three")
 
-    if section_data.get("structure") and not target["structure"].get("volumes"):
+    if options.get("outline") and section_data.get("structure") and not target["structure"].get("volumes"):
         target["structure"] = section_data.get("structure")
     if section_data.get("plot_nodes") and not target["plot_nodes"]:
         target["plot_nodes"] = section_data.get("plot_nodes")
-    if section_data.get("characters") and not target["characters"]:
+    if options.get("characters") and section_data.get("characters") and not target["characters"]:
         target["characters"] = section_data.get("characters")
-    if section_data.get("worldbuilding_entries") and not target["worldbuilding_entries"]:
+    if options.get("worldbuilding") and section_data.get("worldbuilding_entries") and not target["worldbuilding_entries"]:
         target["worldbuilding_entries"] = section_data.get("worldbuilding_entries")
     if section_data.get("highlights") and not target["highlights"]:
         target["highlights"] = section_data.get("highlights")
