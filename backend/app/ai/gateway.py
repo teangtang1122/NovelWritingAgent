@@ -98,9 +98,11 @@ class LLMGateway:
     @staticmethod
     def _get_adapter(provider: str) -> type[BaseAdapter]:
         adapter_cls = ADAPTER_MAP.get(provider)
-        if not adapter_cls:
-            raise LLMError(f"不支持的模型提供商: {provider}")
-        return adapter_cls
+        if adapter_cls:
+            return adapter_cls
+        # Unknown providers are user-defined OpenAI-compatible endpoints. The
+        # config layer requires a custom base URL before they can be saved.
+        return OpenAIAdapter
 
     @staticmethod
     def _load_config(provider: str) -> APIConfig:

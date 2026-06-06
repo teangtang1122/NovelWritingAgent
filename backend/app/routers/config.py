@@ -68,7 +68,19 @@ def _resolve_base_url(provider: str, base_url_override: str | None) -> str:
     """Return the effective base URL for a provider."""
     if base_url_override:
         return base_url_override.rstrip("/")
+    if provider not in PROVIDER_DEFAULT_BASE_URLS:
+        raise ValidationError("自定义 OpenAI 兼容提供商必须填写自定义 API 端点")
     return PROVIDER_DEFAULT_BASE_URLS[provider]
+
+
+def _provider_label(provider: str) -> str:
+    """Return a user-facing provider label."""
+    return PROVIDER_LABELS.get(provider, provider)
+
+
+def _is_anthropic_provider(provider: str) -> bool:
+    """Anthropic is the only non-OpenAI-compatible provider family today."""
+    return provider == "anthropic"
 
 
 def _normalize_model_for_provider(provider: str, model: str, *, strict: bool = True) -> str:
@@ -147,10 +159,9 @@ def list_model_configs(db: Session = Depends(get_db)):
 @router.post("/config/models")
 def create_or_update_model_config(payload: APIConfigCreate, db: Session = Depends(get_db)):
     """Add or update an API config (encrypts API Key before storage)."""
-    # Validate provider
-    valid_providers = {"openai", "anthropic", "deepseek", "qwen", "gemini"}
-    if payload.provider not in valid_providers:
-        raise ValidationError(f"不支持的提供商: {payload.provider}，支持: {', '.join(valid_providers)}")
+    # Known providers can use built-in endpoints. Unknown providers are treated
+    # as OpenAI-compatible and must provide a base URL.
+    _resolve_base_url(payload.provider, payload.base_url_override)
 
     default_model = _normalize_model_for_provider(payload.provider, payload.default_model)
     existing = db.query(APIConfig).filter(APIConfig.provider == payload.provider).first()
@@ -213,11 +224,11 @@ async def _list_openai_compatible_models(api_key: str, base_url: str, provider: 
         models.sort(key=lambda x: x["id"])
         return models[:100]
     except OpenAIAuthError:
-        raise LLMError(f"{PROVIDER_LABELS.get(provider, provider)} API Key 无效，请检查后重试")
+        raise LLMError(f"{_provider_label(provider)} API Key 无效，请检查后重试")
     except OpenAIConnectionError:
-        raise LLMError(f"无法连接到 {PROVIDER_LABELS.get(provider, provider)} 服务器，请检查网络或自定义端点地址")
+        raise LLMError(f"无法连接到 {_provider_label(provider)} 服务器，请检查网络或自定义端点地址")
     except OpenAIAPIError as e:
-        raise LLMError(f"{PROVIDER_LABELS.get(provider, provider)} API 返回错误: {e}")
+        raise LLMError(f"{_provider_label(provider)} API 返回错误: {e}")
     except asyncio.TimeoutError:
         raise LLMError("请求超时，请稍后重试")
 
@@ -252,12 +263,9 @@ async def _list_anthropic_models(api_key: str, base_url: str) -> list[dict]:
 @router.post("/config/models/list")
 async def list_provider_models(payload: ModelListRequest):
     """Fetch available models from a provider using the given API key."""
-    if payload.provider not in PROVIDER_DEFAULT_BASE_URLS:
-        raise ValidationError(f"不支持的提供商: {payload.provider}")
-
     base_url = _resolve_base_url(payload.provider, payload.base_url_override)
 
-    if payload.provider == "anthropic":
+    if _is_anthropic_provider(payload.provider):
         models = await _list_anthropic_models(payload.api_key, base_url)
     else:
         models = await _list_openai_compatible_models(payload.api_key, base_url, payload.provider)
@@ -269,13 +277,10 @@ async def list_provider_models(payload: ModelListRequest):
 @router.post("/config/models/test")
 async def test_connection(payload: ConnectionTestRequest):
     """Test API connection with the given credentials."""
-    if payload.provider not in PROVIDER_DEFAULT_BASE_URLS:
-        raise ValidationError(f"不支持的提供商: {payload.provider}")
-
     base_url = _resolve_base_url(payload.provider, payload.base_url_override)
 
     try:
-        if payload.provider == "anthropic":
+        if _is_anthropic_provider(payload.provider):
             url = f"{base_url}/v1/models"
             headers = {"x-api-key": payload.api_key, "anthropic-version": "2023-06-01"}
             async with httpx.AsyncClient(timeout=15) as http:
@@ -287,17 +292,17 @@ async def test_connection(payload: ConnectionTestRequest):
             client = AsyncOpenAI(api_key=payload.api_key, base_url=base_url)
             await asyncio.wait_for(client.models.list(), timeout=15)
 
-        label = PROVIDER_LABELS.get(payload.provider, payload.provider)
+        label = _provider_label(payload.provider)
         return ApiResponse.success(message=f"{label} 连接成功，API Key 有效")
 
     except OpenAIAuthError:
-        label = PROVIDER_LABELS.get(payload.provider, payload.provider)
+        label = _provider_label(payload.provider)
         raise LLMError(f"{label} API Key 无效，请检查后重试")
     except OpenAIConnectionError:
-        label = PROVIDER_LABELS.get(payload.provider, payload.provider)
+        label = _provider_label(payload.provider)
         raise LLMError(f"无法连接到 {label} 服务器，请检查网络或自定义端点地址")
     except OpenAIAPIError as e:
-        label = PROVIDER_LABELS.get(payload.provider, payload.provider)
+        label = _provider_label(payload.provider)
         raise LLMError(f"{label} API 返回错误: {e}")
     except httpx.ConnectError:
         raise LLMError("无法连接到 Anthropic 服务器，请检查网络或自定义端点地址")

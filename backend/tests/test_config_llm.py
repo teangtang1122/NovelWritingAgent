@@ -18,6 +18,7 @@ Covers:
 
   Adapters:
     - OpenAI, Anthropic Claude, DeepSeek, 通义千问, Gemini
+    - User-defined OpenAI-compatible providers
 
   Crypto:
     - Encrypt/decrypt roundtrip
@@ -223,11 +224,15 @@ class TestAPIConfigCreateAPI(unittest.TestCase):
             ("deepseek", "sk-deepseek-xxx", "deepseek-v4-flash"),
             ("qwen", "sk-qwen-xxx", "qwen-max"),
             ("gemini", "sk-gemini-xxx", "gemini-2.5-flash"),
+            ("openrouter", "sk-openrouter-xxx", "openai/gpt-4o-mini"),
         ]
         for provider, key, model in providers:
+            payload = {"provider": provider, "api_key": key, "default_model": model}
+            if provider == "openrouter":
+                payload["base_url_override"] = "https://openrouter.example.test/v1"
             response = self.client.post(
                 f"{API_PREFIX}/config/models",
-                json={"provider": provider, "api_key": key, "default_model": model},
+                json=payload,
             )
             self.assertEqual(response.status_code, 200,
                              f"Failed to create config for {provider}")
@@ -235,7 +240,7 @@ class TestAPIConfigCreateAPI(unittest.TestCase):
 
         # Verify all providers exist
         list_resp = self.client.get(f"{API_PREFIX}/config/models")
-        self.assertEqual(list_resp.json()["data"]["total"], 5)
+        self.assertEqual(list_resp.json()["data"]["total"], 6)
 
     # ------------------------------------------------------------------
     # TC-07: Update existing config (re-add same provider)
@@ -266,18 +271,35 @@ class TestAPIConfigCreateAPI(unittest.TestCase):
         self.assertEqual(list_resp.json()["data"]["total"], 1)
 
     # ------------------------------------------------------------------
-    # TC-08: Create with unsupported provider
+    # TC-08: Create custom provider without base URL
     # ------------------------------------------------------------------
-    def test_create_unsupported_provider(self):
-        """POST /config/models with unsupported provider returns validation error."""
+    def test_create_custom_provider_requires_base_url(self):
+        """POST /config/models requires base_url_override for custom providers."""
         response = self.client.post(
             f"{API_PREFIX}/config/models",
-            json={"provider": "unsupported_provider", "api_key": "sk-xxx", "default_model": "model-x"},
+            json={"provider": "openrouter", "api_key": "sk-xxx", "default_model": "openai/gpt-4o-mini"},
         )
         self.assertEqual(response.status_code, 400)
         body = response.json()
         self.assertEqual(body["code"], 400)
-        self.assertIn("不支持的提供商", body["message"])
+        self.assertIn("自定义 OpenAI 兼容提供商必须填写自定义 API 端点", body["message"])
+
+    def test_create_custom_openai_compatible_provider(self):
+        """POST /config/models accepts custom OpenAI-compatible providers with a base URL."""
+        response = self.client.post(
+            f"{API_PREFIX}/config/models",
+            json={
+                "provider": "openrouter",
+                "api_key": "sk-openrouter",
+                "default_model": "openai/gpt-4o-mini",
+                "base_url_override": "https://openrouter.example.test/v1",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["provider"], "openrouter")
+        self.assertEqual(data["default_model"], "openai/gpt-4o-mini")
+        self.assertEqual(data["base_url_override"], "https://openrouter.example.test/v1")
 
     # ------------------------------------------------------------------
     # TC-09: Create with missing required fields
@@ -968,14 +990,12 @@ class TestLLMGatewayModelParsing(unittest.TestCase):
         self.assertEqual(adapter_cls.__name__, "GeminiAdapter")
 
     # ------------------------------------------------------------------
-    # TC-35: Get adapter for unsupported provider
+    # TC-35: Get adapter for user-defined OpenAI-compatible provider
     # ------------------------------------------------------------------
-    def test_get_adapter_unsupported(self):
-        """_get_adapter raises LLMError for unsupported provider."""
-        from app.core.exceptions import LLMError
-        with self.assertRaises(LLMError) as ctx:
-            LLMGateway._get_adapter("unsupported")
-        self.assertIn("不支持的模型提供商", str(ctx.exception))
+    def test_get_adapter_custom_provider(self):
+        """_get_adapter uses OpenAIAdapter for custom OpenAI-compatible providers."""
+        adapter_cls = LLMGateway._get_adapter("openrouter")
+        self.assertEqual(adapter_cls.__name__, "OpenAIAdapter")
 
     # ------------------------------------------------------------------
     # TC-36: Load config for non-existent provider
@@ -1126,10 +1146,10 @@ class TestLLMGatewayChatCompletion(unittest.TestCase):
         self.assertIn("未配置全局默认模型", body["message"])
 
     # ------------------------------------------------------------------
-    # TC-41: Chat completion with unsupported provider fails
+    # TC-41: Chat completion with unconfigured custom provider fails
     # ------------------------------------------------------------------
-    def test_chat_completion_unsupported_provider(self):
-        """POST /chat/completion with unsupported provider returns error."""
+    def test_chat_completion_unconfigured_custom_provider(self):
+        """POST /chat/completion with an unconfigured provider returns error."""
         response = self.client.post(
             f"{API_PREFIX}/chat/completion",
             json={
@@ -1138,6 +1158,44 @@ class TestLLMGatewayChatCompletion(unittest.TestCase):
             },
         )
         self.assertEqual(response.status_code, 502)
+
+    @patch("app.ai.openai_adapter.AsyncOpenAI")
+    def test_chat_completion_custom_openai_compatible_provider(self, mock_openai):
+        """Configured custom providers use the OpenAI-compatible adapter and base URL."""
+        self.client.post(
+            f"{API_PREFIX}/config/models",
+            json={
+                "provider": "openrouter",
+                "api_key": "sk-openrouter",
+                "default_model": "openai/gpt-4o-mini",
+                "base_url_override": "https://openrouter.example.test/v1",
+            },
+        )
+
+        mock_client = MagicMock()
+        mock_completion = MagicMock()
+        mock_choice = MagicMock()
+        mock_choice.message.content = "custom provider reply"
+        mock_choice.message.tool_calls = None
+        mock_completion.choices = [mock_choice]
+        mock_completion.model = "openai/gpt-4o-mini"
+        mock_completion.usage = None
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_completion)
+        mock_openai.return_value = mock_client
+
+        response = self.client.post(
+            f"{API_PREFIX}/chat/completion",
+            json={
+                "messages": [{"role": "user", "content": "测试"}],
+                "model": "openrouter:openai/gpt-4o-mini",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["content"], "custom provider reply")
+        mock_openai.assert_called_with(
+            api_key="sk-openrouter",
+            base_url="https://openrouter.example.test/v1",
+        )
 
     # ------------------------------------------------------------------
     # TC-42: Chat completion validation — missing messages

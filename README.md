@@ -72,6 +72,19 @@
 
 项目记忆会保存用户偏好、写作风格、工作流偏好和项目事实。质量模式下，Plan Agent 也会读取相关记忆。
 
+### 模型供应商
+
+系统设置中可以配置多个模型供应商。目前内置支持 OpenAI、Anthropic Claude、DeepSeek、通义千问和 Google Gemini。
+
+如果新的供应商提供 OpenAI-compatible API，可以在系统设置中选择“自定义 OpenAI 兼容”，填写：
+
+- 提供商标识，如 `openrouter`、`siliconflow`、`moonshot`
+- API Key
+- 默认模型名
+- API 端点，如 `https://api.example.com/v1`
+
+自定义供应商会使用 OpenAI-compatible 调用方式，因此适合接入兼容 `/v1/chat/completions` 和 `/v1/models` 的服务。
+
 ### 风格与禁用句式
 
 项目可以配置：
@@ -95,25 +108,124 @@
 - 做拆书分析、资料整理、角色关系管理和世界观维护。
 - 给不同作品配置不同的技能提示词和写作偏好。
 
+## 开发环境依赖
+
+如果只是运行已经打包好的 `Moshu.exe`，不需要安装下面这些开发依赖。
+
+如果要从源码启动、测试或打包，需要先安装：
+
+- Git，用于拉取代码和发布版本。
+- Python 3.11 或更高版本。Windows 安装 Python 时建议勾选 `py launcher`。
+- Node.js 20 LTS 或更高版本，内含 npm。
+- PowerShell，用于运行本项目的 Windows 启动和打包脚本。
+
+可以先检查本机是否已经安装：
+
+```powershell
+git --version
+py --version
+python --version
+node --version
+npm --version
+```
+
+如果 `python --version` 不可用，但 `py --version` 可用，下面所有 `python` 命令都可以改成 `py`，或直接使用虚拟环境里的 `.\.venv\Scripts\python.exe`。
+
+后端直接依赖写在 `backend\requirements.txt` 中，首次运行会安装：
+
+- `fastapi`
+- `uvicorn[standard]`
+- `sqlalchemy`
+- `alembic`
+- `pydantic`
+- `pydantic-settings`
+- `cryptography`
+- `python-multipart`
+- `aiohttp`
+- `httpx`
+- `openai`
+- `anthropic`
+- `python-dotenv`
+- `python-docx`
+- `ddgs`
+
+前端直接依赖写在 `frontend\package.json` 中，首次运行会安装：
+
+- 运行依赖：`react`、`react-dom`、`react-router-dom`、`antd`、`@ant-design/icons`、`axios`、`zustand`、`@tiptap/react`、`@tiptap/starter-kit`、`@tiptap/extension-placeholder`、`vis-data`、`vis-network`
+- 开发和测试依赖：`vite`、`typescript`、`vitest`、`jsdom`、`@vitejs/plugin-react`、`@testing-library/react`、`@testing-library/jest-dom`、`@testing-library/user-event`、`@types/react`、`@types/react-dom`
+
 ## 本地开发
 
-后端：
+首次运行需要先安装后端依赖：
 
 ```powershell
 cd backend
 python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
-$env:PYTHONPATH='.'
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-前端：
+如果默认 PyPI 下载很慢，可以临时使用国内镜像：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com -r requirements.txt
+```
+
+启动后端：
+
+```powershell
+$env:PYTHONPATH='.'
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+前端建议新开一个终端，在项目根目录运行。首次运行需要先安装前端依赖：
 
 ```powershell
 cd frontend
 npm install
+```
+
+启动前端：
+
+```powershell
 npm run dev
 ```
+
+## 参与贡献
+
+欢迎通过 Issue 和 Pull Request 参与改进。建议先从 `main` 拉取最新代码，再为每个改动创建独立分支：
+
+```powershell
+git checkout main
+git pull
+git checkout -b feature/your-change
+```
+
+贡献前请先按「开发环境依赖」和「本地开发」完成本地启动。改动时尽量保持范围清晰：
+
+- Bug 修复请说明复现步骤、原因和修复方式。
+- 新功能请说明使用场景、主要交互和涉及的后端/前端模块。
+- 文案、提示词、模型适配和数据迁移类改动，请在 PR 中写清楚影响范围。
+- 不要提交 `.env`、API Key、本地数据库、`.crypto_key`、`.venv`、`node_modules`、`frontend\dist`、`.build`、`release`、`artifacts` 等本地文件或构建产物。
+
+提交前建议至少运行相关检查：
+
+```powershell
+# 后端测试。pytest 当前是测试工具依赖，如本机未安装，请先在后端虚拟环境中安装。
+cd backend
+.\.venv\Scripts\python.exe -m pip install pytest
+.\.venv\Scripts\python.exe -m pytest
+```
+
+前端构建和测试建议新开终端，在项目根目录运行：
+
+```powershell
+cd frontend
+npm run build
+npm exec vitest -- run
+```
+
+如果只改了 README 或发布文档，可以在 PR 中说明未运行代码测试的原因。
 
 ## 打包 Windows 可执行程序
 
@@ -194,7 +306,7 @@ gh auth login
 
 ```powershell
 .\build-exe.bat
-.\scripts\publish-github.ps1 -Tag v1.3.6
+.\scripts\publish-github.ps1 -Tag v1.3.7
 ```
 
 发布脚本会提交当前改动、推送到 `main`，创建或更新 GitHub Release，并上传 exe、sha256 和 update manifest。

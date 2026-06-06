@@ -65,7 +65,11 @@ const PROVIDER_OPTIONS = [
   { value: 'deepseek', label: 'DeepSeek（v4-pro / v4-flash）' },
   { value: 'qwen', label: '通义千问' },
   { value: 'gemini', label: 'Google Gemini' },
+  { value: '__custom_openai_compatible__', label: '自定义 OpenAI 兼容' },
 ]
+
+const CUSTOM_PROVIDER_VALUE = '__custom_openai_compatible__'
+const PROVIDER_ID_PATTERN = /^[A-Za-z0-9_-]+$/
 
 const PROVIDER_LABEL_MAP: Record<string, string> = {
   openai: 'OpenAI',
@@ -82,6 +86,24 @@ const PROVIDER_COLOR_MAP: Record<string, string> = {
   qwen: 'orange',
   gemini: 'cyan',
 }
+
+const providerLabel = (provider?: string | null) => {
+  if (!provider) return ''
+  return PROVIDER_LABEL_MAP[provider] || provider
+}
+
+const providerColor = (provider?: string | null) => {
+  if (!provider) return 'default'
+  return PROVIDER_COLOR_MAP[provider] || 'default'
+}
+
+const isCustomProviderSelection = (provider?: string) => provider === CUSTOM_PROVIDER_VALUE
+
+const resolveProviderForSubmit = (values: any) => (
+  isCustomProviderSelection(values.provider)
+    ? String(values.custom_provider || '').trim()
+    : values.provider
+)
 
 const DEEPSEEK_MODEL_OPTIONS: ModelOption[] = [
   { id: 'deepseek-v4-pro', display_name: 'deepseek-v4-pro' },
@@ -230,9 +252,11 @@ function SettingsPage() {
       if (cfg) {
         setEditingProvider(provider)
         const defaultModel = normalizeDefaultModel(cfg.provider, cfg.default_model)
+        const isKnownProvider = Boolean(PROVIDER_LABEL_MAP[cfg.provider])
         setModelOptions(fallbackModelOptions(cfg.provider))
         form.setFieldsValue({
-          provider: cfg.provider,
+          provider: isKnownProvider ? cfg.provider : CUSTOM_PROVIDER_VALUE,
+          custom_provider: isKnownProvider ? undefined : cfg.provider,
           default_model: defaultModel,
           base_url_override: cfg.base_url_override || '',
           api_key: '',
@@ -251,13 +275,27 @@ function SettingsPage() {
 
   const handleSubmit = async (values: any) => {
     try {
-      const defaultModel = normalizeDefaultModel(values.provider, values.default_model)
-      if (values.provider === 'deepseek' && !isDeepSeekModelSupported(defaultModel)) {
+      const provider = resolveProviderForSubmit(values)
+      if (!provider) {
+        message.error('请填写自定义提供商标识')
+        return
+      }
+      if (!PROVIDER_ID_PATTERN.test(provider)) {
+        message.error('提供商标识只能包含字母、数字、下划线和短横线')
+        return
+      }
+      if (isCustomProviderSelection(values.provider) && !values.base_url_override) {
+        message.error('自定义 OpenAI 兼容提供商必须填写 API 端点')
+        return
+      }
+
+      const defaultModel = normalizeDefaultModel(provider, values.default_model)
+      if (provider === 'deepseek' && !isDeepSeekModelSupported(defaultModel)) {
         message.error('DeepSeek 当前支持 deepseek-v4-pro 或 deepseek-v4-flash，请重新选择')
         return
       }
       await apiClient.post('/config/models', {
-        provider: values.provider,
+        provider,
         api_key: values.api_key,
         default_model: defaultModel,
         base_url_override: values.base_url_override || null,
@@ -277,7 +315,7 @@ function SettingsPage() {
   const handleDelete = async (provider: string) => {
     Modal.confirm({
       title: '确认删除',
-      content: `确定要删除 ${PROVIDER_LABEL_MAP[provider] || provider} 的配置吗？`,
+      content: `确定要删除 ${providerLabel(provider)} 的配置吗？`,
       okText: '删除',
       okType: 'danger',
       onOk: async () => {
@@ -294,9 +332,14 @@ function SettingsPage() {
   }
 
   const fetchModels = async () => {
-    const provider = form.getFieldValue('provider')
+    const provider = resolveProviderForSubmit(form.getFieldsValue())
     const apiKey = form.getFieldValue('api_key')
     if (!provider) return
+    const baseUrl = form.getFieldValue('base_url_override') || undefined
+    if (!PROVIDER_LABEL_MAP[provider] && !baseUrl) {
+      setModelOptions([])
+      return
+    }
     if (!apiKey) {
       setModelOptions(fallbackModelOptions(provider))
       return
@@ -305,7 +348,6 @@ function SettingsPage() {
     setModelsLoading(true)
     setModelOptions(fallbackModelOptions(provider))
     try {
-      const baseUrl = form.getFieldValue('base_url_override') || undefined
       const res = await apiClient.post<{ code: number; data: { models: ModelOption[] } }>(
         '/config/models/list',
         { provider, api_key: apiKey, base_url_override: baseUrl }
@@ -319,17 +361,22 @@ function SettingsPage() {
   }
 
   const testConnection = async () => {
-    const provider = form.getFieldValue('provider')
+    const values = form.getFieldsValue()
+    const provider = resolveProviderForSubmit(values)
     const apiKey = form.getFieldValue('api_key')
     if (!provider || !apiKey) {
       message.warning('请先选择提供商并输入 API Key')
+      return
+    }
+    const baseUrl = form.getFieldValue('base_url_override') || undefined
+    if (!PROVIDER_LABEL_MAP[provider] && !baseUrl) {
+      message.warning('自定义 OpenAI 兼容提供商必须填写 API 端点')
       return
     }
 
     setTestingConnection(true)
     setConnectionTestResult(null)
     try {
-      const baseUrl = form.getFieldValue('base_url_override') || undefined
       await apiClient.post('/config/models/test', {
         provider,
         api_key: apiKey,
@@ -363,7 +410,7 @@ function SettingsPage() {
       dataIndex: 'provider',
       key: 'provider',
       render: (v: string) => (
-        <Tag color={PROVIDER_COLOR_MAP[v] || 'default'}>{PROVIDER_LABEL_MAP[v] || v}</Tag>
+        <Tag color={providerColor(v)}>{providerLabel(v)}</Tag>
       ),
     },
     {
@@ -429,7 +476,7 @@ function SettingsPage() {
 
   const availableProvidersForGlobal = configs.map((c) => ({
     value: c.provider,
-    label: PROVIDER_LABEL_MAP[c.provider] || c.provider,
+    label: providerLabel(c.provider),
     model: c.default_model,
   }))
 
@@ -437,7 +484,7 @@ function SettingsPage() {
     .filter((c) => !globalSelectedProvider || c.provider === globalSelectedProvider)
     .map((c) => ({
       value: normalizeDefaultModel(c.provider, c.default_model),
-      label: `${PROVIDER_LABEL_MAP[c.provider] || c.provider} · ${normalizeDefaultModel(c.provider, c.default_model)}`,
+      label: `${providerLabel(c.provider)} · ${normalizeDefaultModel(c.provider, c.default_model)}`,
     }))
 
   const defaultModelOptions = modelOptions.length > 0 ? modelOptions : fallbackModelOptions(modalProvider)
@@ -482,8 +529,8 @@ function SettingsPage() {
         {globalModel.provider ? (
           <Descriptions size="small" column={2} bordered>
             <Descriptions.Item label="当前全局默认提供商">
-              <Tag color={PROVIDER_COLOR_MAP[globalModel.provider] || 'default'}>
-                {PROVIDER_LABEL_MAP[globalModel.provider] || globalModel.provider}
+              <Tag color={providerColor(globalModel.provider)}>
+                {providerLabel(globalModel.provider)}
               </Tag>
             </Descriptions.Item>
             <Descriptions.Item label="当前全局默认模型">
@@ -539,7 +586,7 @@ function SettingsPage() {
       </Card>
 
       <Modal
-        title={editingProvider ? `编辑 ${PROVIDER_LABEL_MAP[editingProvider] || editingProvider} 配置` : '添加模型配置'}
+        title={editingProvider ? `编辑 ${providerLabel(editingProvider)} 配置` : '添加模型配置'}
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={() => form.submit()}
@@ -563,7 +610,7 @@ function SettingsPage() {
                 const fallback = fallbackModelOptions(provider)
                 setModelOptions(fallback)
                 setConnectionTestResult(null)
-                const nextModel = fallback[0]?.id
+                const nextModel = isCustomProviderSelection(provider) ? undefined : fallback[0]?.id
                 form.setFieldValue('default_model', nextModel)
                 form.setFieldsValue(defaultSafetyLimits(provider, nextModel))
                 if (form.getFieldValue('api_key')) {
@@ -573,6 +620,31 @@ function SettingsPage() {
               options={PROVIDER_OPTIONS}
             />
           </Form.Item>
+
+          {isCustomProviderSelection(modalProvider) && (
+            <Form.Item
+              name="custom_provider"
+              label="自定义提供商标识"
+              extra="用于保存和选择模型，例如 openrouter、siliconflow、moonshot。只能包含字母、数字、下划线和短横线。"
+              rules={[
+                { required: true, message: '请填写自定义提供商标识' },
+                {
+                  pattern: PROVIDER_ID_PATTERN,
+                  message: '只能包含字母、数字、下划线和短横线',
+                },
+              ]}
+            >
+              <Input
+                disabled={!!editingProvider}
+                placeholder="例如 openrouter"
+                onBlur={() => {
+                  if (form.getFieldValue('api_key')) {
+                    fetchModels()
+                  }
+                }}
+              />
+            </Form.Item>
+          )}
 
           <Form.Item
             name="api_key"
@@ -621,35 +693,45 @@ function SettingsPage() {
             label="默认模型"
             rules={[{ required: true, message: '请选择默认模型名' }]}
           >
-            <Select
-              showSearch
-              loading={modelsLoading}
-              placeholder={
-                modelsLoading
-                  ? '正在获取模型列表...'
-                  : defaultModelOptions.length > 0
-                  ? '选择模型名'
-                  : '请先输入 API Key 以获取模型列表'
-              }
-              notFoundContent={
-                modelsLoading
-                  ? '加载中...'
-                  : form.getFieldValue('api_key')
-                  ? '未找到模型'
-                  : '请先输入 API Key'
-              }
-              filterOption={(input, option) =>
-                (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
-              }
-              onChange={(modelName) => {
-                const provider = form.getFieldValue('provider')
-                form.setFieldsValue(defaultSafetyLimits(provider, modelName))
-              }}
-              options={defaultModelOptions.map((m) => ({
-                value: m.id,
-                label: m.display_name || m.id,
-              }))}
-            />
+            {isCustomProviderSelection(modalProvider) && defaultModelOptions.length === 0 ? (
+              <Input
+                placeholder="例如 openai/gpt-4o-mini 或 vendor-model-name"
+                onChange={(event) => {
+                  const provider = resolveProviderForSubmit(form.getFieldsValue())
+                  form.setFieldsValue(defaultSafetyLimits(provider, event.target.value))
+                }}
+              />
+            ) : (
+              <Select
+                showSearch
+                loading={modelsLoading}
+                placeholder={
+                  modelsLoading
+                    ? '正在获取模型列表...'
+                    : defaultModelOptions.length > 0
+                    ? '选择模型名'
+                    : '请先输入 API Key 以获取模型列表'
+                }
+                notFoundContent={
+                  modelsLoading
+                    ? '加载中...'
+                    : form.getFieldValue('api_key')
+                    ? '未找到模型'
+                    : '请先输入 API Key'
+                }
+                filterOption={(input, option) =>
+                  (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+                }
+                onChange={(modelName) => {
+                  const provider = resolveProviderForSubmit(form.getFieldsValue())
+                  form.setFieldsValue(defaultSafetyLimits(provider, modelName))
+                }}
+                options={defaultModelOptions.map((m) => ({
+                  value: m.id,
+                  label: m.display_name || m.id,
+                }))}
+              />
+            )}
           </Form.Item>
 
           <Divider style={{ margin: '8px 0 16px' }} />
@@ -683,9 +765,22 @@ function SettingsPage() {
 
           <Form.Item
             name="base_url_override"
-            label="自定义 API 端点（可选）"
+            label={isCustomProviderSelection(modalProvider) ? 'API 端点' : '自定义 API 端点（可选）'}
+            rules={[
+              {
+                required: isCustomProviderSelection(modalProvider),
+                message: '自定义 OpenAI 兼容提供商必须填写 API 端点',
+              },
+            ]}
           >
-            <Input placeholder="https://api.example.com/v1" />
+            <Input
+              placeholder="https://api.example.com/v1"
+              onBlur={() => {
+                if (isCustomProviderSelection(form.getFieldValue('provider')) && form.getFieldValue('api_key')) {
+                  fetchModels()
+                }
+              }}
+            />
           </Form.Item>
         </Form>
       </Modal>
