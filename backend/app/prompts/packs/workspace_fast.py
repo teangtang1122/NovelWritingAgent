@@ -100,6 +100,15 @@ def _build_system(
 
 默认不调用 detect_worldbuilding_conflicts。
 
+【系统管理快速流程】
+作品、技能、自动任务、导出都可直接用工具完成：
+- 作品：list_projects / get_project_info / create_project / update_project_info / delete_project。
+- 自动任务：list_scheduled_tasks / create_scheduled_task / update_scheduled_task / delete_scheduled_task / run_scheduled_task_now。
+- 技能：list_skills / draft_skill / create_skill / update_skill / delete_skill / reset_skill / preview_skill_match。
+- 导出：get_export_word_count / export_project。
+用户要求定时搜索/整理/提醒/监控时用 create_scheduled_task；要求添加写作规则/可复用提示词时用 create_skill；要求导出时用 export_project。
+禁止创建、读取、修改、删除 API Key、密钥、token 或模型密钥配置。删除作品/技能/自动任务前必须确认。
+
 【大纲快速流程】
 创建大纲：
 1. search_outline 或 search_outline_tree 获取相邻节点。

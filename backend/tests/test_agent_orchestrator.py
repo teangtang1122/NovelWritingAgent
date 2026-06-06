@@ -198,9 +198,11 @@ class PlannerTestCase(unittest.TestCase):
     def test_cataloging_init_plan_generation(self):
         graph = plan_cataloging_init(chapter_ids=["c1", "c2"])
         self.assertEqual(graph.name, "cataloging_init")
-        self.assertIn("extract_facts", graph.steps)
-        self.assertIn("resolve_targets", graph.steps)
-        self.assertIn("apply_candidates", graph.steps)
+        self.assertEqual(set(graph.steps.keys()), {"list_chapters", "start_cataloging_job"})
+        self.assertEqual(graph.steps["list_chapters"].tool, "list_chapters")
+        self.assertEqual(graph.steps["start_cataloging_job"].tool, "start_cataloging_job")
+        self.assertEqual(graph.steps["start_cataloging_job"].depends_on, ["list_chapters"])
+        self.assertEqual(graph.steps["start_cataloging_job"].args["chapter_ids"], ["c1", "c2"])
 
     def test_detect_intent_fast_chapter(self):
         result = detect_intent("写第151章")
@@ -214,11 +216,10 @@ class PlannerTestCase(unittest.TestCase):
         self.assertEqual(result["mode"], "quality")
         self.assertEqual(result["chapter_number"], 42)
 
-    def test_detect_intent_excludes_cataloging(self):
-        result = detect_intent("建档初始化")
-        # detect_intent should not return cataloging_init
-        if result is not None:
-            self.assertNotEqual(result.get("mode"), "cataloging_init")
+    def test_detect_intent_cataloging(self):
+        result = detect_intent("给这个项目建档")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["intent_type"], "project_init")
 
     def test_assistant_mode_quality_overrides_chapter_plan_mode(self):
         intent = {

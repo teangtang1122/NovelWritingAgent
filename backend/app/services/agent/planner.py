@@ -15,6 +15,11 @@ _INTENT_CHAPTER = "chapter"
 _INTENT_CHARACTER = "character"
 _INTENT_WORLDBUILDING = "worldbuilding"
 _INTENT_PROJECT_INIT = "project_init"
+_INTENT_SCHEDULED_TASK = "scheduled_task"
+_INTENT_SKILL = "skill"
+_INTENT_PROJECT = "project"
+_INTENT_EXPORT = "export"
+_INTENT_DECONSTRUCT = "deconstruct"
 
 
 def plan_fast_chapter(
@@ -205,33 +210,89 @@ def plan_cataloging_init(
     *,
     chapter_ids: list[str] | None = None,
 ) -> PlanGraph:
-    """Cataloging initialization path — all tools marked not_implemented.
+    """Cataloging initialization path.
 
-    This plan can only be constructed directly, never by detect_intent.
-    The orchestrator will skip all steps with status="skipped".
+    Delegates to the cataloging service via the plan orchestrator.
     """
     steps: dict[str, StepDef] = {
         "extract_facts": StepDef(
             tool="extract_facts",
             args={"chapter_ids": chapter_ids or []},
             depends_on=[],
-            label="提取事实（未实现）",
+            label="提取事实",
         ),
         "resolve_targets": StepDef(
             tool="resolve_targets",
             args={},
             depends_on=["extract_facts"],
-            label="解析目标（未实现）",
+            label="解析目标",
         ),
         "apply_candidates": StepDef(
             tool="apply_candidates",
             args={},
             depends_on=["resolve_targets"],
-            label="应用候选（未实现）",
+            label="应用候选",
         ),
     }
 
     return PlanGraph(name="cataloging_init", steps=steps)
+
+
+def plan_cataloging_init(
+    *,
+    chapter_ids: list[str] | None = None,
+    execution_mode: str = "auto",
+) -> PlanGraph:
+    """Cataloging initialization path backed by real workspace tools."""
+    steps: dict[str, StepDef] = {
+        "list_chapters": StepDef(
+            tool="list_chapters",
+            args={},
+            depends_on=[],
+            label="检查已有章节",
+        ),
+        "start_cataloging_job": StepDef(
+            tool="start_cataloging_job",
+            args={
+                "chapter_ids": chapter_ids or [],
+                "execution_mode": execution_mode if execution_mode in {"auto", "manual"} else "auto",
+                "run_now": True,
+            },
+            depends_on=["list_chapters"],
+            label="启动作品建档",
+        ),
+    }
+
+    return PlanGraph(name="cataloging_init", steps=steps)
+
+
+def plan_start_deconstruct(
+    *,
+    chapter_ids: list[str] | None = None,
+    title: str = "",
+) -> PlanGraph:
+    """Legacy deconstruct analysis path."""
+    steps: dict[str, StepDef] = {
+        "preview_deconstruct_source": StepDef(
+            tool="preview_deconstruct_source",
+            args={},
+            depends_on=[],
+            label="检查可拆书内容",
+        ),
+        "start_deconstruct_job": StepDef(
+            tool="start_deconstruct_job",
+            args={
+                "chapter_ids": chapter_ids or [],
+                "title": title or "拆书分析",
+                "analysis_mode": "fast",
+                "include_golden_three": False,
+                "run_now": True,
+            },
+            depends_on=["preview_deconstruct_source"],
+            label="启动拆书分析",
+        ),
+    }
+    return PlanGraph(name="start_deconstruct", steps=steps)
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +370,105 @@ def plan_create_worldbuilding(
     return PlanGraph(name="create_worldbuilding", steps=steps)
 
 
+def plan_create_scheduled_task(
+    *,
+    name: str,
+    prompt: str,
+    cron_expr: str | None = None,
+    interval_minutes: int | None = None,
+) -> PlanGraph:
+    """Scheduled task creation path."""
+    args: dict[str, Any] = {"name": name, "prompt": prompt}
+    if cron_expr:
+        args["cron_expr"] = cron_expr
+    if interval_minutes:
+        args["interval_minutes"] = interval_minutes
+    steps = {
+        "list_scheduled_tasks": StepDef(
+            tool="list_scheduled_tasks",
+            args={},
+            depends_on=[],
+            label="检查已有自动任务",
+        ),
+        "create_scheduled_task": StepDef(
+            tool="create_scheduled_task",
+            args=args,
+            depends_on=["list_scheduled_tasks"],
+            label="创建自动任务",
+        ),
+    }
+    return PlanGraph(name="create_scheduled_task", steps=steps)
+
+
+def plan_create_skill(
+    *,
+    requirements: str,
+    scope: str = "global",
+) -> PlanGraph:
+    """Skill creation path."""
+    steps = {
+        "list_skills": StepDef(
+            tool="list_skills",
+            args={},
+            depends_on=[],
+            label="检查已有技能",
+        ),
+        "create_skill": StepDef(
+            tool="create_skill",
+            args={"requirements": requirements, "scope": scope},
+            depends_on=["list_skills"],
+            label="创建技能",
+        ),
+    }
+    return PlanGraph(name="create_skill", steps=steps)
+
+
+def plan_create_project(
+    *,
+    title: str,
+    requirements: str = "",
+) -> PlanGraph:
+    """Project creation path."""
+    steps = {
+        "list_projects": StepDef(
+            tool="list_projects",
+            args={"query": title} if title else {},
+            depends_on=[],
+            label="检查已有作品",
+        ),
+        "create_project": StepDef(
+            tool="create_project",
+            args={"title": title or "未命名作品", "description": requirements},
+            depends_on=["list_projects"],
+            label="创建作品",
+        ),
+    }
+    return PlanGraph(name="create_project", steps=steps)
+
+
+def plan_export_project(
+    *,
+    scope: str = "all",
+    fmt: str = "txt",
+) -> PlanGraph:
+    """Project export path."""
+    steps = {
+        "get_export_word_count": StepDef(
+            tool="get_export_word_count",
+            args={},
+            depends_on=[],
+            label="统计导出内容",
+        ),
+        "export_project": StepDef(
+            tool="export_project",
+            args={"scope": scope, "format": fmt},
+            depends_on=["get_export_word_count"],
+            label="生成导出文件",
+        ),
+    }
+    return PlanGraph(name="export_project", steps=steps)
+
+
 # ---------------------------------------------------------------------------
 # Intent detection
 # ---------------------------------------------------------------------------
@@ -320,8 +480,12 @@ _QUALITY_KEYWORDS = {"精写", "高质量", "仔细写", "认真写", "质量", 
 _CHAR_KEYWORDS = ("创建角色", "新建角色", "新角色", "添加角色", "写角色", "生成角色", "设计角色")
 # Worldbuilding keywords
 _WB_KEYWORDS = ("创建世界观", "新建世界观", "世界观设定", "创建设定", "添加设定", "写世界观", "生成世界观", "世界观条目")
-# Project init keywords
-_INIT_KEYWORDS = ("初始化项目", "项目初始化", "自动规划", "帮我规划", "全面规划")
+# Project init keywords (including cataloging/建档)
+_INIT_KEYWORDS = ("初始化项目", "项目初始化", "自动规划", "帮我规划", "全面规划", "建档", "给项目建档", "给这个项目建档", "整理资料", "提取事实")
+_SCHEDULE_KEYWORDS = ("定时", "自动任务", "计划任务", "每天", "每小时", "每周", "提醒我", "定期", "监控", "自动搜索")
+_SKILL_KEYWORDS = ("创建技能", "新建技能", "添加技能", "写一个技能", "以后写作时", "以后生成时", "添加一种写法", "添加规则")
+_PROJECT_KEYWORDS = ("创建作品", "新建作品", "添加作品", "开新书", "新建小说", "创建小说项目")
+_EXPORT_KEYWORDS = ("导出", "导出作品", "导出章节", "导出全文", "生成导出")
 
 
 def _extract_character_name(text: str) -> str:
@@ -354,11 +518,71 @@ def _extract_worldbuilding_topic(text: str) -> str:
     return ""
 
 
+def _extract_project_title(text: str) -> str:
+    for pattern in [
+        r"(?:创建|新建|添加)(?:作品|小说项目|小说)[：:]?\s*(.+?)(?:[，,。]|$)",
+        r"开新书[：:]?\s*(.+?)(?:[，,。]|$)",
+        r"(?:名为|叫)\s*(.+?)(?:的作品|的小说|[，,。]|$)",
+    ]:
+        m = re.search(pattern, text)
+        if m:
+            title = m.group(1).strip()
+            if 1 <= len(title) <= 80:
+                return title
+    return ""
+
+
+def _extract_schedule(text: str) -> tuple[str | None, int | None]:
+    """Extract a simple cron or interval from Chinese schedule text."""
+    m = re.search(r"每\s*(\d+)\s*分钟", text)
+    if m:
+        return None, max(1, int(m.group(1)))
+    m = re.search(r"每\s*(\d+)\s*小时", text)
+    if m:
+        return None, max(1, int(m.group(1)) * 60)
+    if "每小时" in text:
+        return None, 60
+    m = re.search(r"每天\s*(?:晚上|早上|上午|下午)?\s*(\d{1,2})\s*点", text)
+    if m:
+        hour = max(0, min(23, int(m.group(1))))
+        return f"0 {hour} * * *", None
+    if "每天" in text:
+        return "0 9 * * *", None
+    return None, None
+
+
+def _task_name_from_message(text: str) -> str:
+    cleaned = re.sub(r"\s+", "", text)
+    cleaned = re.sub(r"(帮我|请|创建|新建|添加|一个|自动任务|定时任务|定时|每天|每小时|每周|提醒我)", "", cleaned)
+    return ("自动任务：" + cleaned[:20]) if cleaned else "自动任务"
+
+
+def _export_format(text: str) -> str:
+    lowered = text.lower()
+    if "docx" in lowered or "word" in lowered:
+        return "docx"
+    if "pdf" in lowered:
+        return "pdf"
+    return "txt"
+
+
+def _export_scope(text: str) -> str:
+    if "大纲" in text:
+        return "outline"
+    if "角色" in text:
+        return "characters"
+    if "世界观" in text or "设定" in text:
+        return "worldbuilding"
+    if "章节" in text or "正文" in text or "全文" in text:
+        return "chapters"
+    return "all"
+
+
 def detect_intent(user_message: str) -> dict[str, Any] | None:
     """Parse user intent from a natural language message.
 
     Returns dict with keys:
-      - intent_type: "chapter" | "character" | "worldbuilding" | "project_init"
+      - intent_type: "chapter" | "character" | "worldbuilding" | "project_init" | "scheduled_task" | "skill" | "project" | "export"
       - For chapter: mode, outline_query, chapter_number
       - For character: character_name, requirements
       - For worldbuilding: topic, requirements
@@ -370,9 +594,36 @@ def detect_intent(user_message: str) -> dict[str, Any] | None:
     if not text:
         return None
 
+    # Legacy deconstruct / reading-analysis job.
+    if any(kw in text for kw in ("拆书", "拆书分析", "阅读分析", "分析全书", "分析作品")):
+        return {"intent_type": _INTENT_DECONSTRUCT, "requirements": text}
+
     # 1. Project init
     if any(kw in text for kw in _INIT_KEYWORDS):
         return {"intent_type": _INTENT_PROJECT_INIT, "requirements": text}
+
+    # 1.5 Scheduled tasks
+    if any(kw in text for kw in _SCHEDULE_KEYWORDS) and any(kw in text for kw in ("任务", "搜索", "整理", "提醒", "监控", "收集")):
+        cron_expr, interval_minutes = _extract_schedule(text)
+        return {
+            "intent_type": _INTENT_SCHEDULED_TASK,
+            "name": _task_name_from_message(text),
+            "prompt": text,
+            "cron_expr": cron_expr,
+            "interval_minutes": interval_minutes,
+        }
+
+    # 1.6 Skill creation
+    if any(kw in text for kw in _SKILL_KEYWORDS):
+        return {"intent_type": _INTENT_SKILL, "requirements": text, "scope": "global"}
+
+    # 1.7 Project creation
+    if any(kw in text for kw in _PROJECT_KEYWORDS):
+        return {"intent_type": _INTENT_PROJECT, "title": _extract_project_title(text), "requirements": text}
+
+    # 1.8 Export
+    if any(kw in text for kw in _EXPORT_KEYWORDS):
+        return {"intent_type": _INTENT_EXPORT, "scope": _export_scope(text), "format": _export_format(text)}
 
     # 2. Character creation
     if any(kw in text for kw in _CHAR_KEYWORDS):
@@ -447,8 +698,37 @@ def build_plan_from_intent(intent: dict[str, Any], *, outline_node_id: str = "")
             requirements=intent.get("requirements", ""),
         )
 
+    if intent_type == _INTENT_SCHEDULED_TASK:
+        return plan_create_scheduled_task(
+            name=intent.get("name", "自动任务"),
+            prompt=intent.get("prompt", ""),
+            cron_expr=intent.get("cron_expr"),
+            interval_minutes=intent.get("interval_minutes"),
+        )
+
+    if intent_type == _INTENT_SKILL:
+        return plan_create_skill(
+            requirements=intent.get("requirements", ""),
+            scope=intent.get("scope", "global"),
+        )
+
+    if intent_type == _INTENT_PROJECT:
+        return plan_create_project(
+            title=intent.get("title", ""),
+            requirements=intent.get("requirements", ""),
+        )
+
+    if intent_type == _INTENT_EXPORT:
+        return plan_export_project(
+            scope=intent.get("scope", "all"),
+            fmt=intent.get("format", "txt"),
+        )
+
     # project_init: not yet implemented as a plan — fall back to old assistant
+    if intent_type == _INTENT_DECONSTRUCT:
+        return plan_start_deconstruct(title=intent.get("requirements", "")[:80])
+
     if intent_type == _INTENT_PROJECT_INIT:
-        return None
+        return plan_cataloging_init(execution_mode="auto")
 
     return None

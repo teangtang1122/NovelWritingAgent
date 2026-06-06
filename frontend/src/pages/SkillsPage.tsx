@@ -53,6 +53,7 @@ interface Skill {
   trigger_examples: string[]
   system_prompt: string
   recommended_tools: string[]
+  forbidden_tools: string[]
   scope: string
   priority: number
   enabled: boolean
@@ -60,6 +61,7 @@ interface Skill {
   created_at: string
   updated_at: string
   _score?: number
+  _prompt_fragment?: string
 }
 
 interface SkillTemplate {
@@ -151,6 +153,7 @@ interface SkillFormValues {
   trigger_examples: string[]
   system_prompt: string
   recommended_tools: string[]
+  forbidden_tools: string[]
   scope: string
   priority: number
   enabled: boolean
@@ -167,6 +170,7 @@ function skillPayload(values: Partial<SkillFormValues>) {
     trigger_examples: values.trigger_examples || [],
     system_prompt: values.system_prompt,
     recommended_tools: values.recommended_tools || [],
+    forbidden_tools: values.forbidden_tools || [],
     scope: values.scope || 'global',
     priority: values.priority ?? 0,
     enabled: values.enabled ?? true,
@@ -241,6 +245,7 @@ function SkillsPage({ projectId }: SkillsPageProps) {
     form.setFieldsValue({
       trigger_examples: [],
       recommended_tools: [],
+      forbidden_tools: [],
       scope: 'global',
       priority: 0,
       enabled: true,
@@ -257,6 +262,7 @@ function SkillsPage({ projectId }: SkillsPageProps) {
       trigger_examples: skill.trigger_examples,
       system_prompt: skill.system_prompt,
       recommended_tools: skill.recommended_tools,
+      forbidden_tools: skill.forbidden_tools,
       scope: skill.scope,
       priority: skill.priority,
       enabled: skill.enabled,
@@ -306,6 +312,37 @@ function SkillsPage({ projectId }: SkillsPageProps) {
       fetchSkills()
     } catch (err: any) {
       message.error(err.message || '更新技能状态失败')
+    }
+  }
+
+  const handleResetToBuiltin = async (skill: Skill) => {
+    try {
+      await apiClient.post(`/projects/${projectId}/skills/${skill.id}/reset`)
+      message.success('已恢复默认值')
+      fetchSkills()
+      // If the modal is open for this skill, refresh its form values
+      if (editingSkill?.id === skill.id) {
+        const res = await apiClient.get<ApiResponse<SkillsListResponse>>(
+          `/projects/${projectId}/skills`
+        )
+        const refreshed = res.data.data.items.find((s) => s.id === skill.id)
+        if (refreshed) {
+          setEditingSkill(refreshed)
+          form.setFieldsValue({
+            name: refreshed.name,
+            description: refreshed.description || undefined,
+            trigger_examples: refreshed.trigger_examples,
+            system_prompt: refreshed.system_prompt,
+            recommended_tools: refreshed.recommended_tools,
+            forbidden_tools: refreshed.forbidden_tools,
+            scope: refreshed.scope,
+            priority: refreshed.priority,
+            enabled: refreshed.enabled,
+          })
+        }
+      }
+    } catch (err: any) {
+      message.error(err.message || '恢复默认值失败')
     }
   }
 
@@ -571,6 +608,7 @@ function SkillsPage({ projectId }: SkillsPageProps) {
           initialValues={{
             trigger_examples: [],
             recommended_tools: [],
+            forbidden_tools: [],
             scope: 'global',
             priority: 0,
             enabled: true,
@@ -621,6 +659,18 @@ function SkillsPage({ projectId }: SkillsPageProps) {
             />
           </Form.Item>
 
+          <Form.Item name="forbidden_tools" label="禁用工具">
+            <Select
+              mode="tags"
+              placeholder="选择或输入禁用的工具名称"
+              tokenSeparators={[',', '，']}
+              options={tools.map((tool) => ({
+                value: tool.name,
+                label: `${tool.name} · ${tool.tool_type}`,
+              }))}
+            />
+          </Form.Item>
+
           <div style={{ display: 'flex', gap: 16 }}>
             <Form.Item name="scope" label="适用范围" style={{ flex: 1 }}>
               <Select options={SCOPE_OPTIONS} />
@@ -635,6 +685,25 @@ function SkillsPage({ projectId }: SkillsPageProps) {
             </Form.Item>
           </div>
         </Form>
+
+        {editingSkill?.is_builtin && (
+          <div style={{ marginBottom: 16 }}>
+            <Popconfirm
+              title="确定恢复此内置技能的默认值？"
+              description="所有自定义修改将被覆盖，操作不可撤销。"
+              onConfirm={() => handleResetToBuiltin(editingSkill)}
+              okText="恢复"
+              cancelText="取消"
+            >
+              <Button icon={<ReloadOutlined />} danger>
+                恢复默认
+              </Button>
+            </Popconfirm>
+            <Text type="secondary" style={{ marginLeft: 8 }}>
+              将系统提示词、触发词、描述等恢复为内置默认值
+            </Text>
+          </div>
+        )}
 
         <Divider />
 
@@ -668,17 +737,32 @@ function SkillsPage({ projectId }: SkillsPageProps) {
                 description={
                   <Space direction="vertical" size={4}>
                     <Text>实际会注入的技能最多 {matchPreview.max_skills} 个：</Text>
-                    <Space wrap>
-                      {matchPreview.matched_skills.map((skill) => (
-                        <Tag key={skill.id} color="blue">
+                    {matchPreview.matched_skills.map((skill) => (
+                      <div key={skill.id} style={{ marginBottom: 8 }}>
+                        <Tag color="blue">
                           {skill.name}
                           {typeof skill._score === 'number' ? ` · ${skill._score}` : ''}
                         </Tag>
-                      ))}
-                      {matchPreview.matched_skills.length === 0 && (
-                        <Text type="secondary">没有匹配技能</Text>
-                      )}
-                    </Space>
+                        {skill._prompt_fragment && (
+                          <div style={{
+                            marginTop: 4,
+                            padding: '4px 8px',
+                            background: '#f5f5f5',
+                            borderRadius: 4,
+                            fontSize: 12,
+                            color: '#666',
+                            maxHeight: 80,
+                            overflow: 'auto',
+                            whiteSpace: 'pre-wrap',
+                          }}>
+                            {skill._prompt_fragment}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {matchPreview.matched_skills.length === 0 && (
+                      <Text type="secondary">没有匹配技能</Text>
+                    )}
                   </Space>
                 }
               />

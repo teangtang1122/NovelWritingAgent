@@ -172,6 +172,7 @@ def skill_to_dict(skill: Skill) -> dict:
         trigger_examples=parse_json_list(skill.trigger_examples),
         system_prompt=skill.system_prompt,
         recommended_tools=parse_json_list(skill.recommended_tools),
+        forbidden_tools=parse_json_list(skill.forbidden_tools),
         scope=skill.scope or "global",
         priority=skill.priority or 0,
         enabled=skill.enabled if skill.enabled is not None else True,
@@ -192,6 +193,7 @@ def _snapshot_skill(skill: Skill) -> dict:
         "trigger_examples": parse_json_list(skill.trigger_examples),
         "system_prompt": skill.system_prompt,
         "recommended_tools": parse_json_list(skill.recommended_tools),
+        "forbidden_tools": parse_json_list(skill.forbidden_tools),
         "scope": skill.scope or "global",
         "priority": skill.priority or 0,
         "enabled": bool(skill.enabled),
@@ -383,6 +385,9 @@ def preview_skill_match(
         candidate_included = candidate_score >= MIN_SCORE_THRESHOLD
 
     section, info = build_skill_prompt_section(matched)
+    # Attach per-skill prompt fragment to each matched skill
+    for skill_dict, info_item in zip(matched, info):
+        skill_dict["_prompt_fragment"] = info_item.get("prompt_fragment", "")
     return {
         "matched_skills": matched,
         "skill_prompt_preview": section,
@@ -435,6 +440,7 @@ def create_skill(db: Session, project_id: str, data: dict) -> dict:
         trigger_examples=dump_json_list(data.get("trigger_examples", [])),
         system_prompt=data["system_prompt"],
         recommended_tools=dump_json_list(data.get("recommended_tools", [])),
+        forbidden_tools=dump_json_list(data.get("forbidden_tools", [])),
         scope=scope,
         priority=data.get("priority", 0),
         enabled=data.get("enabled", True),
@@ -476,6 +482,8 @@ def update_skill(db: Session, project_id: str, skill_id: str, data: dict) -> dic
         skill.system_prompt = data["system_prompt"]
     if "recommended_tools" in data and data["recommended_tools"] is not None:
         skill.recommended_tools = dump_json_list(data["recommended_tools"])
+    if "forbidden_tools" in data and data["forbidden_tools"] is not None:
+        skill.forbidden_tools = dump_json_list(data["forbidden_tools"])
     if "scope" in data and data["scope"] is not None:
         if data["scope"] not in VALID_SCOPES:
             raise ValidationError(f"无效的 scope 值: {data['scope']}，有效值: {', '.join(sorted(VALID_SCOPES))}")
@@ -496,6 +504,7 @@ def update_skill(db: Session, project_id: str, skill_id: str, data: dict) -> dic
             ("trigger_examples", "触发示例"),
             ("system_prompt", "系统提示词"),
             ("recommended_tools", "推荐工具"),
+            ("forbidden_tools", "禁用工具"),
             ("scope", "适用范围"),
             ("priority", "优先级"),
             ("enabled", "启用状态"),
@@ -520,6 +529,62 @@ def delete_skill(db: Session, project_id: str, skill_id: str) -> None:
         raise ValidationError("内置技能不可删除，只能禁用")
     db.delete(skill)
     db.commit()
+
+
+def reset_skill_to_builtin(db: Session, project_id: str, skill_id: str) -> dict:
+    """Reset a built-in skill's fields back to the original BUILTIN_SKILLS values."""
+    from ...core.exceptions import ValidationError
+
+    skill = get_skill_or_404(db, project_id, skill_id)
+    if not skill.is_builtin:
+        raise ValidationError("只有内置技能可以恢复默认值")
+    if not skill.builtin_key:
+        raise ValidationError("该技能缺少 builtin_key，无法恢复默认值")
+
+    builtin = next(
+        (b for b in BUILTIN_SKILLS if b["builtin_key"] == skill.builtin_key),
+        None,
+    )
+    if not builtin:
+        raise ValidationError(f"未找到内置技能定义: {skill.builtin_key}")
+
+    before_snapshot = _snapshot_skill(skill)
+
+    skill.name = builtin["name"]
+    skill.description = builtin["description"]
+    skill.system_prompt = builtin["system_prompt"]
+    skill.trigger_examples = json.dumps(builtin["trigger_examples"], ensure_ascii=False)
+    skill.recommended_tools = json.dumps(builtin["recommended_tools"], ensure_ascii=False)
+    skill.scope = builtin["scope"]
+    skill.priority = builtin["priority"]
+
+    db.commit()
+    db.refresh(skill)
+
+    after_snapshot = _snapshot_skill(skill)
+    changed_fields = [
+        label
+        for key, label in (
+            ("name", "名称"),
+            ("description", "描述"),
+            ("trigger_examples", "触发示例"),
+            ("system_prompt", "系统提示词"),
+            ("recommended_tools", "推荐工具"),
+            ("scope", "适用范围"),
+            ("priority", "优先级"),
+        )
+        if before_snapshot.get(key) != after_snapshot.get(key)
+    ]
+    if changed_fields:
+        record_skill_version(
+            db,
+            skill,
+            title="恢复内置技能默认值",
+            change_summary="重置字段：" + "、".join(changed_fields),
+        )
+        db.commit()
+
+    return skill_to_dict(skill)
 
 
 # ── Skill Selection ────────────────────────────────────────────────────
@@ -640,11 +705,24 @@ def select_relevant_skills(
 
 # ── Prompt Building ────────────────────────────────────────────────────
 
+def _build_tool_recommendation_line(skill: dict) -> str:
+    """Build a tool recommendation/forbid line for a skill prompt."""
+    recommended = skill.get("recommended_tools") or []
+    forbidden = skill.get("forbidden_tools") or []
+    parts: list[str] = []
+    if recommended:
+        parts.append(f"推荐工具：{', '.join(recommended)}")
+    if forbidden:
+        parts.append(f"禁用工具：{', '.join(forbidden)}")
+    return "\n".join(parts)
+
+
 def build_skill_prompt_section(matched_skills: list[dict]) -> tuple[str, list[dict]]:
     """Build the skill prompt section to inject into the system prompt.
 
     Returns (prompt_text, skill_info_list) where skill_info_list contains
-    name, description, truncated, warnings, recommended_tools for each skill.
+    name, description, truncated, warnings, recommended_tools,
+    prompt_fragment for each skill.
 
     Enforces:
       - Single skill prompt: MAX_SINGLE_SKILL_PROMPT_CHARS
@@ -663,6 +741,11 @@ def build_skill_prompt_section(matched_skills: list[dict]) -> tuple[str, list[di
         prompt = skill["system_prompt"]
         truncated = False
         warnings: list[str] = []
+
+        # Build tool recommendation line
+        tool_line = _build_tool_recommendation_line(skill)
+        if tool_line:
+            prompt = f"{prompt}\n{tool_line}"
 
         # Truncate single skill prompt if needed
         if len(prompt) > MAX_SINGLE_SKILL_PROMPT_CHARS:
@@ -685,7 +768,9 @@ def build_skill_prompt_section(matched_skills: list[dict]) -> tuple[str, list[di
                     "truncated": True,
                     "warnings": warnings,
                     "recommended_tools": skill.get("recommended_tools", []),
+                    "forbidden_tools": skill.get("forbidden_tools", []),
                     "injected": False,
+                    "prompt_fragment": "",
                 })
                 continue
             # Truncate to fit
@@ -702,7 +787,9 @@ def build_skill_prompt_section(matched_skills: list[dict]) -> tuple[str, list[di
             "truncated": truncated,
             "warnings": warnings,
             "recommended_tools": skill.get("recommended_tools", []),
+            "forbidden_tools": skill.get("forbidden_tools", []),
             "injected": True,
+            "prompt_fragment": prompt,
         })
 
     return "\n\n".join(sections), skill_info

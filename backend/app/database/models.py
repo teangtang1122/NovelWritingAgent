@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Text, Integer, DateTime, Boolean, ForeignKey, Date, Float,
-    Index,
+    Index, JSON,
 )
 from sqlalchemy.orm import relationship
 from .session import Base
@@ -49,6 +49,7 @@ class Project(Base):
     rag_documents = relationship("RagDocument", cascade="all, delete-orphan")
     rag_chunks = relationship("RagChunk", cascade="all, delete-orphan")
     skills = relationship("Skill", back_populates="project", cascade="all, delete-orphan")
+    scheduled_tasks = relationship("ScheduledTask", back_populates="project", cascade="all, delete-orphan")
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +282,7 @@ class ChapterCharacter(Base):
 
 
 # ---------------------------------------------------------------------------
-# 10b. chapter_worldbuilding 鈥?绔犺妭涓栫晫瑙傚叧鑱旇〃
+# 10b. chapter_worldbuilding - 章节世界观关联表
 # ---------------------------------------------------------------------------
 class ChapterWorldbuilding(Base):
     __tablename__ = "chapter_worldbuilding"
@@ -419,7 +420,7 @@ class CharacterTimeline(Base):
 
 
 # ---------------------------------------------------------------------------
-# 17b. worldbuilding_versions 鈥?涓栫晫瑙傜増鏈揩鐓ц〃
+# 17b. worldbuilding_versions - 世界观版本快照表
 # ---------------------------------------------------------------------------
 class WorldbuildingVersion(Base):
     __tablename__ = "worldbuilding_versions"
@@ -436,7 +437,7 @@ class WorldbuildingVersion(Base):
 
 
 # ---------------------------------------------------------------------------
-# 17c. worldbuilding_timeline 鈥?涓栫晫瑙傛椂闂寸嚎琛?
+# 17c. worldbuilding_timeline - 世界观时间线表
 # ---------------------------------------------------------------------------
 class WorldbuildingTimeline(Base):
     __tablename__ = "worldbuilding_timeline"
@@ -835,6 +836,7 @@ class Skill(Base):
     trigger_examples = Column(Text, nullable=True)  # JSON array of keyword strings
     system_prompt = Column(Text, nullable=False)
     recommended_tools = Column(Text, nullable=True)  # JSON array of tool names
+    forbidden_tools = Column(Text, nullable=True)  # JSON array of tool names
     scope = Column(String(30), default="global")  # global|project|writing|outline|characters|worldbuilding|cataloging|research
     priority = Column(Integer, default=0)
     enabled = Column(Boolean, default=True)
@@ -864,4 +866,33 @@ class SkillVersion(Base):
 
     __table_args__ = (
         Index("ix_skill_versions_skill_created", "skill_id", "created_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 19. scheduled_tasks - 定时任务表
+# ---------------------------------------------------------------------------
+class ScheduledTask(Base):
+    __tablename__ = "scheduled_tasks"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(200), nullable=False)
+    prompt = Column(Text, nullable=False)
+    cron_expr = Column(String(100), nullable=True)
+    interval_minutes = Column(Integer, nullable=True)
+    tool_policy = Column(JSON, nullable=True, default=list)
+    status = Column(String(20), nullable=False, default="active")
+    last_run_at = Column(DateTime, nullable=True)
+    last_run_status = Column(String(20), nullable=True)
+    last_run_output = Column(Text, nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    project = relationship("Project", back_populates="scheduled_tasks")
+
+    __table_args__ = (
+        Index("ix_scheduled_tasks_project_status", "project_id", "status"),
+        Index("ix_scheduled_tasks_next_run", "next_run_at"),
     )

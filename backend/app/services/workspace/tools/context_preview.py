@@ -251,12 +251,14 @@ async def preview_writing_context(
                     "source_type": s.source_type,
                     "selection_reason": s.selection_reason,
                     "used_chars": s.used_chars,
+                    "estimated_tokens": s.estimated_tokens,
                     "score": round(s.score, 2),
                     "chunk_count": len(s.chunk_ids),
                 }
                 for s in packed.sections
             ],
             "total_used_chars": packed.total_used_chars,
+            "total_estimated_tokens": packed.total_estimated_tokens,
             "budget": packed.budget,
             "used_chars": packed.used_chars,
             "explanations": packed.explanations,

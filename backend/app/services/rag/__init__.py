@@ -1,7 +1,7 @@
 """RAG: full-text retrieval and budget-aware context packing."""
 from .indexer import detect_fts5_available, index_document, reindex_project, reindex_project_types, mark_dirty, ensure_indexed, project_has_chunks, refresh_source_index, delete_source_index
 from .retriever import search_chunks, get_chunks_for_source, get_chunk_by_id, SearchResult
-from .context_packer import pack_context, ContextBudget, ContextSection, PackedContext
+from .context_packer import pack_context, ContextBudget, ContextSection, PackedContext, PinnedContext, estimate_tokens
 
 __all__ = [
     "detect_fts5_available",
@@ -19,4 +19,6 @@ __all__ = [
     "ContextBudget",
     "ContextSection",
     "PackedContext",
+    "PinnedContext",
+    "estimate_tokens",
 ]

@@ -19,6 +19,7 @@ import {
   MenuUnfoldOutlined,
   RobotOutlined,
   BulbOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons'
 import WorldbuildingPage from './WorldbuildingPage'
 import CharactersPage from './CharactersPage'
@@ -31,6 +32,7 @@ import VisualizationPage from './VisualizationPage'
 import ImportPage from './ImportPage'
 import CatalogingPage from './CatalogingPage'
 import SkillsPage from './SkillsPage'
+import { ScheduledTasksPage } from './ScheduledTasksPage'
 import AiSidePanel from '../components/AiSidePanel'
 import WorkspaceAssistantChat from '../components/WorkspaceAssistantChat'
 import { AiPanelProvider, useAiPanelContext } from '../contexts/AiPanelContext'
@@ -39,7 +41,7 @@ import { usePanelResize } from '../hooks/usePanelResize'
 
 const { Sider, Content } = Layout
 
-type MenuKey = 'world' | 'characters' | 'outline' | 'writer' | 'export' | 'stats' | 'deconstruct' | 'cataloging' | 'visualization' | 'import' | 'settings' | 'dashboard' | 'skills'
+type MenuKey = 'world' | 'characters' | 'outline' | 'writer' | 'export' | 'stats' | 'deconstruct' | 'cataloging' | 'visualization' | 'import' | 'settings' | 'dashboard' | 'skills' | 'scheduler'
 
 function AiPanelColumn() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -133,6 +135,7 @@ function ProjectWorkspace() {
     { key: 'deconstruct', icon: <ThunderboltOutlined />, label: '拆书分析' },
     { key: 'cataloging', icon: <DatabaseOutlined />, label: '作品建档' },
     { key: 'skills', icon: <BulbOutlined />, label: '技能管理' },
+    { key: 'scheduler', icon: <ClockCircleOutlined />, label: '自动任务' },
     { key: 'import', icon: <FileAddOutlined />, label: '内容导入' },
     { key: 'visualization', icon: <ApartmentOutlined />, label: '可视化' },
     { key: 'export', icon: <ExportOutlined />, label: '导出' },
@@ -216,6 +219,8 @@ function ProjectWorkspace() {
               <ImportPage projectId={projectId} />
             ) : activeKey === 'skills' && projectId ? (
               <SkillsPage projectId={projectId} />
+            ) : activeKey === 'scheduler' && projectId ? (
+              <ScheduledTasksPage projectId={projectId} />
             ) : (
             <div style={{ fontSize: 18, color: '#999', textAlign: 'center', marginTop: 100 }}>
               选择左侧菜单开始

@@ -17,8 +17,8 @@ from .step_args import resolve_step_args
 _EXECUTABLE_STATUSES = {"pending", "blocked", "error"}
 _SKIP_STATUSES = {"running", "ok", "skipped"}
 
-# Tools that are known to not exist in the workspace registry.
-_NOT_IMPLEMENTED_TOOLS = {"extract_facts", "resolve_targets", "apply_candidates"}
+# Cataloging tools — handled by the cataloging service, not the workspace registry.
+_CATALOGING_TOOLS = {"extract_facts", "resolve_targets", "apply_candidates"}
 
 
 def _safe_json(data: Any, *, max_chars: int = 80_000) -> str:
@@ -510,20 +510,51 @@ class PlanOrchestrator:
             yield {"type": "step_skip", "step_key": step_row.step_key, "tool": step_row.tool, "status": step_row.status}
             return
 
-        # Check for not-implemented tools
-        if step_row.tool in _NOT_IMPLEMENTED_TOOLS:
-            step_row.status = "skipped"
-            step_row.detail = "工具未实现，需先集成 cataloging service"
-            step_row.completed_at = now
+        # Handle cataloging tools via the cataloging service
+        if step_row.tool in _CATALOGING_TOOLS:
+            step_row.status = "running"
+            step_row.started_at = now
             step_row.updated_at = now
+            self.db.commit()
+            yield {
+                "type": "step_start",
+                "step_key": step_row.step_key,
+                "tool": step_row.tool,
+                "label": step_row.detail or step_row.tool,
+            }
+            try:
+                from ..cataloging.orchestrator import create_cataloging_job, stream_cataloging_job
+                chapter_ids = step_row.args_json and json.loads(step_row.args_json).get("chapter_ids")
+                job = create_cataloging_job(
+                    self.db, self.project_id,
+                    execution_mode="auto",
+                    model=None,
+                    chapter_ids=chapter_ids if isinstance(chapter_ids, list) else None,
+                )
+                # Stream the cataloging job to completion
+                async for _event_str in stream_cataloging_job(self.project_id, job.id):
+                    pass  # cataloging events are consumed internally
+                step_row.status = "ok"
+                step_row.detail = f"建档完成，共 {job.total_chapters} 章"
+                step_row.result_json = _safe_json({
+                    "tool": step_row.tool, "status": "ok", "detail": step_row.detail,
+                    "data": {"job_id": job.id, "total_chapters": job.total_chapters},
+                })
+            except Exception as exc:
+                step_row.status = "error"
+                step_row.error = str(exc)[:2000]
+                step_row.detail = f"建档失败: {exc}"
+            step_row.completed_at = datetime.utcnow()
+            step_row.updated_at = datetime.utcnow()
             self.db.commit()
             yield {
                 "type": "step_result",
                 "step_key": step_row.step_key,
                 "tool": step_row.tool,
-                "status": "skipped",
-                "detail": step_row.detail,
-                "data": {},
+                "status": step_row.status,
+                "detail": step_row.detail or "",
+                "error": step_row.error,
+                "data": json.loads(step_row.result_json).get("data", {}) if step_row.result_json else {},
             }
             return
 

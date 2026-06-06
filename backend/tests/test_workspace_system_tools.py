@@ -1,0 +1,158 @@
+"""Tests for system-management workspace tools exposed to the assistant."""
+
+import os
+import unittest
+
+os.environ["DATABASE_URL"] = "sqlite:///./test_workspace_system_tools.db"
+
+from app.database.models import Chapter, Project, ScheduledTask, Skill
+from app.database.session import Base, SessionLocal, engine
+from app.services.agent.planner import build_plan_from_intent, detect_intent
+from app.services.workspace.executor import execute_workspace_action
+from app.services.workspace.registry import registry
+
+
+class WorkspaceSystemToolsTestCase(unittest.IsolatedAsyncioTestCase):
+    """Assistant tools for system management should be callable and durable."""
+
+    @classmethod
+    def setUpClass(cls):
+        Base.metadata.create_all(bind=engine)
+
+    @classmethod
+    def tearDownClass(cls):
+        Base.metadata.drop_all(bind=engine)
+        try:
+            os.remove("test_workspace_system_tools.db")
+        except OSError:
+            pass
+
+    def setUp(self):
+        self.db = SessionLocal()
+        self.db.query(ScheduledTask).delete()
+        self.db.query(Skill).delete()
+        self.db.query(Chapter).delete()
+        self.db.query(Project).delete()
+        self.project = Project(title="系统工具测试作品")
+        self.db.add(self.project)
+        self.db.commit()
+        self.db.refresh(self.project)
+
+    def tearDown(self):
+        self.db.close()
+
+    async def test_agent_can_create_scheduled_task(self):
+        result = await execute_workspace_action(
+            self.db,
+            self.project.id,
+            {
+                "tool": "create_scheduled_task",
+                "arguments": {
+                    "name": "每日资料整理",
+                    "prompt": "每天整理一次写作资料。",
+                    "interval_minutes": 60,
+                },
+            },
+        )
+        self.db.commit()
+
+        self.assertEqual(result["status"], "ok")
+        task = self.db.query(ScheduledTask).filter(ScheduledTask.project_id == self.project.id).first()
+        self.assertIsNotNone(task)
+        self.assertEqual(task.name, "每日资料整理")
+
+    async def test_agent_can_create_skill_from_requirements(self):
+        result = await execute_workspace_action(
+            self.db,
+            self.project.id,
+            {
+                "tool": "create_skill",
+                "arguments": {
+                    "requirements": "以后续写章节时减少比喻，避免不是……而是……句式。",
+                    "scope": "writing",
+                },
+            },
+        )
+
+        self.assertEqual(result["status"], "ok")
+        skill = self.db.query(Skill).filter(Skill.project_id == self.project.id, Skill.is_builtin == False).first()  # noqa: E712
+        self.assertIsNotNone(skill)
+        self.assertIn("比喻", skill.description or skill.system_prompt)
+
+    async def test_agent_can_export_project(self):
+        self.db.add(Chapter(project_id=self.project.id, title="第一章", content="测试正文", word_count=4))
+        self.db.commit()
+
+        result = await execute_workspace_action(
+            self.db,
+            self.project.id,
+            {"tool": "export_project", "arguments": {"scope": "chapters", "format": "txt"}},
+        )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["format"], "txt")
+        self.assertTrue(result["data"]["file_id"])
+
+
+class WorkspaceSystemIntentTestCase(unittest.TestCase):
+    """Plan Agent should recognize system-management intents."""
+
+    def test_detect_scheduled_task_intent(self):
+        intent = detect_intent("每天22点帮我搜索仙侠榜单并整理灵感")
+        self.assertIsNotNone(intent)
+        self.assertEqual(intent["intent_type"], "scheduled_task")
+        self.assertEqual(intent["cron_expr"], "0 22 * * *")
+        graph = build_plan_from_intent(intent)
+        self.assertIsNotNone(graph)
+        self.assertIn("create_scheduled_task", graph.steps)
+
+    def test_detect_skill_intent(self):
+        intent = detect_intent("创建技能：以后写作时禁用大量比喻")
+        self.assertIsNotNone(intent)
+        self.assertEqual(intent["intent_type"], "skill")
+        graph = build_plan_from_intent(intent)
+        self.assertIsNotNone(graph)
+        self.assertIn("create_skill", graph.steps)
+
+    def test_detect_export_intent(self):
+        intent = detect_intent("导出全文为 docx")
+        self.assertIsNotNone(intent)
+        self.assertEqual(intent["intent_type"], "export")
+        self.assertEqual(intent["format"], "docx")
+        graph = build_plan_from_intent(intent)
+        self.assertIsNotNone(graph)
+        self.assertIn("export_project", graph.steps)
+
+    def test_detect_cataloging_init_intent_uses_real_tools(self):
+        intent = detect_intent("开始给当前作品建档")
+        self.assertIsNotNone(intent)
+        self.assertEqual(intent["intent_type"], "project_init")
+        graph = build_plan_from_intent(intent)
+        self.assertIsNotNone(graph)
+        self.assertEqual(set(graph.steps.keys()), {"list_chapters", "start_cataloging_job"})
+
+    def test_detect_deconstruct_intent(self):
+        intent = detect_intent("帮我拆书分析当前作品")
+        self.assertIsNotNone(intent)
+        self.assertEqual(intent["intent_type"], "deconstruct")
+        graph = build_plan_from_intent(intent)
+        self.assertIsNotNone(graph)
+        self.assertIn("start_deconstruct_job", graph.steps)
+
+    def test_registry_exposes_system_tools_without_api_key_tools(self):
+        names = set(registry.all_names())
+        self.assertIn("create_scheduled_task", names)
+        self.assertIn("create_skill", names)
+        self.assertIn("create_project", names)
+        self.assertIn("export_project", names)
+        self.assertIn("preview_import_splits", names)
+        self.assertIn("import_text_as_chapters", names)
+        self.assertIn("start_cataloging_job", names)
+        self.assertIn("list_cataloging_candidates", names)
+        self.assertIn("start_deconstruct_job", names)
+        self.assertIn("get_today_writing_stats", names)
+        self.assertIn("set_daily_word_goal", names)
+        self.assertIn("list_duplicate_characters", names)
+        self.assertIn("merge_duplicate_characters", names)
+        self.assertNotIn("update_api_key", names)
+        self.assertNotIn("create_api_key", names)

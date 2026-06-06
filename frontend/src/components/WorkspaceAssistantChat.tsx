@@ -1,225 +1,46 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button, Empty, Input, InputNumber, Modal, Popover, Select, Space, Switch, Tag, Tooltip, Typography, message } from 'antd'
+import { Button, Input, InputNumber, Popover, Select, Space, Switch, Tag, Typography, message } from 'antd'
 import {
   DeleteOutlined,
-  DownOutlined,
   InfoCircleOutlined,
   PlusOutlined,
   ReloadOutlined,
-  SendOutlined,
   SettingOutlined,
-  StopOutlined,
 } from '@ant-design/icons'
 import { apiClient } from '../api/client'
 import AgentPlanView, { type AgentPlanViewState, type AgentPlanStepView } from './AgentPlanView'
-import { ContextPreviewPanel } from './ContextPreviewPanel'
 import { AssistantMemoryModal } from './AssistantMemoryModal'
+import {
+  type ApiResponse,
+  type WorkspaceAssistantChatProps,
+  type WorkspaceAssistantConversation,
+  type WorkspaceAssistantMessage,
+  type WorkspaceAssistantMode,
+  type WorkspaceAssistantResponse,
+  type WorkspaceAssistantRun,
+  type WorkspaceAssistantRunDetail,
+  type WorkspacePersistedMessage,
+  type WorkspaceRunLog,
+  type WorkspaceToolLog,
+  type SkillMatch,
+  type StepDetail,
+  DEFAULT_FORBIDDEN_SENTENCE_PATTERNS,
+  DEFAULT_RHETORIC_GUIDELINES,
+  SCOPE_LABEL,
+  mergeForbiddenPatterns,
+  stripDefaults,
+  createEmptyWorkspaceResponse,
+  runStepToLog,
+  sortWorkspaceMessages,
+  toWorkspaceMessage,
+  MessageList,
+  Composer,
+  StepDetailModal,
+} from './assistant'
 import './WorkspaceAssistantChat.css'
 
-const { Paragraph, Text } = Typography
+const { Text } = Typography
 const { TextArea } = Input
-
-const DEFAULT_FORBIDDEN_SENTENCE_PATTERNS = [
-  '不是……是……', '不是……而是……', '不是……却是……', '与其说……不如说……',
-  '在……中……', '在……时……', '随着……',
-  '仿佛……', '似乎……',
-  '只见……', '只听得……', '不由得……', '不禁……', '忍不住……',
-  '这一切都说明……', '从那天起……', '此后……',
-  '与此同时……', '另一方面……',
-  '很愤怒', '感到悲伤', '感到恐惧', '显得很……',
-  '他的眼中……', '她的心里……',
-  '深深地', '无比', '极其',
-  '一股……', '一种……的感觉', '令人……', '让人……',
-  '充满了', '充斥着',
-  '缓缓地', '默默地', '静静地', '淡淡地', '微微……',
-  '然而', '于是', '突然', '忽然', '终于', '其实',
-  '总之', '无论如何', '毋庸置疑', '某种程度上', '某种意义上',
-].join('\n')
-
-const DEFAULT_RHETORIC_GUIDELINES = '克制使用比喻、拟人、排比等修辞，禁止连续堆叠比喻。优先用具体动作、感官细节、因果推进和角色反应来表达画面与情绪。非必要不使用抽象概念比喻；同一段落不要出现多个比喻。'
-
-function mergeForbiddenPatterns(userPatterns: string): string {
-  const defaults = new Set(DEFAULT_FORBIDDEN_SENTENCE_PATTERNS.split('\n').map(s => s.trim()).filter(Boolean))
-  const user = userPatterns.split('\n').map(s => s.trim()).filter(Boolean)
-  const merged = new Set([...defaults, ...user])
-  return [...merged].join('\n')
-}
-
-function stripDefaults(patterns: string): string {
-  const defaults = new Set(DEFAULT_FORBIDDEN_SENTENCE_PATTERNS.split('\n').map(s => s.trim()).filter(Boolean))
-  return patterns.split('\n').map(s => s.trim()).filter(s => s && !defaults.has(s)).join('\n')
-}
-
-type WorkspaceAssistantScope = 'outline' | 'characters' | 'worldbuilding' | 'project'
-type WorkspaceAssistantMode = 'fast' | 'quality'
-
-interface ApiResponse<T> {
-  code: number
-  message: string
-  data: T
-}
-
-interface ModelOption {
-  label: string
-  value: string
-}
-
-interface WorkspaceToolLog {
-  tool?: string
-  status?: string
-  detail?: string
-  stepId?: string
-  data?: Record<string, unknown>
-}
-
-interface WorkspaceAction {
-  tool?: string
-  arguments?: Record<string, unknown>
-}
-
-interface WorkspaceAssistantConversation {
-  id: string
-  project_id: string
-  title: string
-  scope?: string
-  model?: string | null
-  message_count?: number
-  created_at?: string | null
-  updated_at?: string | null
-}
-
-interface WorkspaceAssistantResponse {
-  reply: string
-  actions?: WorkspaceAction[]
-  applied_actions?: WorkspaceToolLog[]
-  tool_logs: WorkspaceToolLog[]
-  run?: WorkspaceAssistantRun
-  scope?: string
-  model?: string | null
-  usage?: unknown
-  message?: WorkspacePersistedMessage
-  conversation?: WorkspaceAssistantConversation
-}
-
-interface WorkspaceAssistantMessage {
-  id?: string
-  conversation_id?: string
-  role: 'user' | 'assistant'
-  content: string
-  status?: string
-  created_at?: string
-  updated_at?: string
-  data?: WorkspaceAssistantResponse
-}
-
-interface WorkspacePersistedMessage {
-  id: string
-  conversation_id: string
-  role: 'user' | 'assistant'
-  content: string
-  payload?: WorkspaceAssistantResponse | null
-  status: string
-  created_at?: string | null
-  updated_at?: string | null
-}
-
-interface WorkspaceRunLog {
-  key: string
-  tool?: string
-  status?: string
-  message: string
-  stepId?: string
-  attemptNo?: number
-  retryOfStepId?: string | null
-  resolvedStepId?: string | null
-}
-
-interface WorkspaceAssistantRun {
-  id: string
-  status: string
-  phase?: string | null
-  current_iteration?: number
-  created_at?: string | null
-  updated_at?: string | null
-}
-
-interface WorkspaceAssistantRunStep {
-  id: string
-  run_id: string
-  step_type?: string | null
-  tool?: string | null
-  status?: string | null
-  detail?: string | null
-  error?: string | null
-}
-
-interface WorkspaceAssistantRunDetail {
-  run: WorkspaceAssistantRun
-  steps: WorkspaceAssistantRunStep[]
-}
-
-interface WorkspaceAssistantChatProps {
-  projectId: string
-  scope: WorkspaceAssistantScope
-  selectedOutlineNodeId?: string | null
-  selectedCharacterId?: string | null
-  selectedText?: string
-  selectedTextChapterId?: string | null
-  model?: string
-  defaultModel?: string
-  modelOptions: ModelOption[]
-  modelsLoading?: boolean
-  onModelChange?: (value?: string) => void
-  onApplied?: () => void | Promise<void>
-}
-
-const createEmptyWorkspaceResponse = (toolLogs: WorkspaceToolLog[] = []): WorkspaceAssistantResponse => ({
-  reply: '',
-  actions: [],
-  applied_actions: [],
-  tool_logs: toolLogs,
-})
-
-const runStepToLog = (step: WorkspaceAssistantRunStep): WorkspaceRunLog => ({
-  key: step.id,
-  tool: step.tool || step.step_type || 'step',
-  status: step.status || 'running',
-  message: step.detail || step.error || step.tool || step.step_type || '步骤',
-  stepId: step.id,
-})
-
-const messageTime = (message: WorkspaceAssistantMessage) => {
-  const value = message.created_at || message.updated_at || ''
-  const parsed = value ? new Date(value).getTime() : Number.NaN
-  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER
-}
-
-const sortWorkspaceMessages = (items: WorkspaceAssistantMessage[]) =>
-  [...items].sort((a, b) => {
-    const timeDiff = messageTime(a) - messageTime(b)
-    if (timeDiff !== 0) return timeDiff
-    if (a.role !== b.role) return a.role === 'user' ? -1 : 1
-    return String(a.id || '').localeCompare(String(b.id || ''))
-  })
-
-const toWorkspaceMessage = (item: WorkspacePersistedMessage): WorkspaceAssistantMessage => ({
-  id: item.id,
-  conversation_id: item.conversation_id,
-  role: item.role,
-  content: item.content,
-  status: item.status,
-  created_at: item.created_at || undefined,
-  updated_at: item.updated_at || undefined,
-  data: item.role === 'assistant' && item.payload
-    ? {
-      ...createEmptyWorkspaceResponse(),
-      ...item.payload,
-      tool_logs: item.payload.tool_logs || [],
-      actions: item.payload.actions || [],
-      applied_actions: item.payload.applied_actions || [],
-    }
-    : undefined,
-})
 
 function WorkspaceAssistantChat({
   projectId,
@@ -253,7 +74,7 @@ function WorkspaceAssistantChat({
   const [retryingStepId, setRetryingStepId] = useState<string | null>(null)
   const [currentPlan, setCurrentPlan] = useState<AgentPlanViewState | null>(null)
   const [retryingPlanKey, setRetryingPlanKey] = useState<string | null>(null)
-  const [detailStep, setDetailStep] = useState<{ id: string; tool?: string; request?: unknown; result?: unknown; error?: string; attempt_no?: number } | null>(null)
+  const [detailStep, setDetailStep] = useState<StepDetail | null>(null)
 
   useEffect(() => {
     setShowSelectionTag(true)
@@ -268,7 +89,7 @@ function WorkspaceAssistantChat({
   const [styleSaving, setStyleSaving] = useState(false)
   const messagesRef = useRef<HTMLDivElement | null>(null)
   const [showScrollBottom, setShowScrollBottom] = useState(false)
-  const [matchedSkills, setMatchedSkills] = useState<Array<{ name: string; description?: string; truncated?: boolean; warnings?: string[]; recommended_tools?: string[]; injected?: boolean }>>([])
+  const [matchedSkills, setMatchedSkills] = useState<SkillMatch[]>([])
   const abortRef = useRef<AbortController | null>(null)
   const [memoryModalOpen, setMemoryModalOpen] = useState(false)
 
@@ -284,8 +105,7 @@ function WorkspaceAssistantChat({
   }
 
   const conversationScope = 'project'
-  const scopeLabel = '项目助手'
-  const inputPlaceholder = '告诉AI你想写什么，或让它检查剧情、规划大纲、补全角色世界观、创建章节...'
+  const scopeLabel = SCOPE_LABEL
 
   const fetchProjectStyle = useCallback(async () => {
     try {
@@ -1374,151 +1194,31 @@ function WorkspaceAssistantChat({
         </div>
       )}
 
-      <div className="workspace-assistant-messages" ref={messagesRef} onScroll={handleMessagesScroll}>
-        {showScrollBottom && (
-          <button type="button" className="workspace-assistant-scroll-bottom" onClick={scrollToBottom} title="滚动到底部">
-            <DownOutlined />
-          </button>
-        )}
-        {messages.length > 0 ? messages.map((item, index) => (
-          <div key={`${item.role}-${item.id || index}`} className={`workspace-assistant-message workspace-assistant-${item.role}`}>
-            <Tag color={item.role === 'user' ? 'default' : item.status === 'error' ? 'red' : item.status === 'aborted' ? 'orange' : 'blue'}>
-              {item.role === 'user' ? '你' : scopeLabel}
-            </Tag>
-            <Paragraph style={{ marginTop: 6, marginBottom: 6, whiteSpace: 'pre-wrap' }}>
-              {item.content}
-            </Paragraph>
-            {item.data?.applied_actions?.map((action, i) => {
-              if (action.tool === 'chapter_writer' && action.data?.context_snapshot) {
-                return <ContextPreviewPanel key={`ctx-${i}`} snapshot={action.data.context_snapshot as any} />
-              }
-              if (action.tool === 'preview_writing_context' && action.data?.rag_sections) {
-                return (
-                  <ContextPreviewPanel
-                    key={`ctx-${i}`}
-                    ragSections={action.data.rag_sections as any}
-                    explanations={action.data.explanations as any}
-                    warnings={action.data.warnings as any}
-                    totalUsedChars={action.data.total_used_chars as number}
-                    ragUsed={action.data.rag_used as boolean}
-                  />
-                )
-              }
-              return null
-            })}
-            {item.data?.applied_actions && item.data.applied_actions.length > 0 && (
-              <Space wrap size={4}>
-                {item.data.applied_actions.map((action, actionIndex) => (
-                  <Tag key={`${action.tool}-${actionIndex}`} color={action.status === 'ok' ? 'green' : 'orange'}>
-                    {action.detail || action.tool}
-                  </Tag>
-                ))}
-              </Space>
-            )}
-          </div>
-        )) : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="直接提出需求，AI会读取项目资料并决定是否调用工具。" />
-        )}
-        {generating && (
-          <Text type="secondary">
-            AI 助手正在分析
-            {'...'}
-          </Text>
-        )}
-        {matchedSkills.length > 0 && (
-          <div style={{ marginBottom: 8 }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>已激活技能：</Text>
-            <Space size={[4, 4]} wrap>
-              {matchedSkills.map((s) => (
-                <Tooltip key={s.name} title={s.truncated ? `${s.description || ''}（提示词已截断）` : s.description}>
-                  <Tag color={s.injected === false ? 'default' : 'blue'} style={{ fontSize: 11 }}>
-                    {s.name}{s.truncated ? ' ⚠' : ''}
-                  </Tag>
-                </Tooltip>
-              ))}
-            </Space>
-          </div>
-        )}
-      </div>
+      <MessageList
+        messages={messages}
+        generating={generating}
+        matchedSkills={matchedSkills}
+        showScrollBottom={showScrollBottom}
+        onScrollToBottom={scrollToBottom}
+        messagesRef={messagesRef}
+        onScroll={handleMessagesScroll}
+      />
 
-      {selectedText && selectedText.trim() && showSelectionTag && (
-        <div style={{ padding: '0 0 8px' }}>
-          <Tag
-            closable
-            onClose={() => setShowSelectionTag(false)}
-            color="blue"
-          >
-            已选中 {selectedText.length} 字
-          </Tag>
-        </div>
-      )}
+      <Composer
+        input={input}
+        generating={generating}
+        selectedText={selectedText}
+        showSelectionTag={showSelectionTag}
+        onInputChange={setInput}
+        onSend={sendMessage}
+        onStop={stopGeneration}
+        onCloseSelectionTag={() => setShowSelectionTag(false)}
+      />
 
-      <div className="workspace-assistant-composer">
-        <Input.TextArea
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder={inputPlaceholder}
-          autoSize={{ minRows: 2, maxRows: 5 }}
-          disabled={generating}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-              sendMessage()
-            }
-          }}
-        />
-        <div className="workspace-assistant-actions">
-          <Text type="secondary" style={{ fontSize: 11 }}>Ctrl+Enter 发送</Text>
-          {generating ? (
-            <Button danger icon={<StopOutlined />} onClick={stopGeneration}>停止</Button>
-          ) : (
-            <Button type="primary" icon={<SendOutlined />} onClick={sendMessage} disabled={!input.trim()}>
-              发送
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <Modal
-        title="步骤详情"
-        open={!!detailStep}
-        onCancel={() => setDetailStep(null)}
-        footer={null}
-        width={640}
-      >
-        {detailStep && (
-          <div>
-            <p><strong>步骤 ID：</strong>{detailStep.id}</p>
-            <p><strong>工具：</strong>{detailStep.tool || '-'}</p>
-            {detailStep.attempt_no && detailStep.attempt_no > 1 && (
-              <p><strong>尝试次数：</strong>第 {detailStep.attempt_no} 次</p>
-            )}
-            {detailStep.request !== undefined && detailStep.request !== null && (
-              <div>
-                <Text strong>请求参数：</Text>
-                <pre style={{ background: '#f5f5f5', padding: 8, borderRadius: 4, maxHeight: 200, overflow: 'auto', fontSize: 12 }}>
-                  {JSON.stringify(detailStep.request, null, 2)}
-                </pre>
-              </div>
-            )}
-            {detailStep.result !== undefined && detailStep.result !== null && (
-              <div>
-                <Text strong>执行结果：</Text>
-                <pre style={{ background: '#f5f5f5', padding: 8, borderRadius: 4, maxHeight: 300, overflow: 'auto', fontSize: 12 }}>
-                  {JSON.stringify(detailStep.result, null, 2)}
-                </pre>
-              </div>
-            )}
-            {detailStep.error && (
-              <div>
-                <Text strong type="danger">错误信息：</Text>
-                <pre style={{ background: '#fff2f0', padding: 8, borderRadius: 4, maxHeight: 200, overflow: 'auto', fontSize: 12, color: '#cf1322' }}>
-                  {detailStep.error}
-                </pre>
-              </div>
-            )}
-          </div>
-        )}
-      </Modal>
+      <StepDetailModal
+        detail={detailStep}
+        onClose={() => setDetailStep(null)}
+      />
       <AssistantMemoryModal
         projectId={projectId}
         open={memoryModalOpen}

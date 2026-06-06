@@ -23,6 +23,7 @@ from ...database.models import (
 )
 from ...prompts.workspace_assistant import format_memory_context
 from ..skills.service import build_skill_prompt_section, select_relevant_skills
+from ..workspace.registry import registry
 from ..workspace.run_log import (
     create_assistant_run,
     mark_assistant_run,
@@ -287,6 +288,233 @@ def _schedule_memory_extraction(project_id: str, user_message: str, assistant_re
     asyncio.create_task(_extract_and_save_memories())
 
 
+def _stream_cataloging_job(
+    db: Session,
+    project_id: str,
+    *,
+    message: str,
+    conversation_id: str | None = None,
+    scope: str = "project",
+    model: str | None = None,
+    skill_info: list[dict] | None = None,
+) -> AsyncGenerator[str, None]:
+    """Stream a cataloging job as SSE events for the assistant chat.
+
+    This handles the 'project_init' intent by creating a cataloging job
+    and streaming its progress directly.
+    """
+    from ..cataloging.orchestrator import create_cataloging_job, stream_cataloging_job
+
+    async def _stream() -> AsyncGenerator[str, None]:
+        created_at = datetime.utcnow()
+
+        # Create or reuse conversation
+        if conversation_id:
+            conversation = db.query(AssistantConversation).filter(
+                AssistantConversation.id == conversation_id,
+                AssistantConversation.project_id == project_id,
+            ).first()
+            if not conversation:
+                conversation = AssistantConversation(
+                    project_id=project_id,
+                    title=_assistant_title_from_message(message),
+                    scope=scope,
+                )
+                db.add(conversation)
+                db.flush()
+            conversation.scope = scope
+            conversation.model = model
+        else:
+            conversation = AssistantConversation(
+                project_id=project_id,
+                title=_assistant_title_from_message(message),
+                scope=scope,
+            )
+            db.add(conversation)
+            db.flush()
+
+        conversation.updated_at = created_at
+
+        user_msg_db = AssistantMessage(
+            conversation_id=conversation.id,
+            role="user",
+            content=message,
+            status="completed",
+            created_at=created_at,
+            updated_at=created_at,
+        )
+        assistant_msg_db = AssistantMessage(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="正在创建作品建档任务...",
+            status="running",
+            payload_json=json.dumps({"tool_logs": []}, ensure_ascii=False),
+            created_at=created_at + timedelta(microseconds=1),
+            updated_at=created_at + timedelta(microseconds=1),
+        )
+        db.add(user_msg_db)
+        db.add(assistant_msg_db)
+        db.commit()
+        db.refresh(conversation)
+        db.refresh(user_msg_db)
+        db.refresh(assistant_msg_db)
+
+        assistant_run = create_assistant_run(
+            db,
+            project_id=project_id,
+            conversation_id=conversation.id,
+            user_message_id=user_msg_db.id,
+            assistant_message_id=assistant_msg_db.id,
+            scope=scope,
+            model=model,
+        )
+
+        # Yield conversation and run info
+        yield _sse_event({
+            "type": "conversation",
+            "conversation": _assistant_conversation_to_dict(conversation),
+            "user_message": _assistant_message_to_dict(user_msg_db),
+            "assistant_message": _assistant_message_to_dict(assistant_msg_db),
+        })
+        yield _sse_event({"type": "run", "run": run_payload(assistant_run)})
+        if skill_info:
+            yield _sse_event({"type": "skills_matched", "skills": skill_info})
+
+        # Create cataloging job
+        job = create_cataloging_job(
+            db, project_id,
+            execution_mode="auto",
+            model=model,
+            chapter_ids=None,  # All chapters
+        )
+
+        yield _sse_event({
+            "type": "status",
+            "message": f"建档任务已创建，共 {job.total_chapters} 章",
+            "tool": "cataloging",
+        })
+
+        # Stream cataloging job progress
+        tool_logs: list[dict] = []
+        try:
+            async for event_str in stream_cataloging_job(project_id, job.id):
+                # Forward cataloging SSE events as plan-style events
+                if event_str.startswith("data: "):
+                    data_str = event_str[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        event_data = json.loads(data_str)
+                        event_type = event_data.get("type", "")
+
+                        # Map cataloging events to plan-style events
+                        if event_type == "chapter_started":
+                            yield _sse_event({
+                                "type": "status",
+                                "message": f"正在处理：{event_data.get('run', {}).get('chapter_title', '')}",
+                                "tool": "cataloging",
+                            })
+                        elif event_type == "fact_extracted":
+                            yield _sse_event({
+                                "type": "tool",
+                                "tool": "extract_facts",
+                                "status": "ok",
+                                "detail": event_data.get("fact", {}).get("summary", "事实已提取"),
+                            })
+                        elif event_type == "candidate_created":
+                            yield _sse_event({
+                                "type": "tool",
+                                "tool": "resolve_targets",
+                                "status": "ok",
+                                "detail": event_data.get("candidate", {}).get("item_type", "候选已生成"),
+                            })
+                        elif event_type == "chapter_completed":
+                            run_data = event_data.get("run", {})
+                            tool_logs.append({
+                                "tool": "cataloging",
+                                "status": "ok",
+                                "detail": f"章节完成：{run_data.get('chapter_title', '')}",
+                            })
+                            yield _sse_event({
+                                "type": "step_result",
+                                "step_key": f"chapter_{run_data.get('chapter_id', '')}",
+                                "tool": "cataloging",
+                                "status": "ok",
+                                "detail": f"章节完成：{run_data.get('chapter_title', '')}",
+                            })
+                        elif event_type == "chapter_failed":
+                            run_data = event_data.get("run", {})
+                            tool_logs.append({
+                                "tool": "cataloging",
+                                "status": "error",
+                                "detail": f"章节失败：{event_data.get('error', '')}",
+                            })
+                            yield _sse_event({
+                                "type": "step_result",
+                                "step_key": f"chapter_{run_data.get('chapter_id', '')}",
+                                "tool": "cataloging",
+                                "status": "error",
+                                "detail": event_data.get("error", "处理失败"),
+                            })
+                        elif event_type == "completed":
+                            yield _sse_event({
+                                "type": "plan_end",
+                                "status": "completed",
+                            })
+                        elif event_type == "job":
+                            # Job status update
+                            job_data = event_data.get("job", {})
+                            yield _sse_event({
+                                "type": "status",
+                                "message": f"进度：{job_data.get('completed_chapters', 0)}/{job_data.get('total_chapters', 0)} 章",
+                                "tool": "cataloging",
+                            })
+                    except json.JSONDecodeError:
+                        pass
+        except Exception as exc:
+            yield _sse_event({"type": "error", "message": f"建档任务异常: {exc}"})
+
+        # Finalize
+        final_reply = f"作品建档任务已完成。共处理 {job.total_chapters} 个章节。"
+
+        response_payload = {
+            "reply": final_reply,
+            "actions": [],
+            "applied_actions": [],
+            "tool_logs": tool_logs,
+            "scope": scope,
+            "model": model or "",
+            "usage": None,
+            "skills": skill_info,
+        }
+
+        assistant_msg_db.content = final_reply
+        assistant_msg_db.payload_json = json.dumps(response_payload, ensure_ascii=False)
+        assistant_msg_db.status = "completed"
+        assistant_msg_db.updated_at = datetime.utcnow()
+        conversation.updated_at = datetime.utcnow()
+        db.commit()
+
+        mark_assistant_run(
+            db, assistant_run,
+            status="completed",
+            phase="cataloging_completed",
+            final_reply=final_reply,
+        )
+        db.refresh(assistant_run)
+        db.refresh(assistant_msg_db)
+        db.refresh(conversation)
+
+        response_payload["run"] = run_payload(assistant_run)
+        response_payload["message"] = _assistant_message_to_dict(assistant_msg_db)
+        response_payload["conversation"] = _assistant_conversation_to_dict(conversation)
+        yield _sse_event({"type": "complete", "data": response_payload})
+        _schedule_memory_extraction(project_id, message, final_reply, model)
+        yield _sse_event("[DONE]")
+
+    return _stream()
+
+
 async def detect_and_stream_plan(
     db: Session,
     project_id: str,
@@ -321,6 +549,17 @@ async def detect_and_stream_plan(
     skill_prompt_section, skill_info = build_skill_prompt_section(matched_skills)
     intent = _inject_skill_prompts_into_intent(intent, skill_prompt_section)
     intent = _inject_memory_into_intent(intent, memory_context)
+
+    # Handle project_init (cataloging) intent directly — don't use plan system
+    if intent.get("intent_type") == "project_init":
+        return _stream_cataloging_job(
+            db, project_id,
+            message=message,
+            conversation_id=conversation_id,
+            scope=scope,
+            model=model,
+            skill_info=skill_info,
+        )
 
     graph = build_plan_from_intent(intent, outline_node_id=outline_node_id)
     if graph is None:
@@ -436,18 +675,14 @@ async def detect_and_stream_plan(
         tool_logs: list[dict] = []
         applied_actions: list[dict] = []
         searched_context: list[dict] = []
-        _WRITE_TOOLS = {
-            "create_chapter", "update_chapter", "delete_chapter",
-            "create_character", "update_character", "delete_character",
-            "create_outline_node", "update_outline_node", "delete_outline_node",
-            "create_worldbuilding_entry", "update_worldbuilding_entry", "delete_worldbuilding_entry",
-            "create_relationship", "update_relationship", "delete_relationship",
-        }
-        _SEARCH_TOOLS = {
-            "search_characters", "search_chapters", "search_outline", "search_outline_tree",
-            "search_worldbuilding", "search_relationships", "list_characters", "list_chapters",
-            "list_worldbuilding", "search_context", "preview_rag_context", "preview_writing_context",
-        }
+        _WRITE_TOOLS = registry.get_names_by_type("write")
+        _SEARCH_TOOLS = (
+            registry.get_names_by_type("read")
+            | registry.get_names_by_type("analysis")
+            | registry.get_names_by_type("web")
+            | registry.get_names_by_type("memory")
+            | registry.get_names_by_type("generator")
+        )
         try:
             async for event in orchestrator.execute_plan(plan.id):
                 if event.get("type") == "step_result":

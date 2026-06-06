@@ -16,7 +16,7 @@ from .core.exceptions import (
 from .database.backup import backup_sqlite_database
 from .database.session import Base, SessionLocal, engine
 from .database.migrations import ensure_runtime_schema
-from .routers import projects, config, worldbuilding, characters, outline, chapters, ai_writer, stats, export, deconstruct, importer, cataloging, agent, skill
+from .routers import projects, config, worldbuilding, characters, outline, chapters, ai_writer, stats, export, deconstruct, importer, cataloging, agent, skill, scheduler
 from .services.workspace.run_log import mark_interrupted_assistant_runs
 from .version import APP_VERSION
 
@@ -84,6 +84,7 @@ app.include_router(importer.router, prefix="/api/v1")
 app.include_router(cataloging.router, prefix="/api/v1")
 app.include_router(agent.router, prefix="/api/v1")
 app.include_router(skill.router, prefix="/api/v1")
+app.include_router(scheduler.router, prefix="/api/v1")
 
 
 @app.get("/")
@@ -98,6 +99,17 @@ async def root():
 async def health_check():
     """Detailed health check."""
     return {"status": "healthy", "version": APP_VERSION}
+
+
+@app.on_event("startup")
+async def startup_scheduler():
+    """Start the background scheduler engine."""
+    try:
+        from .services.scheduler.engine import start_scheduler
+        start_scheduler()
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Failed to start scheduler: %s", exc)
 
 
 if FRONTEND_DIST:

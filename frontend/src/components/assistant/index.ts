@@ -1,0 +1,7 @@
+/* Assistant chat module — barrel exports. */
+export * from './types'
+export * from './constants'
+export { MessageList } from './MessageList'
+export { ToolLogPanel } from './ToolLogPanel'
+export { Composer } from './Composer'
+export { StepDetailModal } from './StepDetailModal'

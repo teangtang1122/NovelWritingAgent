@@ -7,6 +7,21 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+
+# ---------------------------------------------------------------------------
+# Token estimation
+# ---------------------------------------------------------------------------
+
+def estimate_tokens(text: str) -> int:
+    """Estimate token count. ~1 token per CJK char, ~4 chars per English word."""
+    if not text:
+        return 0
+    # Count CJK characters (each ~1 token)
+    cjk_count = sum(1 for ch in text if '一' <= ch <= '鿿' or '㐀' <= ch <= '䶿')
+    # Count non-CJK characters (roughly 4 chars per token)
+    non_cjk = len(text) - cjk_count
+    return cjk_count + max(1, non_cjk // 4)
+
 from ...database.models import (
     Chapter,
     ChapterSummary,
@@ -29,7 +44,7 @@ from .retriever import SearchResult, search_chunks
 
 @dataclass
 class ContextBudget:
-    """Char budget for context packing. Not token budget — no tokenizer in v1."""
+    """Char budget for context packing with token estimate tracking."""
     max_system_chars: int = 0       # fixed, not adjustable
     max_input_chars: int = 0        # current user message
     max_chapter_chars: int = 5000
@@ -39,6 +54,7 @@ class ContextBudget:
     max_memory_chars: int = 2000
     max_outline_chars: int = 2000
     reserve_chars: int = 4000
+    token_budget: int = 6000        # soft target for estimated tokens
 
     @property
     def total_chars(self) -> int:
@@ -64,6 +80,7 @@ class ContextBudget:
             "max_memory_chars": self.max_memory_chars,
             "max_outline_chars": self.max_outline_chars,
             "reserve_chars": self.reserve_chars,
+            "token_budget": self.token_budget,
         }
 
 
@@ -78,6 +95,15 @@ class ContextSection:
     selection_reason: str
     score: float
     used_chars: int
+    estimated_tokens: int = 0
+
+
+@dataclass
+class PinnedContext:
+    """Context that must not be squeezed out by budget pressure."""
+    pin_outline: bool = True          # Current outline node
+    pin_character_states: bool = True  # Active character states
+    pin_recent_summaries: bool = True  # Last 2 chapter summaries
 
 
 @dataclass
@@ -89,6 +115,7 @@ class PackedContext:
     explanations: list[str]
     warnings: list[str]
     fts_available: bool
+    total_estimated_tokens: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +150,7 @@ def _pack_outline(
         selection_reason="当前写作目标大纲节点",
         score=100.0,
         used_chars=used,
+        estimated_tokens=estimate_tokens(ctx),
     ), ctx
 
 
@@ -144,6 +172,7 @@ def _pack_summaries(
             selection_reason="自动选取最近5章摘要",
             score=0.0,
             used_chars=0,
+            estimated_tokens=0,
         )
 
     used = min(len(ctx), budget.max_summary_chars)
@@ -160,6 +189,7 @@ def _pack_summaries(
         selection_reason="自动选取最近5章摘要",
         score=90.0,
         used_chars=used,
+        estimated_tokens=estimate_tokens(ctx),
     )
 
 
@@ -209,6 +239,7 @@ def _pack_worldbuilding(
             selection_reason=f"RAG检索({len(rag_results)}条命中，{len(chunk_ids)}条入选)",
             score=sum(r.score for r in rag_results[:len(chunk_ids)]),
             used_chars=total_used,
+            estimated_tokens=estimate_tokens(content),
         ), rag_results
 
     if rag_attempted and not rag_results:
@@ -227,6 +258,7 @@ def _pack_worldbuilding(
             selection_reason="RAG检索无命中，回退传统关键词筛选",
             score=80.0,
             used_chars=used,
+            estimated_tokens=estimate_tokens(ctx),
         ), rag_results
 
     # Traditional path (entries <= 50 or RAG unavailable)
@@ -248,6 +280,7 @@ def _pack_worldbuilding(
         selection_reason=f"传统关键词筛选（{entry_count}条）",
         score=80.0,
         used_chars=used,
+        estimated_tokens=estimate_tokens(ctx),
     ), rag_results
 
 
@@ -294,6 +327,7 @@ def _pack_characters(
             selection_reason=f"RAG检索({len(rag_results)}条命中，{len(chunk_ids)}个角色入选)",
             score=sum(r.score for r in rag_results[:len(chunk_ids)]),
             used_chars=total_used,
+            estimated_tokens=estimate_tokens(content),
         ), rag_results
 
     if outline_node_id:
@@ -331,6 +365,7 @@ def _pack_characters(
                     selection_reason="大纲节点关联角色",
                     score=95.0,
                     used_chars=total_used,
+                    estimated_tokens=estimate_tokens(content),
                 ), []
 
     return ContextSection(
@@ -343,6 +378,7 @@ def _pack_characters(
         selection_reason="未找到相关角色",
         score=0.0,
         used_chars=0,
+        estimated_tokens=0,
     ), []
 
 
@@ -371,6 +407,7 @@ def _pack_pinned(
             selection_reason="用户固定选取",
             score=999.0,
             used_chars=len(chunk.content or ""),
+            estimated_tokens=estimate_tokens(chunk.content or ""),
         )
         sections.append(section)
         used_chars += len(chunk.content or "")
@@ -390,6 +427,7 @@ def pack_context(
     budget: ContextBudget | None = None,
     pinned_chunk_ids: list[str] | None = None,
     include_categories: set[str] | None = None,
+    pinned: PinnedContext | None = None,
 ) -> PackedContext:
     """Budget-aware context assembly with full explanations.
 
@@ -397,6 +435,8 @@ def pack_context(
         include_categories: If provided, only build sections for these categories.
             None (default) builds all categories. Valid values:
             "outline", "summary", "characters", "worldbuilding", "pinned".
+        pinned: If provided, pins certain context types so they are allocated
+            budget first and cannot be squeezed out.
     """
     if budget is None:
         budget = ContextBudget()
@@ -416,6 +456,9 @@ def pack_context(
     if _should_include("outline"):
         outline_section, outline_ctx = _pack_outline(db, project_id, outline_node_id, budget)
         if outline_section:
+            # Pin outline when PinnedContext requests it
+            if pinned and pinned.pin_outline:
+                outline_section.score = 999.0
             sections.append(outline_section)
             used_by_category["outline"] = outline_section.used_chars
             explanations.append(f"大纲节点：{outline_section.selection_reason}")
@@ -423,6 +466,9 @@ def pack_context(
     # 2. Recent summaries
     if _should_include("summary"):
         summary_section = _pack_summaries(db, project_id, budget)
+        # Pin recent summaries when PinnedContext requests it
+        if pinned and pinned.pin_recent_summaries and summary_section.used_chars > 0:
+            summary_section.score = 998.0
         sections.append(summary_section)
         used_by_category["summary"] = summary_section.used_chars
         explanations.append(f"章节摘要：{summary_section.selection_reason}")
@@ -430,6 +476,9 @@ def pack_context(
     # 3. Characters
     if _should_include("characters"):
         char_section, char_rag = _pack_characters(db, project_id, outline_node_id, requirements, budget, rag_available)
+        # Pin character states when PinnedContext requests it
+        if pinned and pinned.pin_character_states and char_section.used_chars > 0:
+            char_section.score = 997.0
         sections.append(char_section)
         used_by_category["characters"] = char_section.used_chars
         explanations.append(f"角色：{char_section.selection_reason}")
@@ -450,6 +499,7 @@ def pack_context(
         explanations.append(f"固定选取：{len(pinned_sections)}个内容块")
 
     total_used_chars = sum(s.used_chars for s in sections)
+    total_estimated_tokens = sum(s.estimated_tokens for s in sections)
 
     # --- Warnings ---
     if not fts_available:
@@ -458,6 +508,20 @@ def pack_context(
         warnings.append(f"上下文已接近预算上限({total_used_chars}/{budget.total_chars - budget.reserve_chars}字符)。")
     if not outline_node_id and _should_include("outline"):
         warnings.append("未指定大纲节点，上下文可能不够精准。")
+
+    # Missing context warnings
+    if _should_include("characters"):
+        char_count = db.query(Character).filter(Character.project_id == project_id).count()
+        char_section = next((s for s in sections if s.category == "characters"), None)
+        if char_count > 0 and (char_section is None or char_section.used_chars == 0):
+            warnings.append("项目有角色数据但未找到相关角色资料，可能影响写作质量。")
+        elif char_section and char_section.used_chars == 0:
+            warnings.append("未找到任何相关角色信息。")
+
+    if outline_node_id and _should_include("outline"):
+        outline_section = next((s for s in sections if s.category == "outline"), None)
+        if outline_section is None:
+            warnings.append("指定了大纲节点但未找到对应大纲资料。")
 
     # RAG miss warnings — only for included categories
     if _should_include("worldbuilding"):
@@ -473,11 +537,6 @@ def pack_context(
                 elif "RAG检索" in reason and wb_section.used_chars < 200:
                     warnings.append("RAG检索世界观命中过少，上下文可能不充分。")
 
-    if _should_include("characters"):
-        char_section = next((s for s in sections if s.category == "characters"), None)
-        if char_section and char_section.used_chars == 0:
-            warnings.append("未找到任何相关角色信息。")
-
     return PackedContext(
         sections=sections,
         total_used_chars=total_used_chars,
@@ -486,4 +545,5 @@ def pack_context(
         explanations=explanations,
         warnings=warnings,
         fts_available=fts_available,
+        total_estimated_tokens=total_estimated_tokens,
     )

@@ -4,6 +4,7 @@ from .chapters import create_chapter, delete_chapter, update_chapter
 from .context_preview import preview_writing_context
 from .character_writer import character_writer
 from .characters import create_character, delete_character, update_character
+from .character_merge import list_duplicate_characters, merge_duplicate_characters, preview_character_merge
 from .outline import create_outline_node, delete_outline_node, update_outline_node
 from .outline_writer import outline_writer
 from .plot import design_plot
@@ -31,6 +32,53 @@ from .worldbuilding import (
     update_worldbuilding_entry,
 )
 from .worldbuilding_writer import worldbuilding_writer
+from .projects import create_project, delete_project, get_project_info, list_projects, update_project_info
+from .scheduler import (
+    create_scheduled_task,
+    delete_scheduled_task,
+    list_scheduled_tasks,
+    run_scheduled_task_now,
+    update_scheduled_task,
+)
+from .skills import (
+    create_skill,
+    delete_skill,
+    draft_skill,
+    ensure_builtin_skills_tool,
+    list_skill_templates_tool,
+    list_skill_tools_tool,
+    list_skill_versions_tool,
+    list_skills,
+    preview_skill_match_tool,
+    reset_skill,
+    update_skill,
+)
+from .export import export_project, get_export_word_count
+from .import_tools import import_text_as_chapters, preview_import_splits
+from .cataloging import (
+    apply_pending_cataloging,
+    cancel_cataloging_job,
+    get_cataloging_job,
+    list_cataloging_candidates,
+    list_cataloging_facts,
+    list_cataloging_jobs,
+    pause_cataloging_job,
+    rerun_cataloging_resolution_current,
+    resume_cataloging_job,
+    retry_current_cataloging_chapter,
+    set_cataloging_mode,
+    start_cataloging_job,
+    update_cataloging_candidate,
+)
+from .deconstruct import (
+    get_deconstruct_report,
+    import_deconstruct_report_tool,
+    list_deconstruct_reports,
+    preview_deconstruct_source,
+    rerun_failed_deconstruct_chunks,
+    start_deconstruct_job,
+)
+from .stats import get_today_writing_stats, get_writing_stats_history, set_daily_word_goal
 
 __all__ = [
     "chapter_writer",
@@ -44,6 +92,9 @@ __all__ = [
     "create_character",
     "update_character",
     "delete_character",
+    "list_duplicate_characters",
+    "preview_character_merge",
+    "merge_duplicate_characters",
     "create_outline_node",
     "update_outline_node",
     "delete_outline_node",
@@ -79,4 +130,51 @@ __all__ = [
     "recall",
     "forget",
     "list_memories",
+    "list_projects",
+    "get_project_info",
+    "create_project",
+    "update_project_info",
+    "delete_project",
+    "list_scheduled_tasks",
+    "create_scheduled_task",
+    "update_scheduled_task",
+    "delete_scheduled_task",
+    "run_scheduled_task_now",
+    "list_skills",
+    "list_skill_templates_tool",
+    "list_skill_tools_tool",
+    "draft_skill",
+    "create_skill",
+    "update_skill",
+    "delete_skill",
+    "reset_skill",
+    "preview_skill_match_tool",
+    "list_skill_versions_tool",
+    "ensure_builtin_skills_tool",
+    "export_project",
+    "get_export_word_count",
+    "preview_import_splits",
+    "import_text_as_chapters",
+    "start_cataloging_job",
+    "list_cataloging_jobs",
+    "get_cataloging_job",
+    "set_cataloging_mode",
+    "list_cataloging_candidates",
+    "list_cataloging_facts",
+    "update_cataloging_candidate",
+    "apply_pending_cataloging",
+    "retry_current_cataloging_chapter",
+    "rerun_cataloging_resolution_current",
+    "pause_cataloging_job",
+    "resume_cataloging_job",
+    "cancel_cataloging_job",
+    "preview_deconstruct_source",
+    "list_deconstruct_reports",
+    "get_deconstruct_report",
+    "start_deconstruct_job",
+    "rerun_failed_deconstruct_chunks",
+    "import_deconstruct_report_tool",
+    "get_today_writing_stats",
+    "get_writing_stats_history",
+    "set_daily_word_goal",
 ]

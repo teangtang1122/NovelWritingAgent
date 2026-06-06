@@ -96,17 +96,25 @@ registry = ToolRegistry()
 def _register_all() -> None:
     from .tools import (
         chapter_writer,
+        apply_pending_cataloging,
+        cancel_cataloging_job,
         character_writer,
         continue_text,
         create_chapter,
         create_character,
         create_outline_node,
+        create_project,
         create_relationship,
+        create_scheduled_task,
+        create_skill,
         create_worldbuilding_entry,
         delete_chapter,
         delete_character,
         delete_outline_node,
+        delete_project,
         delete_relationship,
+        delete_scheduled_task,
+        delete_skill,
         delete_worldbuilding_entry,
         design_plot,
         detect_character_changes,
@@ -116,16 +124,49 @@ def _register_all() -> None:
         dialogue_battle,
         evaluate_chapter,
         expand_text,
+        export_project,
         forget,
+        get_cataloging_job,
+        get_deconstruct_report,
+        get_export_word_count,
+        get_today_writing_stats,
+        get_writing_stats_history,
+        get_project_info,
+        ensure_builtin_skills_tool,
+        draft_skill,
+        import_deconstruct_report_tool,
+        import_text_as_chapters,
+        list_cataloging_candidates,
+        list_cataloging_facts,
+        list_cataloging_jobs,
         list_characters,
+        list_deconstruct_reports,
+        list_duplicate_characters,
         list_memories,
         list_chapters,
+        list_projects,
+        list_scheduled_tasks,
+        list_skill_templates_tool,
+        list_skill_tools_tool,
+        list_skill_versions_tool,
+        list_skills,
         list_worldbuilding,
         outline_writer,
+        preview_skill_match_tool,
+        preview_character_merge,
+        preview_deconstruct_source,
+        preview_import_splits,
         recall,
         remember,
+        rerun_cataloging_resolution_current,
+        rerun_failed_deconstruct_chunks,
         rewrite_text,
         roleplay_character,
+        run_scheduled_task_now,
+        merge_duplicate_characters,
+        pause_cataloging_job,
+        resume_cataloging_job,
+        retry_current_cataloging_chapter,
         search_characters,
         search_chapters,
         search_outline,
@@ -135,16 +176,697 @@ def _register_all() -> None:
         suggest_conflicts,
         update_chapter,
         update_character,
+        update_cataloging_candidate,
         update_outline_node,
+        update_project_info,
         update_relationship,
+        update_scheduled_task,
+        update_skill,
         update_worldbuilding_entry,
+        set_cataloging_mode,
+        set_daily_word_goal,
+        start_cataloging_job,
+        start_deconstruct_job,
         web_search,
         worldbuilding_writer,
         preview_writing_context,
+        reset_skill,
     )
     from .tools.rag_tools import search_context, preview_rag_context, explain_context_selection
 
     _r = registry.register
+
+    # ── System / Project Management ─────────────────────────────────────
+
+    _r(ToolDef(
+        name="list_projects",
+        description="列出系统中的作品。可按标题或简介搜索。用于项目助手帮助用户管理多个作品；不会读取或修改API Key。",
+        input_schema={
+            "query": {"type": "string", "description": "可选，按作品标题或简介搜索"},
+            "limit": {"type": "integer", "description": "返回数量上限，默认50"},
+        },
+        tool_type="read",
+        estimated_cost="free",
+        handler=list_projects,
+    ))
+
+    _r(ToolDef(
+        name="get_project_info",
+        description="读取作品设置与基础信息。默认读取当前作品，也可传入作品ID。不会读取API Key。",
+        input_schema={
+            "id": {"type": "string", "description": "可选，作品ID。不传则读取当前作品"},
+            "project_id": {"type": "string", "description": "兼容字段，同id"},
+        },
+        tool_type="read",
+        estimated_cost="free",
+        handler=get_project_info,
+    ))
+
+    _r(ToolDef(
+        name="create_project",
+        description="创建新作品。可设置简介、标签、文风、禁用句式、修辞限制、每日字数目标等基础信息。不会创建或修改API Key。",
+        input_schema={
+            "title": {"type": "string", "description": "作品标题"},
+            "description": {"type": "string", "description": "作品简介"},
+            "tags": {"type": "array", "items": {"type": "string"}, "description": "作品标签"},
+            "narrative_perspective": {"type": "string", "description": "叙事视角，如 third_person/first_person"},
+            "writing_style": {"type": "string", "description": "文风偏好"},
+            "forbidden_sentence_patterns": {"type": "string", "description": "禁用句式，每行一条"},
+            "rhetoric_guidelines": {"type": "string", "description": "修辞和比喻使用限制"},
+            "short_sentences": {"type": "boolean", "description": "是否启用短句模式"},
+            "custom_style_prompt": {"type": "string", "description": "自定义风格提示词"},
+            "daily_word_goal": {"type": "integer", "description": "每日字数目标"},
+        },
+        required=["title"],
+        tool_type="write",
+        idempotent=True,
+        estimated_cost="free",
+        handler=create_project,
+    ))
+
+    _r(ToolDef(
+        name="update_project_info",
+        description="更新当前或指定作品的基础设置。可修改标题、简介、文风、禁用句式等；不能修改API Key或模型密钥。",
+        input_schema={
+            "id": {"type": "string", "description": "可选，作品ID。不传则更新当前作品"},
+            "project_id": {"type": "string", "description": "兼容字段，同id"},
+            "title": {"type": "string", "description": "作品标题"},
+            "description": {"type": "string", "description": "作品简介"},
+            "tags": {"type": "array", "items": {"type": "string"}, "description": "作品标签"},
+            "narrative_perspective": {"type": "string", "description": "叙事视角"},
+            "writing_style": {"type": "string", "description": "文风偏好"},
+            "forbidden_sentence_patterns": {"type": "string", "description": "禁用句式，每行一条"},
+            "rhetoric_guidelines": {"type": "string", "description": "修辞和比喻限制"},
+            "short_sentences": {"type": "boolean", "description": "是否启用短句模式"},
+            "custom_style_prompt": {"type": "string", "description": "自定义风格提示词"},
+            "daily_word_goal": {"type": "integer", "description": "每日字数目标"},
+        },
+        tool_type="write",
+        estimated_cost="free",
+        handler=update_project_info,
+    ))
+
+    _r(ToolDef(
+        name="delete_project",
+        description="删除作品及其全部关联数据。危险操作，必须在用户明确确认删除指定作品后才能调用。",
+        input_schema={
+            "id": {"type": "string", "description": "要删除的作品ID"},
+            "project_id": {"type": "string", "description": "兼容字段，同id"},
+        },
+        tool_type="write",
+        requires_confirmation=True,
+        estimated_cost="free",
+        handler=delete_project,
+    ))
+
+    _r(ToolDef(
+        name="export_project",
+        description="导出当前作品内容，生成 txt/docx/pdf 文件。可导出章节、大纲、角色、世界观或全部内容。",
+        input_schema={
+            "scope": {"type": "string", "description": "导出范围：chapters|outline|characters|worldbuilding|all|single|selected，默认all"},
+            "format": {"type": "string", "description": "导出格式：txt|docx|pdf，默认txt"},
+            "chapter_ids": {"type": "array", "items": {"type": "string"}, "description": "scope=selected/single时要导出的章节ID列表"},
+            "include_outline": {"type": "boolean", "description": "导出章节时是否附带大纲"},
+            "include_characters": {"type": "boolean", "description": "导出章节时是否附带角色档案"},
+            "include_worldbuilding": {"type": "boolean", "description": "导出章节时是否附带世界观"},
+        },
+        tool_type="write",
+        idempotent=True,
+        estimated_cost="free",
+        handler=export_project,
+    ))
+
+    _r(ToolDef(
+        name="get_export_word_count",
+        description="统计当前作品章节总字数和每章字数，用于导出前检查或写作进度统计。",
+        input_schema={},
+        tool_type="read",
+        estimated_cost="free",
+        handler=get_export_word_count,
+    ))
+
+    # -- System / Import, Cataloging, Deconstruct, Stats --
+
+    _r(ToolDef(
+        name="preview_import_splits",
+        description="Preview chapter split suggestions for pasted novel text before importing it as chapters.",
+        input_schema={
+            "text": {"type": "string", "description": "Full text to split into chapters"},
+            "model": {"type": "string", "description": "Optional model override for LLM split correction"},
+        },
+        required=["text"],
+        tool_type="analysis",
+        estimated_cost="low",
+        handler=preview_import_splits,
+    ))
+
+    _r(ToolDef(
+        name="import_text_as_chapters",
+        description="Import pasted text as project chapters. Can use provided split suggestions or auto-split first.",
+        input_schema={
+            "text": {"type": "string", "description": "Full text to import"},
+            "splits": {"type": "array", "items": {"type": "object"}, "description": "Optional split suggestions from preview_import_splits"},
+            "outline_node_id": {"type": "string", "description": "Optional outline node ID to link imported chapters"},
+            "auto_split": {"type": "boolean", "description": "Auto-detect chapter boundaries when splits are omitted; default true"},
+            "model": {"type": "string", "description": "Optional model override for split correction"},
+        },
+        required=["text"],
+        tool_type="write",
+        idempotent=True,
+        estimated_cost="low",
+        handler=import_text_as_chapters,
+    ))
+
+    _r(ToolDef(
+        name="start_cataloging_job",
+        description="Start a project cataloging job that initializes or updates chapter summaries, characters, outline, worldbuilding, and links from existing chapters.",
+        input_schema={
+            "execution_mode": {"type": "string", "description": "auto or manual; manual waits for user confirmation after each chapter"},
+            "model": {"type": "string", "description": "Optional model override"},
+            "chapter_ids": {"type": "array", "items": {"type": "string"}, "description": "Optional ordered chapter IDs; omit for all chapters"},
+            "run_now": {"type": "boolean", "description": "Start processing immediately; default true"},
+        },
+        tool_type="write",
+        idempotent=True,
+        estimated_cost="high",
+        handler=start_cataloging_job,
+    ))
+
+    _r(ToolDef(
+        name="list_cataloging_jobs",
+        description="List recent project cataloging jobs and their progress.",
+        input_schema={"limit": {"type": "integer", "description": "Maximum jobs to return; default 20"}},
+        tool_type="read",
+        estimated_cost="free",
+        handler=list_cataloging_jobs,
+    ))
+
+    _r(ToolDef(
+        name="get_cataloging_job",
+        description="Read a cataloging job with its chapter runs.",
+        input_schema={"job_id": {"type": "string", "description": "Cataloging job ID"}},
+        required=["job_id"],
+        tool_type="read",
+        estimated_cost="free",
+        handler=get_cataloging_job,
+    ))
+
+    _r(ToolDef(
+        name="set_cataloging_mode",
+        description="Switch a cataloging job between auto and manual confirmation mode.",
+        input_schema={
+            "job_id": {"type": "string", "description": "Cataloging job ID"},
+            "execution_mode": {"type": "string", "description": "auto or manual"},
+        },
+        required=["job_id", "execution_mode"],
+        tool_type="write",
+        estimated_cost="free",
+        handler=set_cataloging_mode,
+    ))
+
+    _r(ToolDef(
+        name="list_cataloging_candidates",
+        description="List cataloging candidates for review.",
+        input_schema={
+            "job_id": {"type": "string", "description": "Cataloging job ID"},
+            "chapter_run_id": {"type": "string", "description": "Optional chapter run ID"},
+            "status": {"type": "string", "description": "Optional candidate status filter"},
+            "item_type": {"type": "string", "description": "Optional candidate type filter"},
+        },
+        required=["job_id"],
+        tool_type="read",
+        estimated_cost="free",
+        handler=list_cataloging_candidates,
+    ))
+
+    _r(ToolDef(
+        name="list_cataloging_facts",
+        description="List saved first-stage cataloging facts.",
+        input_schema={
+            "job_id": {"type": "string", "description": "Cataloging job ID"},
+            "chapter_run_id": {"type": "string", "description": "Optional chapter run ID"},
+            "fact_type": {"type": "string", "description": "Optional fact type filter"},
+        },
+        required=["job_id"],
+        tool_type="read",
+        estimated_cost="free",
+        handler=list_cataloging_facts,
+    ))
+
+    _r(ToolDef(
+        name="update_cataloging_candidate",
+        description="Edit or approve/reject a cataloging candidate before it is applied.",
+        input_schema={
+            "candidate_id": {"type": "string", "description": "Candidate ID"},
+            "payload": {"type": "object", "description": "Edited candidate payload"},
+            "status": {"type": "string", "description": "pending|edited|approved|rejected|applying|applied|apply_failed"},
+        },
+        required=["candidate_id"],
+        tool_type="write",
+        estimated_cost="free",
+        handler=update_cataloging_candidate,
+    ))
+
+    _r(ToolDef(
+        name="apply_pending_cataloging",
+        description="Apply the current waiting-confirmation cataloging chapter candidates and continue the job when possible.",
+        input_schema={"job_id": {"type": "string", "description": "Cataloging job ID"}},
+        required=["job_id"],
+        tool_type="write",
+        estimated_cost="free",
+        handler=apply_pending_cataloging,
+    ))
+
+    _r(ToolDef(
+        name="retry_current_cataloging_chapter",
+        description="Retry the failed or waiting current cataloging chapter from stage one.",
+        input_schema={
+            "job_id": {"type": "string", "description": "Cataloging job ID"},
+            "run_now": {"type": "boolean", "description": "Resume processing immediately; default true"},
+        },
+        required=["job_id"],
+        tool_type="write",
+        estimated_cost="high",
+        handler=retry_current_cataloging_chapter,
+    ))
+
+    _r(ToolDef(
+        name="rerun_cataloging_resolution_current",
+        description="Retry only the second cataloging stage for the current chapter, reusing saved facts.",
+        input_schema={
+            "job_id": {"type": "string", "description": "Cataloging job ID"},
+            "run_now": {"type": "boolean", "description": "Resume processing immediately; default true"},
+        },
+        required=["job_id"],
+        tool_type="write",
+        estimated_cost="medium",
+        handler=rerun_cataloging_resolution_current,
+    ))
+
+    _r(ToolDef(
+        name="pause_cataloging_job",
+        description="Pause a running cataloging job.",
+        input_schema={"job_id": {"type": "string", "description": "Cataloging job ID"}},
+        required=["job_id"],
+        tool_type="write",
+        estimated_cost="free",
+        handler=pause_cataloging_job,
+    ))
+
+    _r(ToolDef(
+        name="resume_cataloging_job",
+        description="Resume a paused cataloging job and continue processing.",
+        input_schema={
+            "job_id": {"type": "string", "description": "Cataloging job ID"},
+            "run_now": {"type": "boolean", "description": "Resume processing immediately; default true"},
+        },
+        required=["job_id"],
+        tool_type="write",
+        estimated_cost="high",
+        handler=resume_cataloging_job,
+    ))
+
+    _r(ToolDef(
+        name="cancel_cataloging_job",
+        description="Cancel a cataloging job. Requires clear user confirmation.",
+        input_schema={"job_id": {"type": "string", "description": "Cataloging job ID"}},
+        required=["job_id"],
+        tool_type="write",
+        requires_confirmation=True,
+        estimated_cost="free",
+        handler=cancel_cataloging_job,
+    ))
+
+    _r(ToolDef(
+        name="preview_deconstruct_source",
+        description="Preview available chapters and word counts before starting legacy deconstruct analysis.",
+        input_schema={},
+        tool_type="read",
+        estimated_cost="free",
+        handler=preview_deconstruct_source,
+    ))
+
+    _r(ToolDef(
+        name="list_deconstruct_reports",
+        description="List persisted legacy deconstruct reports.",
+        input_schema={"limit": {"type": "integer", "description": "Maximum reports to return; default 20"}},
+        tool_type="read",
+        estimated_cost="free",
+        handler=list_deconstruct_reports,
+    ))
+
+    _r(ToolDef(
+        name="get_deconstruct_report",
+        description="Read a persisted legacy deconstruct report.",
+        input_schema={"report_id": {"type": "string", "description": "Deconstruct report ID"}},
+        required=["report_id"],
+        tool_type="read",
+        estimated_cost="free",
+        handler=get_deconstruct_report,
+    ))
+
+    _r(ToolDef(
+        name="start_deconstruct_job",
+        description="Start legacy deconstruct analysis for selected chapters or pasted text. Prefer cataloging for project initialization.",
+        input_schema={
+            "text": {"type": "string", "description": "Optional text to analyze"},
+            "chapter_ids": {"type": "array", "items": {"type": "string"}, "description": "Existing chapters to analyze"},
+            "title": {"type": "string", "description": "Report title"},
+            "model": {"type": "string", "description": "Optional model override"},
+            "map_model": {"type": "string", "description": "Optional map model"},
+            "reduce_model": {"type": "string", "description": "Optional reduce model"},
+            "analysis_mode": {"type": "string", "description": "fast or detailed; default fast"},
+            "include_golden_three": {"type": "boolean", "description": "Whether to analyze first three chapters"},
+            "include_rhythm": {"type": "boolean", "description": "Whether to include rhythm analysis"},
+            "include_patterns": {"type": "boolean", "description": "Whether to include writing-pattern analysis"},
+            "map_concurrency": {"type": "integer", "description": "Map concurrency 1-12"},
+            "run_now": {"type": "boolean", "description": "Start processing immediately; default true"},
+        },
+        tool_type="write",
+        idempotent=True,
+        estimated_cost="high",
+        handler=start_deconstruct_job,
+    ))
+
+    _r(ToolDef(
+        name="rerun_failed_deconstruct_chunks",
+        description="Rerun only failed chunks for an existing legacy deconstruct report.",
+        input_schema={
+            "report_id": {"type": "string", "description": "Deconstruct report ID"},
+            "model": {"type": "string", "description": "Optional model override"},
+            "map_model": {"type": "string", "description": "Optional map model"},
+            "reduce_model": {"type": "string", "description": "Optional reduce model"},
+        },
+        required=["report_id"],
+        tool_type="write",
+        estimated_cost="high",
+        handler=rerun_failed_deconstruct_chunks,
+    ))
+
+    _r(ToolDef(
+        name="import_deconstruct_report",
+        description="Import selected sections from a deconstruct report into outline, characters, and/or worldbuilding.",
+        input_schema={
+            "report_id": {"type": "string", "description": "Deconstruct report ID"},
+            "import_outline": {"type": "boolean", "description": "Import outline nodes"},
+            "import_characters": {"type": "boolean", "description": "Import characters"},
+            "import_worldbuilding": {"type": "boolean", "description": "Import worldbuilding entries"},
+        },
+        required=["report_id"],
+        tool_type="write",
+        estimated_cost="low",
+        handler=import_deconstruct_report_tool,
+    ))
+
+    _r(ToolDef(
+        name="get_today_writing_stats",
+        description="Read today's writing statistics for the current project.",
+        input_schema={},
+        tool_type="read",
+        estimated_cost="free",
+        handler=get_today_writing_stats,
+    ))
+
+    _r(ToolDef(
+        name="get_writing_stats_history",
+        description="Read daily writing statistics history for the current project.",
+        input_schema={"days": {"type": "integer", "description": "Number of days, 1-365; default 7"}},
+        tool_type="read",
+        estimated_cost="free",
+        handler=get_writing_stats_history,
+    ))
+
+    _r(ToolDef(
+        name="set_daily_word_goal",
+        description="Set the current project's daily word-count goal.",
+        input_schema={"daily_word_goal": {"type": "integer", "description": "Daily target word count"}},
+        required=["daily_word_goal"],
+        tool_type="write",
+        estimated_cost="free",
+        handler=set_daily_word_goal,
+    ))
+
+    _r(ToolDef(
+        name="list_duplicate_characters",
+        description="Find likely duplicate character cards for manual review or merge.",
+        input_schema={"limit": {"type": "integer", "description": "Maximum duplicate pairs to return; default 80"}},
+        tool_type="analysis",
+        estimated_cost="free",
+        handler=list_duplicate_characters,
+    ))
+
+    _r(ToolDef(
+        name="preview_character_merge",
+        description="Preview how two duplicate character cards would be merged.",
+        input_schema={
+            "primary_id": {"type": "string", "description": "Character ID to keep"},
+            "secondary_id": {"type": "string", "description": "Character ID to merge into primary"},
+            "canonical_name": {"type": "string", "description": "Optional final canonical name"},
+        },
+        required=["primary_id", "secondary_id"],
+        tool_type="analysis",
+        estimated_cost="free",
+        handler=preview_character_merge,
+    ))
+
+    _r(ToolDef(
+        name="merge_duplicate_characters",
+        description="Merge a duplicate character into the primary character card. Requires clear user confirmation.",
+        input_schema={
+            "primary_id": {"type": "string", "description": "Character ID to keep"},
+            "secondary_id": {"type": "string", "description": "Character ID to merge into primary"},
+            "canonical_name": {"type": "string", "description": "Optional final canonical name"},
+            "reason": {"type": "string", "description": "Why these two cards are the same character"},
+        },
+        required=["primary_id", "secondary_id"],
+        tool_type="write",
+        requires_confirmation=True,
+        estimated_cost="free",
+        handler=merge_duplicate_characters,
+    ))
+
+    # ── System / Scheduled Tasks ────────────────────────────────────────
+
+    _r(ToolDef(
+        name="list_scheduled_tasks",
+        description="列出当前作品的自动任务/定时任务。",
+        input_schema={},
+        tool_type="read",
+        estimated_cost="free",
+        handler=list_scheduled_tasks,
+    ))
+
+    _r(ToolDef(
+        name="create_scheduled_task",
+        description="创建自动任务/定时任务。适用于用户要求定时搜索、定时整理资料、周期性提醒或定期执行项目助手任务。",
+        input_schema={
+            "name": {"type": "string", "description": "任务名称"},
+            "prompt": {"type": "string", "description": "任务执行提示词，描述AI到点后要做什么"},
+            "cron_expr": {"type": "string", "description": "Cron表达式，如 0 22 * * * 表示每天22点"},
+            "interval_minutes": {"type": "integer", "description": "间隔分钟。若cron_expr存在则优先使用cron_expr"},
+            "tool_policy": {"type": "array", "items": {"type": "string"}, "description": "可选，任务可使用的工具名"},
+            "status": {"type": "string", "description": "active|paused，默认active"},
+        },
+        required=["name", "prompt"],
+        tool_type="write",
+        idempotent=True,
+        estimated_cost="free",
+        handler=create_scheduled_task,
+    ))
+
+    _r(ToolDef(
+        name="update_scheduled_task",
+        description="更新自动任务/定时任务。可按ID或名称定位，修改提示词、周期、状态等。",
+        input_schema={
+            "id": {"type": "string", "description": "任务ID"},
+            "task_id": {"type": "string", "description": "兼容字段，同id"},
+            "name": {"type": "string", "description": "任务名称，可用于定位或重命名"},
+            "prompt": {"type": "string", "description": "新的执行提示词"},
+            "cron_expr": {"type": "string", "description": "新的Cron表达式，空值表示清除"},
+            "interval_minutes": {"type": "integer", "description": "新的间隔分钟"},
+            "tool_policy": {"type": "array", "items": {"type": "string"}, "description": "任务可使用工具名"},
+            "status": {"type": "string", "description": "active|paused"},
+        },
+        tool_type="write",
+        estimated_cost="free",
+        handler=update_scheduled_task,
+    ))
+
+    _r(ToolDef(
+        name="delete_scheduled_task",
+        description="删除自动任务/定时任务。必须在用户明确确认删除后调用。",
+        input_schema={
+            "id": {"type": "string", "description": "任务ID"},
+            "task_id": {"type": "string", "description": "兼容字段，同id"},
+            "name": {"type": "string", "description": "任务名称，id为空时用于定位"},
+        },
+        tool_type="write",
+        requires_confirmation=True,
+        estimated_cost="free",
+        handler=delete_scheduled_task,
+    ))
+
+    _r(ToolDef(
+        name="run_scheduled_task_now",
+        description="立即执行一个自动任务。可能触发LLM、联网搜索或写入项目资料；用户明确要求立即运行时使用。",
+        input_schema={
+            "id": {"type": "string", "description": "任务ID"},
+            "task_id": {"type": "string", "description": "兼容字段，同id"},
+            "name": {"type": "string", "description": "任务名称，id为空时用于定位"},
+        },
+        tool_type="write",
+        estimated_cost="medium",
+        handler=run_scheduled_task_now,
+    ))
+
+    # ── System / Skills ─────────────────────────────────────────────────
+
+    _r(ToolDef(
+        name="list_skills",
+        description="列出当前作品的AI技能，包括内置技能和自定义技能。",
+        input_schema={},
+        tool_type="read",
+        estimated_cost="free",
+        handler=list_skills,
+    ))
+
+    _r(ToolDef(
+        name="list_skill_templates",
+        description="列出可用于创建技能的模板。",
+        input_schema={},
+        tool_type="read",
+        estimated_cost="free",
+        handler=list_skill_templates_tool,
+    ))
+
+    _r(ToolDef(
+        name="list_skill_tools",
+        description="列出技能中可推荐或禁用的工具名及元数据。",
+        input_schema={},
+        tool_type="read",
+        estimated_cost="free",
+        handler=list_skill_tools_tool,
+    ))
+
+    _r(ToolDef(
+        name="draft_skill",
+        description="根据用户需求生成一个可编辑的技能草案，不会保存。用户想先看看技能怎么写时使用。",
+        input_schema={
+            "requirements": {"type": "string", "description": "用户想创建的技能需求"},
+            "template_key": {"type": "string", "description": "可选模板key"},
+            "scope": {"type": "string", "description": "global|project|writing|outline|characters|worldbuilding|cataloging|research"},
+        },
+        required=["requirements"],
+        tool_type="generator",
+        estimated_cost="free",
+        handler=draft_skill,
+    ))
+
+    _r(ToolDef(
+        name="create_skill",
+        description="创建AI技能。可直接提供完整字段；也可只提供requirements，系统会用模板生成技能并保存。",
+        input_schema={
+            "requirements": {"type": "string", "description": "用户想创建的技能需求，可用于自动生成技能草案"},
+            "template_key": {"type": "string", "description": "可选模板key"},
+            "name": {"type": "string", "description": "技能名称"},
+            "description": {"type": "string", "description": "技能描述"},
+            "trigger_examples": {"type": "array", "items": {"type": "string"}, "description": "触发关键词/示例"},
+            "system_prompt": {"type": "string", "description": "技能系统提示词"},
+            "recommended_tools": {"type": "array", "items": {"type": "string"}, "description": "推荐工具"},
+            "forbidden_tools": {"type": "array", "items": {"type": "string"}, "description": "禁用工具"},
+            "scope": {"type": "string", "description": "global|project|writing|outline|characters|worldbuilding|cataloging|research"},
+            "priority": {"type": "integer", "description": "优先级0-100"},
+            "enabled": {"type": "boolean", "description": "是否启用"},
+        },
+        tool_type="write",
+        idempotent=True,
+        estimated_cost="free",
+        handler=create_skill,
+    ))
+
+    _r(ToolDef(
+        name="update_skill",
+        description="更新AI技能。可按ID或名称定位，修改触发词、提示词、范围、优先级、启用状态等。",
+        input_schema={
+            "id": {"type": "string", "description": "技能ID"},
+            "skill_id": {"type": "string", "description": "兼容字段，同id"},
+            "name": {"type": "string", "description": "技能名称，可用于定位或重命名"},
+            "description": {"type": "string", "description": "技能描述"},
+            "trigger_examples": {"type": "array", "items": {"type": "string"}, "description": "触发关键词/示例"},
+            "system_prompt": {"type": "string", "description": "技能系统提示词"},
+            "recommended_tools": {"type": "array", "items": {"type": "string"}, "description": "推荐工具"},
+            "forbidden_tools": {"type": "array", "items": {"type": "string"}, "description": "禁用工具"},
+            "scope": {"type": "string", "description": "技能适用范围"},
+            "priority": {"type": "integer", "description": "优先级0-100"},
+            "enabled": {"type": "boolean", "description": "是否启用"},
+        },
+        tool_type="write",
+        estimated_cost="free",
+        handler=update_skill,
+    ))
+
+    _r(ToolDef(
+        name="delete_skill",
+        description="删除自定义AI技能。内置技能不可删除，只能禁用。危险操作，必须在用户确认后调用。",
+        input_schema={
+            "id": {"type": "string", "description": "技能ID"},
+            "skill_id": {"type": "string", "description": "兼容字段，同id"},
+            "name": {"type": "string", "description": "技能名称，id为空时用于定位"},
+        },
+        tool_type="write",
+        requires_confirmation=True,
+        estimated_cost="free",
+        handler=delete_skill,
+    ))
+
+    _r(ToolDef(
+        name="reset_skill",
+        description="将内置技能恢复默认值。仅适用于内置技能。",
+        input_schema={
+            "id": {"type": "string", "description": "技能ID"},
+            "skill_id": {"type": "string", "description": "兼容字段，同id"},
+            "name": {"type": "string", "description": "技能名称，id为空时用于定位"},
+        },
+        tool_type="write",
+        estimated_cost="free",
+        handler=reset_skill,
+    ))
+
+    _r(ToolDef(
+        name="preview_skill_match",
+        description="预览某条用户消息会匹配哪些技能。用于调试技能触发效果。",
+        input_schema={
+            "message": {"type": "string", "description": "用于测试触发的用户消息"},
+            "scope": {"type": "string", "description": "助手范围，默认project"},
+            "candidate": {"type": "object", "description": "未保存技能草案，可选"},
+        },
+        required=["message"],
+        tool_type="analysis",
+        estimated_cost="free",
+        handler=preview_skill_match_tool,
+    ))
+
+    _r(ToolDef(
+        name="list_skill_versions",
+        description="列出技能版本历史。可按ID或名称定位。",
+        input_schema={
+            "id": {"type": "string", "description": "技能ID"},
+            "skill_id": {"type": "string", "description": "兼容字段，同id"},
+            "name": {"type": "string", "description": "技能名称，id为空时用于定位"},
+        },
+        tool_type="read",
+        estimated_cost="free",
+        handler=list_skill_versions_tool,
+    ))
+
+    _r(ToolDef(
+        name="ensure_builtin_skills",
+        description="确保当前作品已初始化全部内置技能。通常系统会自动处理，用户要求恢复内置技能入口时使用。",
+        input_schema={},
+        tool_type="write",
+        estimated_cost="free",
+        handler=ensure_builtin_skills_tool,
+    ))
 
     # ── Read: Search & Catalog ───────────────────────────────────────────
 

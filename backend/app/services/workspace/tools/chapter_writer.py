@@ -20,7 +20,7 @@ from ....services.context_builders import (
     _recent_summary_texts,
     _resolve_characters_with_aliases,
 )
-from ....services.rag.context_packer import ContextBudget, PackedContext, pack_context
+from ....services.rag.context_packer import ContextBudget, PackedContext, PinnedContext, pack_context
 from ....services.rag.indexer import project_has_chunks, reindex_project_types
 from ....services.rag.retriever import search_chunks
 from ....prompts.style_prompts import build_style_context
@@ -107,6 +107,7 @@ async def chapter_writer(
         requirements=query_context,
         budget=budget,
         include_categories={"outline", "summary", "worldbuilding"},
+        pinned=PinnedContext(),
     )
 
     # --- Extract text from packed sections (fallback to traditional builders) ---
@@ -314,6 +315,7 @@ def _build_enriched_snapshot(
             "source_type": s.source_type,
             "selection_reason": s.selection_reason,
             "used_chars": s.used_chars,
+            "estimated_tokens": s.estimated_tokens,
             "score": round(s.score, 2),
             "chunk_count": len(s.chunk_ids),
         })
@@ -327,6 +329,7 @@ def _build_enriched_snapshot(
         "resolved_aliases": resolved_aliases,
         "rag_used": rag_used,
         "total_used_chars": packed.total_used_chars,
+        "total_estimated_tokens": packed.total_estimated_tokens,
         "sections": sections_info,
         "explanations": packed.explanations,
         "warnings": warnings,

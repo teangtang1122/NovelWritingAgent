@@ -21,6 +21,7 @@ from ..services.skills.service import (
     list_skill_versions,
     list_skills,
     preview_skill_match,
+    reset_skill_to_builtin,
     update_skill,
 )
 
@@ -136,3 +137,15 @@ def delete_project_skill(
     get_project_or_404(db, project_id)
     delete_skill(db, project_id, skill_id)
     return ApiResponse.success(message="技能已删除")
+
+
+@router.post("/projects/{project_id}/skills/{skill_id}/reset")
+def reset_project_skill_to_builtin(
+    project_id: str,
+    skill_id: str,
+    db: Session = Depends(get_db),
+):
+    """Reset a built-in skill to its default values."""
+    get_project_or_404(db, project_id)
+    skill = reset_skill_to_builtin(db, project_id, skill_id)
+    return ApiResponse.success(data=skill, message="内置技能已恢复默认值")

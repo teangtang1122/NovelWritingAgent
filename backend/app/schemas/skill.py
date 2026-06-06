@@ -13,6 +13,7 @@ class SkillCreate(BaseModel):
     trigger_examples: list[str] = Field(default_factory=list, description="触发关键词列表")
     system_prompt: str = Field(..., min_length=1, description="技能系统提示词")
     recommended_tools: list[str] = Field(default_factory=list, description="推荐使用的工具（信息性）")
+    forbidden_tools: list[str] = Field(default_factory=list, description="禁用的工具列表")
     scope: str = Field("global", description="适用范围: global|project|writing|outline|characters|worldbuilding|cataloging|research")
     priority: int = Field(0, ge=0, le=100, description="优先级，越高越先注入")
     enabled: bool = Field(True, description="是否启用")
@@ -24,6 +25,7 @@ class SkillUpdate(BaseModel):
     trigger_examples: Optional[list[str]] = None
     system_prompt: Optional[str] = Field(None, min_length=1)
     recommended_tools: Optional[list[str]] = None
+    forbidden_tools: Optional[list[str]] = None
     scope: Optional[str] = None
     priority: Optional[int] = Field(None, ge=0, le=100)
     enabled: Optional[bool] = None
@@ -38,6 +40,7 @@ class SkillResponse(BaseModel):
     trigger_examples: list[str] = []
     system_prompt: str
     recommended_tools: list[str] = []
+    forbidden_tools: list[str] = []
     scope: str = "global"
     priority: int = 0
     enabled: bool = True
