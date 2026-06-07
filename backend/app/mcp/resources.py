@@ -131,3 +131,241 @@ def list_resource_uris(project_id: str) -> list[str]:
         build_uri("projects", project_id, "outline"),
         build_uri("projects", project_id, "relationships"),
     ]
+
+
+# ── Resource content readers ─────────────────────────────────────────────
+
+@dataclass
+class ResourceContent:
+    """Content returned by a resource reader."""
+    uri: str
+    mime_type: str
+    text: str
+
+
+def read_resource(db: Any, uri: str) -> ResourceContent | None:
+    """Read a resource by its moshu:// URI.
+
+    Args:
+        db: SQLAlchemy session.
+        uri: The moshu:// URI to read.
+
+    Returns:
+        ResourceContent with the resource data, or None if URI is invalid.
+    """
+    parsed = parse_uri(uri)
+    if parsed is None:
+        return None
+
+    dispatch = {
+        "projects_index": _read_projects_index,
+        "project_detail": _read_project_detail,
+        "chapters_index": _read_chapters_index,
+        "chapter_detail": _read_chapter_detail,
+        "characters_index": _read_characters_index,
+        "character_detail": _read_character_detail,
+        "worldbuilding_index": _read_worldbuilding_index,
+        "worldbuilding_detail": _read_worldbuilding_detail,
+        "outline_index": _read_outline_index,
+        "outline_detail": _read_outline_detail,
+        "relationships": _read_relationships,
+    }
+
+    reader = dispatch.get(parsed.resource_type)
+    if reader is None:
+        return None
+    return reader(db, parsed)
+
+
+def _read_projects_index(db: Any, parsed: ParsedUri) -> ResourceContent:
+    import json
+    from app.database.models import Project
+    projects = db.query(Project).order_by(Project.updated_at.desc()).all()
+    items = [
+        {"id": p.id, "title": p.title, "description": p.description}
+        for p in projects
+    ]
+    return ResourceContent(
+        uri=parsed.uri,
+        mime_type="application/json",
+        text=json.dumps({"projects": items, "total": len(items)}, ensure_ascii=False),
+    )
+
+
+def _read_project_detail(db: Any, parsed: ParsedUri) -> ResourceContent:
+    import json
+    from app.database.models import Project
+    project = db.query(Project).filter(Project.id == parsed.project_id).first()
+    if not project:
+        return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                               text=json.dumps({"error": "Project not found"}))
+    data = {
+        "id": project.id,
+        "title": project.title,
+        "description": project.description,
+        "tags": project.tags,
+        "narrative_perspective": project.narrative_perspective,
+        "writing_style": project.writing_style,
+        "daily_word_goal": project.daily_word_goal,
+    }
+    return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                           text=json.dumps(data, ensure_ascii=False))
+
+
+def _read_chapters_index(db: Any, parsed: ParsedUri) -> ResourceContent:
+    import json
+    from app.database.models import Chapter
+    chapters = db.query(Chapter).filter(
+        Chapter.project_id == parsed.project_id
+    ).order_by(Chapter.created_at).all()
+    items = [
+        {"id": c.id, "title": c.title, "word_count": c.word_count,
+         "outline_node_id": c.outline_node_id}
+        for c in chapters
+    ]
+    return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                           text=json.dumps({"chapters": items, "total": len(items)}, ensure_ascii=False))
+
+
+def _read_chapter_detail(db: Any, parsed: ParsedUri) -> ResourceContent:
+    import json
+    from app.database.models import Chapter
+    chapter = db.query(Chapter).filter(
+        Chapter.project_id == parsed.project_id,
+        Chapter.id == parsed.entity_id,
+    ).first()
+    if not chapter:
+        return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                               text=json.dumps({"error": "Chapter not found"}))
+    data = {
+        "id": chapter.id,
+        "title": chapter.title,
+        "content": chapter.content,
+        "word_count": chapter.word_count,
+        "outline_node_id": chapter.outline_node_id,
+    }
+    return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                           text=json.dumps(data, ensure_ascii=False))
+
+
+def _read_characters_index(db: Any, parsed: ParsedUri) -> ResourceContent:
+    import json
+    from app.database.models import Character
+    chars = db.query(Character).filter(
+        Character.project_id == parsed.project_id
+    ).order_by(Character.name).all()
+    items = [
+        {"id": c.id, "name": c.name, "role_type": c.role_type}
+        for c in chars
+    ]
+    return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                           text=json.dumps({"characters": items, "total": len(items)}, ensure_ascii=False))
+
+
+def _read_character_detail(db: Any, parsed: ParsedUri) -> ResourceContent:
+    import json
+    from app.database.models import Character
+    char = db.query(Character).filter(
+        Character.project_id == parsed.project_id,
+        Character.id == parsed.entity_id,
+    ).first()
+    if not char:
+        return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                               text=json.dumps({"error": "Character not found"}))
+    data = {
+        "id": char.id,
+        "name": char.name,
+        "appearance": char.appearance,
+        "personality": char.personality,
+        "background": char.background,
+        "abilities": char.abilities,
+        "role_type": char.role_type,
+    }
+    return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                           text=json.dumps(data, ensure_ascii=False))
+
+
+def _read_worldbuilding_index(db: Any, parsed: ParsedUri) -> ResourceContent:
+    import json
+    from app.database.models import WorldbuildingEntry
+    entries = db.query(WorldbuildingEntry).filter(
+        WorldbuildingEntry.project_id == parsed.project_id
+    ).order_by(WorldbuildingEntry.sort_order).all()
+    items = [
+        {"id": e.id, "title": e.title, "dimension": e.dimension}
+        for e in entries
+    ]
+    return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                           text=json.dumps({"worldbuilding": items, "total": len(items)}, ensure_ascii=False))
+
+
+def _read_worldbuilding_detail(db: Any, parsed: ParsedUri) -> ResourceContent:
+    import json
+    from app.database.models import WorldbuildingEntry
+    entry = db.query(WorldbuildingEntry).filter(
+        WorldbuildingEntry.project_id == parsed.project_id,
+        WorldbuildingEntry.id == parsed.entity_id,
+    ).first()
+    if not entry:
+        return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                               text=json.dumps({"error": "Worldbuilding entry not found"}))
+    data = {
+        "id": entry.id,
+        "title": entry.title,
+        "content": entry.content,
+        "dimension": entry.dimension,
+    }
+    return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                           text=json.dumps(data, ensure_ascii=False))
+
+
+def _read_outline_index(db: Any, parsed: ParsedUri) -> ResourceContent:
+    import json
+    from app.database.models import OutlineNode
+    nodes = db.query(OutlineNode).filter(
+        OutlineNode.project_id == parsed.project_id
+    ).order_by(OutlineNode.sort_order).all()
+    items = [
+        {"id": n.id, "title": n.title, "node_type": n.node_type,
+         "parent_id": n.parent_id, "status": n.status}
+        for n in nodes
+    ]
+    return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                           text=json.dumps({"outline": items, "total": len(items)}, ensure_ascii=False))
+
+
+def _read_outline_detail(db: Any, parsed: ParsedUri) -> ResourceContent:
+    import json
+    from app.database.models import OutlineNode
+    node = db.query(OutlineNode).filter(
+        OutlineNode.project_id == parsed.project_id,
+        OutlineNode.id == parsed.entity_id,
+    ).first()
+    if not node:
+        return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                               text=json.dumps({"error": "Outline node not found"}))
+    data = {
+        "id": node.id,
+        "title": node.title,
+        "summary": node.summary,
+        "node_type": node.node_type,
+        "status": node.status,
+        "parent_id": node.parent_id,
+    }
+    return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                           text=json.dumps(data, ensure_ascii=False))
+
+
+def _read_relationships(db: Any, parsed: ParsedUri) -> ResourceContent:
+    import json
+    from app.database.models import CharacterRelationship
+    rels = db.query(CharacterRelationship).filter(
+        CharacterRelationship.project_id == parsed.project_id
+    ).all()
+    items = [
+        {"source_id": r.source_id, "target_id": r.target_id,
+         "relationship_type": r.relationship_type, "description": r.description}
+        for r in rels
+    ]
+    return ResourceContent(uri=parsed.uri, mime_type="application/json",
+                           text=json.dumps({"relationships": items, "total": len(items)}, ensure_ascii=False))

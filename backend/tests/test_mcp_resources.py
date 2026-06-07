@@ -1,11 +1,13 @@
-"""Tests for MCP resource URI scheme — parsing and construction."""
+"""Tests for MCP resource URI scheme — parsing, construction, and reading."""
+import json
 import sys
 import os
 import unittest
+from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.mcp.resources import parse_uri, build_uri, ParsedUri, list_resource_uris, get_resource_description
+from app.mcp.resources import parse_uri, build_uri, ParsedUri, list_resource_uris, get_resource_description, read_resource
 
 
 class ParseUriTest(unittest.TestCase):
@@ -177,6 +179,164 @@ class ResourceDescriptionTest(unittest.TestCase):
     def test_unknown_type_returns_generic(self):
         desc = get_resource_description("unknown_type")
         self.assertIn("Moshu", desc)
+
+
+class ReadResourceTest(unittest.TestCase):
+    """Verify read_resource dispatches to correct readers and returns data."""
+
+    def _mock_db(self, model_name, items):
+        """Create a mock DB that returns items for a given model query."""
+        db = MagicMock()
+        query_mock = MagicMock()
+        query_mock.order_by.return_value = query_mock
+        query_mock.filter.return_value = query_mock
+        query_mock.all.return_value = items
+        query_mock.first.return_value = items[0] if items else None
+        db.query.return_value = query_mock
+        return db
+
+    def test_invalid_uri_returns_none(self):
+        db = MagicMock()
+        result = read_resource(db, "http://invalid")
+        self.assertIsNone(result)
+
+    def test_projects_index(self):
+        proj = MagicMock()
+        proj.id = "p1"
+        proj.title = "Test"
+        proj.description = "Desc"
+        db = self._mock_db("Project", [proj])
+        result = read_resource(db, "moshu://projects")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.mime_type, "application/json")
+        data = json.loads(result.text)
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(data["projects"][0]["id"], "p1")
+
+    def test_project_detail(self):
+        proj = MagicMock()
+        proj.id = "p1"
+        proj.title = "Test"
+        proj.description = "Desc"
+        proj.tags = None
+        proj.narrative_perspective = "third_person"
+        proj.writing_style = "natural"
+        proj.daily_word_goal = 6000
+        db = MagicMock()
+        query_mock = MagicMock()
+        query_mock.filter.return_value = query_mock
+        query_mock.first.return_value = proj
+        db.query.return_value = query_mock
+        result = read_resource(db, "moshu://projects/p1")
+        self.assertIsNotNone(result)
+        data = json.loads(result.text)
+        self.assertEqual(data["title"], "Test")
+
+    def test_chapters_index(self):
+        ch = MagicMock()
+        ch.id = "ch1"
+        ch.title = "Chapter 1"
+        ch.word_count = 1000
+        ch.outline_node_id = "n1"
+        db = self._mock_db("Chapter", [ch])
+        result = read_resource(db, "moshu://projects/p1/chapters")
+        self.assertIsNotNone(result)
+        data = json.loads(result.text)
+        self.assertEqual(data["total"], 1)
+
+    def test_characters_index(self):
+        char = MagicMock()
+        char.id = "c1"
+        char.name = "Hero"
+        char.role_type = "protagonist"
+        db = self._mock_db("Character", [char])
+        result = read_resource(db, "moshu://projects/p1/characters")
+        self.assertIsNotNone(result)
+        data = json.loads(result.text)
+        self.assertEqual(data["characters"][0]["name"], "Hero")
+
+    def test_worldbuilding_index(self):
+        entry = MagicMock()
+        entry.id = "w1"
+        entry.title = "Kingdom"
+        entry.dimension = "geography"
+        db = self._mock_db("WorldbuildingEntry", [entry])
+        result = read_resource(db, "moshu://projects/p1/worldbuilding")
+        self.assertIsNotNone(result)
+        data = json.loads(result.text)
+        self.assertEqual(data["total"], 1)
+
+    def test_outline_index(self):
+        node = MagicMock()
+        node.id = "n1"
+        node.title = "Act 1"
+        node.node_type = "volume"
+        node.parent_id = None
+        node.status = "pending"
+        db = self._mock_db("OutlineNode", [node])
+        result = read_resource(db, "moshu://projects/p1/outline")
+        self.assertIsNotNone(result)
+        data = json.loads(result.text)
+        self.assertEqual(data["outline"][0]["title"], "Act 1")
+
+    def test_relationships(self):
+        rel = MagicMock()
+        rel.source_id = "c1"
+        rel.target_id = "c2"
+        rel.relationship_type = "friend"
+        rel.description = "Best friends"
+        db = self._mock_db("CharacterRelationship", [rel])
+        result = read_resource(db, "moshu://projects/p1/relationships")
+        self.assertIsNotNone(result)
+        data = json.loads(result.text)
+        self.assertEqual(data["relationships"][0]["relationship_type"], "friend")
+
+    def test_chapter_detail(self):
+        ch = MagicMock()
+        ch.id = "ch1"
+        ch.title = "Chapter 1"
+        ch.content = "Once upon a time..."
+        ch.word_count = 1000
+        ch.outline_node_id = "n1"
+        db = MagicMock()
+        query_mock = MagicMock()
+        query_mock.filter.return_value = query_mock
+        query_mock.first.return_value = ch
+        db.query.return_value = query_mock
+        result = read_resource(db, "moshu://projects/p1/chapters/ch1")
+        self.assertIsNotNone(result)
+        data = json.loads(result.text)
+        self.assertEqual(data["content"], "Once upon a time...")
+
+    def test_character_detail(self):
+        char = MagicMock()
+        char.id = "c1"
+        char.name = "Hero"
+        char.appearance = "Tall"
+        char.personality = "Brave"
+        char.background = "Orphan"
+        char.abilities = '["sword"]'
+        char.role_type = "protagonist"
+        db = MagicMock()
+        query_mock = MagicMock()
+        query_mock.filter.return_value = query_mock
+        query_mock.first.return_value = char
+        db.query.return_value = query_mock
+        result = read_resource(db, "moshu://projects/p1/characters/c1")
+        self.assertIsNotNone(result)
+        data = json.loads(result.text)
+        self.assertEqual(data["name"], "Hero")
+
+    def test_not_found_returns_error_json(self):
+        db = MagicMock()
+        query_mock = MagicMock()
+        query_mock.filter.return_value = query_mock
+        query_mock.first.return_value = None
+        db.query.return_value = query_mock
+        result = read_resource(db, "moshu://projects/p1/chapters/nonexistent")
+        self.assertIsNotNone(result)
+        data = json.loads(result.text)
+        self.assertIn("error", data)
 
 
 if __name__ == "__main__":
