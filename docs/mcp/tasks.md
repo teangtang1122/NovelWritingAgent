@@ -43,8 +43,8 @@
 
 ### MCP-0002 - Write MCP Security Policy
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `docs/mcp/security.md`
 - Goal:
@@ -451,3 +451,4 @@ Append verified completions here. Keep entries short and factual.
 
 - Created initial MCP task board.
 - MCP-0001: `Get-Content docs/mcp/spec.md` — file exists, 10 sections, 14 `moshu://` references. `Get-Content docs/mcp/tasks.md | Select-String "MCP-0001"` — status `[x]`, owner `Claude Code`.
+- MCP-0002: `Get-Content docs/mcp/security.md` — file exists, 9 sections. Covers all dangerous tool families (create/update/delete/merge/import/start/run/set/apply/pause/resume/cancel/rerun/ensure/reset/export/forget), secret deny-list, confirmation-token model, stdio-only binding. `Get-Content docs/mcp/tasks.md | Select-String "MCP-0002"` — status `[x]`, owner `Claude Code`.
