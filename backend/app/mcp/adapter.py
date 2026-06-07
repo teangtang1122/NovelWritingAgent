@@ -6,11 +6,18 @@ Does NOT modify the ToolRegistry.
 """
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any
 
 from app.services.workspace.registry import ToolDef, registry
 from app.mcp.schemas import McpTool, McpToolResult, tool_def_to_mcp_tool, make_json_result, make_text_result
 from app.mcp.permissions import filter_tools, is_allowed
+
+logger = logging.getLogger(__name__)
+
+# Maximum character count before content is truncated in MCP responses.
+_CONTENT_TRUNCATE_LIMIT = 12000
 
 
 def list_mcp_tools(
@@ -55,3 +62,101 @@ def is_tool_allowed(name: str, *, allowed_tiers: set[str] | None = None) -> bool
     if td is None:
         return False
     return is_allowed(td, allowed_tiers=allowed_tiers)
+
+
+def _truncate_content(text: str, limit: int = _CONTENT_TRUNCATE_LIMIT) -> str:
+    """Truncate content and append a notice if it exceeds the limit."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n\n[truncated — {len(text)} chars total]"
+
+
+def _format_tool_result(raw: dict) -> McpToolResult:
+    """Convert an execute_workspace_action result dict into an MCP tool result.
+
+    The workspace handler returns:
+        {"tool": str, "status": str, "detail": str, "data": Any, "warnings": list?}
+
+    This function:
+    - Wraps it as JSON text in the MCP content array.
+    - Truncates large content fields.
+    - Marks errors when status indicates failure.
+    """
+    status = raw.get("status", "ok")
+    is_error = status not in ("ok",)
+
+    # Build the MCP-friendly payload
+    payload: dict[str, Any] = {
+        "status": status,
+        "detail": raw.get("detail", ""),
+    }
+    if "data" in raw and raw["data"] is not None:
+        payload["data"] = raw["data"]
+    if "warnings" in raw and raw["warnings"]:
+        payload["warnings"] = raw["warnings"]
+
+    text = json.dumps(payload, ensure_ascii=False, indent=None)
+    text = _truncate_content(text)
+
+    return McpToolResult(
+        content=[{"type": "text", "text": text}],
+        is_error=is_error,
+    )
+
+
+async def execute_tool(
+    db: Any,
+    project_id: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    *,
+    allowed_tiers: set[str] | None = None,
+) -> McpToolResult:
+    """Execute an allowed MCP tool and return a structured MCP result.
+
+    Args:
+        db: SQLAlchemy session.
+        project_id: Current project ID (from MCP client context).
+        tool_name: Name of the tool to call.
+        arguments: Tool arguments dict.
+        allowed_tiers: Permission tiers to allow.
+
+    Returns:
+        McpToolResult with structured content.
+    """
+    if allowed_tiers is None:
+        allowed_tiers = {"readonly"}
+
+    # Validate tool exists
+    td = get_tool_def(tool_name)
+    if td is None:
+        return make_text_result(
+            json.dumps({"status": "error", "detail": f"Tool not found: {tool_name}"}),
+            is_error=True,
+        )
+
+    # Validate permission
+    if not is_tool_allowed(tool_name, allowed_tiers=allowed_tiers):
+        return make_text_result(
+            json.dumps({"status": "denied", "detail": f"Permission denied: {tool_name}"}),
+            is_error=True,
+        )
+
+    # Execute through the existing workspace executor
+    try:
+        from app.services.workspace.executor import execute_workspace_action
+        raw_result = await execute_workspace_action(
+            db,
+            project_id,
+            {"tool": tool_name, "arguments": arguments},
+        )
+        return _format_tool_result(raw_result)
+    except Exception as exc:
+        logger.exception("MCP tool execution failed: %s", tool_name)
+        return make_text_result(
+            json.dumps({
+                "status": "error",
+                "detail": f"Tool execution failed: {type(exc).__name__}",
+            }),
+            is_error=True,
+        )

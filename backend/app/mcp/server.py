@@ -11,7 +11,7 @@ import json
 import sys
 from typing import Any, TextIO
 
-from app.mcp.adapter import list_mcp_tools, is_tool_allowed, get_tool_def
+from app.mcp.adapter import list_mcp_tools, is_tool_allowed, get_tool_def, execute_tool
 from app.mcp.schemas import McpToolResult, make_text_result, make_json_result
 
 # ── MCP protocol constants ───────────────────────────────────────────────
@@ -47,11 +47,19 @@ def _jsonrpc_result(id: Any, result: Any) -> str:
     return json.dumps(resp, ensure_ascii=False)
 
 
-def handle_message(raw: str, *, allowed_tiers: set[str] | None = None) -> str:
+def handle_message(
+    raw: str,
+    *,
+    db: Any = None,
+    project_id: str = "",
+    allowed_tiers: set[str] | None = None,
+) -> str:
     """Process one JSON-RPC message and return the response string.
 
     Args:
         raw: The raw JSON-RPC message string.
+        db: SQLAlchemy session (required for tools/call).
+        project_id: Current project ID (required for tools/call).
         allowed_tiers: Permission tiers to allow. Defaults to {"readonly"}.
 
     Returns:
@@ -74,7 +82,7 @@ def handle_message(raw: str, *, allowed_tiers: set[str] | None = None) -> str:
     elif method == "tools/list":
         return _handle_tools_list(msg_id, allowed_tiers)
     elif method == "tools/call":
-        return _handle_tools_call(msg_id, params, allowed_tiers)
+        return _handle_tools_call(msg_id, params, db, project_id, allowed_tiers)
     elif method == "ping":
         return _jsonrpc_result(msg_id, {})
     else:
@@ -109,33 +117,69 @@ def _handle_tools_list(msg_id: Any, allowed_tiers: set[str]) -> str:
     return _jsonrpc_result(msg_id, {"tools": tool_dicts})
 
 
-def _handle_tools_call(msg_id: Any, params: dict, allowed_tiers: set[str]) -> str:
-    """Handle tools/call request."""
+async def _handle_tools_call_async(
+    msg_id: Any,
+    params: dict,
+    db: Any,
+    project_id: str,
+    allowed_tiers: set[str],
+) -> str:
+    """Handle tools/call request — async version for actual execution."""
     tool_name = params.get("name", "")
     arguments = params.get("arguments", {})
 
-    # Check tool exists
-    td = get_tool_def(tool_name)
-    if td is None:
+    if not isinstance(arguments, dict):
+        arguments = {}
+
+    # Validate db is available
+    if db is None:
         result = make_text_result(
-            f"Tool not found: {tool_name}",
+            json.dumps({"status": "error", "detail": "Database session not available"}),
             is_error=True,
         )
         return _jsonrpc_result(msg_id, _tool_result_to_dict(result))
 
-    # Check permission
-    if not is_tool_allowed(tool_name, allowed_tiers=allowed_tiers):
-        result = make_text_result(
-            f"Permission denied: {tool_name} requires a higher permission tier",
-            is_error=True,
-        )
-        return _jsonrpc_result(msg_id, _tool_result_to_dict(result))
-
-    # v1: tool execution not yet wired — return not-implemented
-    result = make_text_result(
-        f"Tool execution not yet implemented: {tool_name}",
-        is_error=True,
+    result = await execute_tool(
+        db, project_id, tool_name, arguments,
+        allowed_tiers=allowed_tiers,
     )
+    return _jsonrpc_result(msg_id, _tool_result_to_dict(result))
+
+
+def _handle_tools_call(msg_id: Any, params: dict, db: Any, project_id: str, allowed_tiers: set[str]) -> str:
+    """Handle tools/call request — sync wrapper.
+
+    When called from serve_stdio (async context), delegates to the async version.
+    When db is None (e.g. in tests), returns a sync error response.
+    """
+    tool_name = params.get("name", "")
+    arguments = params.get("arguments", {})
+
+    if not isinstance(arguments, dict):
+        arguments = {}
+
+    # If no db session, return error
+    if db is None:
+        result = make_text_result(
+            json.dumps({"status": "error", "detail": "Database session not available for tool execution"}),
+            is_error=True,
+        )
+        return _jsonrpc_result(msg_id, _tool_result_to_dict(result))
+
+    # For sync context, try to run the async executor
+    import asyncio
+    try:
+        result = asyncio.run(execute_tool(
+            db, project_id, tool_name, arguments,
+            allowed_tiers=allowed_tiers,
+        ))
+    except RuntimeError:
+        # If there's already a running event loop, use nest_asyncio or fallback
+        loop = asyncio.get_event_loop()
+        result = loop.run_until_complete(execute_tool(
+            db, project_id, tool_name, arguments,
+            allowed_tiers=allowed_tiers,
+        ))
     return _jsonrpc_result(msg_id, _tool_result_to_dict(result))
 
 
@@ -147,10 +191,20 @@ def _tool_result_to_dict(result: McpToolResult) -> dict:
     }
 
 
-def serve_stdio(*, allowed_tiers: set[str] | None = None) -> None:
+def serve_stdio(
+    *,
+    db: Any = None,
+    project_id: str = "",
+    allowed_tiers: set[str] | None = None,
+) -> None:
     """Run the MCP server over stdio (blocking).
 
     Reads newline-delimited JSON-RPC from stdin, writes responses to stdout.
+
+    Args:
+        db: SQLAlchemy session for tool execution.
+        project_id: Default project ID.
+        allowed_tiers: Permission tiers to allow. Defaults to {"readonly"}.
     """
     if allowed_tiers is None:
         allowed_tiers = {"readonly"}
@@ -162,6 +216,11 @@ def serve_stdio(*, allowed_tiers: set[str] | None = None) -> None:
         line = line.strip()
         if not line:
             continue
-        response = handle_message(line, allowed_tiers=allowed_tiers)
+        response = handle_message(
+            line,
+            db=db,
+            project_id=project_id,
+            allowed_tiers=allowed_tiers,
+        )
         stdout.write(response + "\n")
         stdout.flush()
