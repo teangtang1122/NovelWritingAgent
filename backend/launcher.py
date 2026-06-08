@@ -49,7 +49,7 @@ def _find_free_port(start: int = DEFAULT_PORT, attempts: int = 50) -> int:
     raise RuntimeError(f"Could not find a free local port from {start} to {start + attempts - 1}.")
 
 
-def _prepare_environment(port: int) -> Path:
+def _prepare_data_environment() -> Path:
     home = _app_home()
     home.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("MOSHU_HOME", str(home))
@@ -57,6 +57,11 @@ def _prepare_environment(port: int) -> Path:
     os.environ.setdefault("NOVEL_AGENT_HOME", str(home))
     os.environ.setdefault("NOVEL_AGENT_KEY_FILE", str(home / ".crypto_key"))
     os.environ["DATABASE_URL"] = f"sqlite:///{(home / 'novel_agent.db').as_posix()}"
+    return home
+
+
+def _prepare_environment(port: int) -> Path:
+    home = _prepare_data_environment()
     os.environ["CORS_ORIGINS"] = ",".join([
         f"http://127.0.0.1:{port}",
         f"http://localhost:{port}",
@@ -72,8 +77,7 @@ def _run_mcp_server() -> None:
     parser.add_argument("--project-id", default="", help="Default project ID")
     args, _ = parser.parse_known_args()
 
-    home = _app_home()
-    os.environ.setdefault("MOSHU_HOME", str(home))
+    _prepare_data_environment()
 
     from app.database.session import SessionLocal
     from app.mcp.server import serve_stdio

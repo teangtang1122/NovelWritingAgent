@@ -1,5 +1,6 @@
 """Tests for packaged launcher data-directory compatibility."""
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,6 +29,28 @@ class LauncherDataDirectoryTestCase(unittest.TestCase):
             home = Path(temp_dir) / "custom"
             with patch.dict("os.environ", {"MOSHU_HOME": str(home)}, clear=True):
                 self.assertEqual(launcher._app_home(), home.resolve())
+
+    def test_prepare_data_environment_sets_database_url_for_legacy_home(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            legacy = base / "NovelWritingAgent"
+            legacy.mkdir()
+            (legacy / "novel_agent.db").write_bytes(b"legacy database")
+
+            with patch.dict(
+                "os.environ",
+                {"LOCALAPPDATA": str(base), "USERPROFILE": str(base)},
+                clear=True,
+            ):
+                home = launcher._prepare_data_environment()
+
+                self.assertEqual(home, legacy)
+                self.assertEqual(
+                    os.environ["DATABASE_URL"],
+                    f"sqlite:///{(legacy / 'novel_agent.db').as_posix()}",
+                )
+                self.assertEqual(os.environ["MOSHU_HOME"], str(legacy))
+                self.assertEqual(os.environ["NOVEL_AGENT_HOME"], str(legacy))
 
 
 if __name__ == "__main__":

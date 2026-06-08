@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ....database.models import (
@@ -21,7 +22,11 @@ async def search_characters(
 ) -> dict:
     query = str(args.get("query") or "").strip()
     limit = max(1, min(int(args.get("limit") or 10), 30))
-    base = db.query(Character).filter(Character.project_id == project_id)
+    base = (
+        db.query(Character)
+        .filter(Character.project_id == project_id)
+        .filter(or_(Character.role_type.is_(None), Character.role_type != "merged_alias"))
+    )
     if query:
         base = base.filter(Character.name.ilike(f"%{query}%"))
     characters = base.order_by(Character.name).limit(limit).all()
@@ -241,6 +246,7 @@ async def list_characters(
     characters = (
         db.query(Character)
         .filter(Character.project_id == project_id)
+        .filter(or_(Character.role_type.is_(None), Character.role_type != "merged_alias"))
         .order_by(Character.name)
         .limit(100)
         .all()

@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 
 # ── Path setup ───────────────────────────────────────────────────────────
 # Add backend/ to sys.path so `app.*` imports resolve.
@@ -26,6 +27,36 @@ _ROOT_DIR = os.path.dirname(_SCRIPT_DIR)
 _BACKEND_DIR = os.path.join(_ROOT_DIR, "backend")
 if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
+
+
+def _app_home() -> Path:
+    env_home = os.environ.get("MOSHU_HOME") or os.environ.get("NOVEL_AGENT_HOME")
+    if env_home:
+        return Path(env_home).expanduser().resolve()
+
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    base = Path(local_app_data) if local_app_data else Path.home()
+    current = base / "Moshu"
+    legacy = base / "NovelWritingAgent"
+    legacy_dot = Path.home() / ".NovelWritingAgent"
+    for legacy_dir in (legacy, legacy_dot):
+        legacy_db = legacy_dir / "novel_agent.db"
+        current_db = current / "novel_agent.db"
+        if legacy_db.exists() and legacy_db.stat().st_size > 0:
+            if not current_db.exists() or current_db.stat().st_size < legacy_db.stat().st_size:
+                return legacy_dir
+    return current
+
+
+def _prepare_data_environment() -> Path:
+    home = _app_home()
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("MOSHU_HOME", str(home))
+    os.environ.setdefault("MOSHU_KEY_FILE", str(home / ".crypto_key"))
+    os.environ.setdefault("NOVEL_AGENT_HOME", str(home))
+    os.environ.setdefault("NOVEL_AGENT_KEY_FILE", str(home / ".crypto_key"))
+    os.environ.setdefault("DATABASE_URL", f"sqlite:///{(home / 'novel_agent.db').as_posix()}")
+    return home
 
 
 def main() -> None:
@@ -55,6 +86,7 @@ def main() -> None:
     )
 
     # ── Database setup ───────────────────────────────────────────────────
+    _prepare_data_environment()
     from app.database.session import SessionLocal
     db = SessionLocal()
 

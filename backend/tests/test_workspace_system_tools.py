@@ -5,7 +5,7 @@ import unittest
 
 os.environ["DATABASE_URL"] = "sqlite:///./test_workspace_system_tools.db"
 
-from app.database.models import Chapter, Project, ScheduledTask, Skill
+from app.database.models import Chapter, Character, Project, ScheduledTask, Skill
 from app.database.session import Base, SessionLocal, engine
 from app.services.agent.planner import build_plan_from_intent, detect_intent
 from app.services.workspace.executor import execute_workspace_action
@@ -32,6 +32,7 @@ class WorkspaceSystemToolsTestCase(unittest.IsolatedAsyncioTestCase):
         self.db.query(ScheduledTask).delete()
         self.db.query(Skill).delete()
         self.db.query(Chapter).delete()
+        self.db.query(Character).delete()
         self.db.query(Project).delete()
         self.project = Project(title="系统工具测试作品")
         self.db.add(self.project)
@@ -92,6 +93,29 @@ class WorkspaceSystemToolsTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["format"], "txt")
         self.assertTrue(result["data"]["file_id"])
+
+    async def test_list_characters_excludes_merged_alias_placeholders(self):
+        self.db.add(Character(project_id=self.project.id, name="Primary", role_type="protagonist"))
+        self.db.add(Character(project_id=self.project.id, name="Alias Placeholder", role_type="merged_alias"))
+        self.db.commit()
+
+        result = await execute_workspace_action(
+            self.db,
+            self.project.id,
+            {"tool": "list_characters", "arguments": {}},
+        )
+
+        self.assertEqual(result["status"], "ok")
+        names = [item["name"] for item in result["data"]]
+        self.assertEqual(names, ["Primary"])
+
+        search_result = await execute_workspace_action(
+            self.db,
+            self.project.id,
+            {"tool": "search_characters", "arguments": {"query": "Alias"}},
+        )
+        self.assertEqual(search_result["status"], "ok")
+        self.assertEqual(search_result["data"], [])
 
 
 class WorkspaceSystemIntentTestCase(unittest.TestCase):
