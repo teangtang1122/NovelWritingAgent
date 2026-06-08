@@ -362,8 +362,8 @@
 
 ### MCP-0601 - Teach Workspace Prompts When To Use MCP
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/app/prompts/packs/workspace_fast.py`
   - `backend/app/prompts/packs/workspace_quality.py`
@@ -470,3 +470,4 @@ Append verified completions here. Keep entries short and factual.
 - MCP-0502: `py -m pytest tests/test_mcp_client_api.py -q` — 3 passed. Added CRUD router at /projects/{project_id}/mcp-servers (list, create, get, update, delete, test-connection). Connection test endpoint stubbed.
 - MCP-0503: `py -m pytest tests/test_mcp_client_tools.py -q` — 15 passed. Added mcp_client/registry.py with register_external_tool, unregister_server_tools, external_tool_name, parse_external_tool_name. External tools registered as mcp.{server_name}.{tool_name} in workspace ToolRegistry. Tests verify registration, idempotency, unregistration, and cross-server isolation.
 - MCP-0504: `cd frontend; npm run build` — built in 5.34s. Added McpPage.tsx with CRUD table (name, transport, address, status, enabled toggle), add modal (stdio/http), delete confirmation, test connection button.
+- MCP-0601: `py -m pytest tests/test_prompt_packs.py -q` — 70 passed. Added MCP tool guidance section to workspace_fast.py and workspace_quality.py prompt packs. Instructs assistant to use mcp.* tools for external data sources and cross-app workflows.
