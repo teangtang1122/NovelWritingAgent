@@ -5,12 +5,15 @@ The filter is applied at both tools/list time and tools/call time.
 
 Permission tiers:
   - readonly:   read, analysis, web, and memory-read tools
-  - draft:      generator tools (no DB writes) — not enabled in v1
-  - write_confirmed: database-mutating tools — not enabled in v1
+  - draft:      generator tools (no DB writes)
+  - write_confirmed: database-mutating tools — requires confirmation token
 """
 from __future__ import annotations
 
 import re
+import secrets
+import time
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.services.workspace.registry import ToolDef
@@ -87,3 +90,88 @@ def filter_tools(
 ) -> list[ToolDef]:
     """Return only the tools allowed under the given tier set."""
     return [td for td in tool_defs if is_allowed(td, allowed_tiers=allowed_tiers)]
+
+
+# ── Confirmation token model ─────────────────────────────────────────────
+
+_TOKEN_TTL_SECONDS = 300  # 5 minutes
+
+
+@dataclass
+class ConfirmationToken:
+    """A single-use token that authorizes one specific write tool call."""
+    token: str
+    tool_name: str
+    created_at: float
+    used: bool = False
+
+
+# In-memory token store. In production this would be backed by Redis or DB.
+_tokens: dict[str, ConfirmationToken] = {}
+
+
+def issue_confirmation_token(tool_name: str) -> str:
+    """Issue a new confirmation token for a specific tool.
+
+    Args:
+        tool_name: The exact tool name this token authorizes.
+
+    Returns:
+        A secure token string.
+    """
+    token_str = secrets.token_urlsafe(32)
+    _tokens[token_str] = ConfirmationToken(
+        token=token_str,
+        tool_name=tool_name,
+        created_at=time.time(),
+    )
+    return token_str
+
+
+def validate_confirmation_token(token_str: str, tool_name: str) -> tuple[bool, str]:
+    """Validate a confirmation token for a specific tool call.
+
+    Args:
+        token_str: The token string to validate.
+        tool_name: The tool being called (must match the token's tool).
+
+    Returns:
+        (is_valid, reason) — reason is empty if valid.
+    """
+    if not token_str:
+        return False, "confirmation_required"
+
+    ct = _tokens.get(token_str)
+    if ct is None:
+        return False, "invalid_token"
+
+    if ct.used:
+        return False, "token_already_used"
+
+    if time.time() - ct.created_at > _TOKEN_TTL_SECONDS:
+        _tokens.pop(token_str, None)
+        return False, "token_expired"
+
+    if ct.tool_name != tool_name:
+        return False, "token_tool_mismatch"
+
+    # Mark as used (single-use)
+    ct.used = True
+    return True, ""
+
+
+def revoke_token(token_str: str) -> bool:
+    """Revoke a token. Returns True if the token existed."""
+    return _tokens.pop(token_str, None) is not None
+
+
+def clear_expired_tokens() -> int:
+    """Remove expired tokens from the store. Returns count removed."""
+    now = time.time()
+    expired = [
+        k for k, v in _tokens.items()
+        if now - v.created_at > _TOKEN_TTL_SECONDS
+    ]
+    for k in expired:
+        _tokens.pop(k, None)
+    return len(expired)

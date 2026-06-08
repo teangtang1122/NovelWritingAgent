@@ -142,6 +142,21 @@ async def execute_tool(
             is_error=True,
         )
 
+    # Check confirmation token for write_confirmed tools
+    from app.mcp.permissions import get_tier, validate_confirmation_token
+    if get_tier(td) == "write_confirmed":
+        token_str = arguments.pop("confirmation_token", "")
+        is_valid, reason = validate_confirmation_token(token_str, tool_name)
+        if not is_valid:
+            return make_text_result(
+                json.dumps({
+                    "status": "denied",
+                    "detail": f"Write confirmation required: {reason}",
+                    "reason": reason,
+                }),
+                is_error=True,
+            )
+
     # Execute through the existing workspace executor
     try:
         from app.services.workspace.executor import execute_workspace_action
