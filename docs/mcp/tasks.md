@@ -347,8 +347,8 @@
 
 ### MCP-0504 - Add MCP Settings Page
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `frontend/src/pages/McpPage.tsx`
   - `frontend/src/pages/ProjectWorkspace.tsx`
@@ -469,3 +469,4 @@ Append verified completions here. Keep entries short and factual.
 - MCP-0501: `py -m pytest tests/test_mcp_client_config.py -q` — 9 passed. Added McpServerConfig model (id, project_id, name, transport, command, url, enabled, status, last_error, timestamps) and Pydantic schemas (Create, Update, Read). Project relationship added.
 - MCP-0502: `py -m pytest tests/test_mcp_client_api.py -q` — 3 passed. Added CRUD router at /projects/{project_id}/mcp-servers (list, create, get, update, delete, test-connection). Connection test endpoint stubbed.
 - MCP-0503: `py -m pytest tests/test_mcp_client_tools.py -q` — 15 passed. Added mcp_client/registry.py with register_external_tool, unregister_server_tools, external_tool_name, parse_external_tool_name. External tools registered as mcp.{server_name}.{tool_name} in workspace ToolRegistry. Tests verify registration, idempotency, unregistration, and cross-server isolation.
+- MCP-0504: `cd frontend; npm run build` — built in 5.34s. Added McpPage.tsx with CRUD table (name, transport, address, status, enabled toggle), add modal (stdio/http), delete confirmation, test connection button.
