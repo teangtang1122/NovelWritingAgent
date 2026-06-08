@@ -306,8 +306,8 @@
 
 ### MCP-0501 - Add MCP Server Config Model
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/app/database/models.py`
   - `backend/app/schemas/mcp.py`
@@ -466,3 +466,4 @@ Append verified completions here. Keep entries short and factual.
 - MCP-0303: Covered by MCP-0301 implementation. moshu_fanfic_draft prompt in prompts.py includes anti-OOC and no-secret rules. Test `RenderFanficDraftTest` verifies content includes "anti-OOC" and "API key".
 - MCP-0401: `py -m pytest backend/tests/test_mcp_permissions.py -q` — 28 passed, 87 subtests. Draft tier tests verify: generator tools allowed when draft enabled, write tools still denied in draft mode, secret tools still denied, filter_tools returns readonly+draft but not write_confirmed. Draft tools (chapter_writer, outline_writer, etc.) are tool_type=generator → draft tier; handlers produce in-memory content only, no DB writes.
 - MCP-0402: `py -m pytest tests/test_mcp_write_confirmation.py -q` — 19 passed. Full MCP suite: 151 passed, 87 subtests. Token flow: issue_confirmation_token creates scoped single-use tokens, validate_confirmation_token checks tool match/usage/expiry, execute_tool denies write_confirmed tools without valid token, read tools work without token.
+- MCP-0501: `py -m pytest tests/test_mcp_client_config.py -q` — 9 passed. Added McpServerConfig model (id, project_id, name, transport, command, url, enabled, status, last_error, timestamps) and Pydantic schemas (Create, Update, Read). Project relationship added.

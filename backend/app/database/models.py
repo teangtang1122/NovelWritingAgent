@@ -50,6 +50,7 @@ class Project(Base):
     rag_chunks = relationship("RagChunk", cascade="all, delete-orphan")
     skills = relationship("Skill", back_populates="project", cascade="all, delete-orphan")
     scheduled_tasks = relationship("ScheduledTask", back_populates="project", cascade="all, delete-orphan")
+    mcp_server_configs = relationship("McpServerConfig", back_populates="project", cascade="all, delete-orphan")
 
 
 # ---------------------------------------------------------------------------
@@ -895,4 +896,29 @@ class ScheduledTask(Base):
     __table_args__ = (
         Index("ix_scheduled_tasks_project_status", "project_id", "status"),
         Index("ix_scheduled_tasks_next_run", "next_run_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 20. mcp_server_configs — 外部 MCP 服务器配置表
+# ---------------------------------------------------------------------------
+class McpServerConfig(Base):
+    __tablename__ = "mcp_server_configs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(100), nullable=False)
+    transport = Column(String(20), nullable=False, default="stdio")  # stdio | http
+    command = Column(Text, nullable=True)  # for stdio: command to run
+    url = Column(String(500), nullable=True)  # for http: server URL
+    enabled = Column(Boolean, default=True)
+    status = Column(String(20), default="disconnected")  # disconnected | connecting | connected | error
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    project = relationship("Project", back_populates="mcp_server_configs")
+
+    __table_args__ = (
+        Index("ix_mcp_server_configs_project", "project_id"),
     )
