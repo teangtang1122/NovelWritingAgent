@@ -430,8 +430,8 @@
 
 ### MCP-0703 - Full Regression
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - all touched areas
 - Required commands:
@@ -475,3 +475,4 @@ Append verified completions here. Keep entries short and factual.
 - MCP-0603: `py -m pytest tests/test_mcp_server_tools.py tests/test_mcp_adapter.py -q` — 39 passed. Added _log_mcp_tool_call to adapter.py — logs tool name, project_id, status, and args summary via standard logger on every MCP tool execution (success or failure). Logging is non-blocking and never breaks tool execution.
 - MCP-0701: README.md updated with MCP Server section (source/exe usage, client config, feature summary). PACKAGING.md already had MCP section from MCP-0105.
 - MCP-0702: launcher.py updated with --mcp-server flag support. When invoked with --mcp-server, runs MCP stdio server instead of web app. Compiles successfully.
+- MCP-0703: `py -m pytest` — 253 passed, 87 subtests. `npm run build` — built in 7.02s. No API key/model secret tools exposed through MCP (0 found out of 99 tools). All release criteria met.
