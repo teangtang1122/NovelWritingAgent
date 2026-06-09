@@ -133,7 +133,18 @@ $ManifestPath = if ($OneDir) {
   Join-Path $DistDir "update.json"
 }
 [System.IO.File]::WriteAllText($ManifestPath, $Manifest + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+$ShaPath = if ($OneDir) {
+  Join-Path (Join-Path $DistDir $AppName) "sha256.txt"
+} else {
+  Join-Path $DistDir "sha256.txt"
+}
+$ShaLines = @(
+  "$Sha256  $AppName.exe"
+  "$Sha256  $LegacyAppName.exe"
+) -join [Environment]::NewLine
+[System.IO.File]::WriteAllText($ShaPath, $ShaLines + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 Write-Host "Update manifest: $ManifestPath"
+Write-Host "SHA256 manifest: $ShaPath"
 if ($OneDir) {
   Write-Host "Executable folder: $(Join-Path $DistDir $AppName)"
   Write-Host "Run: $(Join-Path (Join-Path $DistDir $AppName) "$AppName.exe")"
