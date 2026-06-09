@@ -72,6 +72,68 @@ def build_system_prompt(pack: PromptPack, *, skill_prompts: str = "", **kwargs: 
     return mode_prompt
 
 
+def inject_public_prompt_pack_section(
+    system_prompt: str,
+    db: Any,
+    scope: str,
+    mode: str = "quality",
+) -> str:
+    """Append a public prompt pack summary to the system prompt.
+
+    This ensures the internal assistant and external agents see the same
+    writing methodology. The public pack summary is appended as a reference
+    section, not a replacement for the internal prompt.
+    """
+    try:
+        from app.database.models import PublicPromptPack
+        from app.services.prompt_packs.seed import ensure_builtin_packs
+
+        ensure_builtin_packs(db)
+
+        # Map scope+mode to pack_id
+        scope_mode_map = {
+            ("chapter_writing", "quality"): "chapter_writing_quality",
+            ("chapter_writing", "fast"): "chapter_writing_fast",
+            ("chapter_review", "quality"): "chapter_review_quality",
+            ("new_project", ""): "new_project_setup",
+            ("character_design", ""): "character_design",
+            ("worldbuilding", ""): "worldbuilding_design",
+            ("outline_planning", ""): "outline_planning",
+            ("anti_ai_review", ""): "anti_ai_review",
+        }
+        pack_id = scope_mode_map.get((scope, mode), scope_mode_map.get((scope, ""), ""))
+        if not pack_id:
+            return system_prompt
+
+        pack = db.query(PublicPromptPack).filter(
+            PublicPromptPack.pack_id == pack_id,
+            PublicPromptPack.enabled == True,
+        ).first()
+
+        if not pack:
+            return system_prompt
+
+        # Append public pack reference section
+        sections = [system_prompt]
+        sections.append(f"\n\n【公开写作方法参考 — {pack.title} v{pack.version}】")
+        if pack.summary:
+            sections.append(f"方法概述：{pack.summary}")
+        if pack.quality_rubric_json:
+            rubric = pack.quality_rubric_json
+            dims = rubric.get("dimensions", [])
+            if dims:
+                dim_names = ", ".join(d["name"] for d in dims[:5])
+                sections.append(f"质量维度：{dim_names}")
+        if pack.forbidden_patterns_json:
+            patterns = pack.forbidden_patterns_json[:5]
+            sections.append(f"禁用句式示例：{', '.join(patterns)}")
+
+        return "".join(sections)
+    except Exception:
+        # If public pack loading fails, return original prompt unchanged
+        return system_prompt
+
+
 # ── Chapter writer message composition ──────────────────────────────────
 
 def compose_chapter_writer_messages(
