@@ -664,8 +664,8 @@
 
 ### MCP-0810 - Release Gate For External Agent Live Session
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - all Phase 8 touched areas
   - `README.md`
@@ -724,3 +724,4 @@ Append verified completions here. Keep entries short and factual.
 - MCP-0807: `py -m pytest tests/test_external_agent_confirmed_writes.py -q` — 7 passed. Added write_requests.py (request_write, confirm_write, reject_write) and router endpoints (POST write-requests, POST confirm, POST reject). Supports 8 write types. Confirmation issues single-use token via existing permissions layer.
 - MCP-0808: Created docs/mcp/claude-code-codex-client.md with source/exe MCP config, 8-step operating rules, available tools table, troubleshooting section, security notes. README.md updated with Claude Code / Codex integration reference.
 - MCP-0809: `py -m pytest tests/test_external_agent_e2e.py -q` — 4 passed. E2E test verifies full workflow (create run → plan → progress → context → draft chunks → draft ready → finished). Write types validated. Smoke script (scripts/dev-external-agent-smoke.py) exists and compiles.
+- MCP-0810: `py -m pytest` — 307 passed, 101 subtests. `npm run build` — built in 5.08s. `py scripts/moshu-mcp-server.py --help` — exits 0. All Phase 8 release criteria met: external agent telemetry tools work, frontend panel implemented, confirmed write flow prevents silent mutation, no API key/model secret tools exposed.
