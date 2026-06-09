@@ -768,8 +768,8 @@
 
 ### MCP-0903 - Classify Existing Tools Into Permission Packs
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/app/services/workspace/registry.py`
   - `backend/app/mcp/permissions.py`
@@ -1022,3 +1022,4 @@ Append verified completions here. Keep entries short and factual.
 - MCP-0810: `py -m pytest` — 307 passed, 101 subtests. `npm run build` — built in 5.08s. `py scripts/moshu-mcp-server.py --help` — exits 0. All Phase 8 release criteria met: external agent telemetry tools work, frontend panel implemented, confirmed write flow prevents silent mutation, no API key/model secret tools exposed.
 - MCP-0901: `Test-Path docs/mcp/permission-packs-and-tools.md` — file exists, 12 sections. Covers 5 permission packs, permanent deny-list, tool metadata contract (15 fields), single-source rules, trusted local mode, settings model, MCP adapter integration, tool catalog API, linter requirements.
 - MCP-0902: `py -m pytest tests/test_tool_registry_metadata.py -q` — 16 passed. Extended ToolDef with permission_tags, risk_level, writes_project_data, expose_to_internal_agent, expose_to_scheduler, expose_to_mcp, mcp_permission_pack. Added registry methods: list_for_internal_agent, list_for_scheduler, list_for_mcp, list_for_frontend, _derive_mcp_pack.
+- MCP-0903: `py -m pytest tests/test_mcp_permission_packs.py -q` — 14 passed. Added _classify_all() post-registration step that assigns permission_tags, risk_level, writes_project_data, mcp_permission_pack to every tool. Tests verify: readonly_collaboration (read/analysis), draft_generation (generators), project_writing (create/update content), project_management (project/scheduler/skill CRUD), trusted_local_maintenance (delete/merge). No secret tools exposed in any pack.

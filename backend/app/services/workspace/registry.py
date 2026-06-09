@@ -1791,3 +1791,145 @@ def _register_all() -> None:
 
 
 _register_all()
+
+
+# ---------------------------------------------------------------------------
+# Classify all tools into permission packs
+# ---------------------------------------------------------------------------
+
+def _classify_all() -> None:
+    """Assign permission metadata to all registered tools.
+
+    This is a post-registration step that adds permission_tags, risk_level,
+    writes_project_data, and exposure flags based on tool_type and name patterns.
+    """
+    _WRITE_PROJECT_DATA = {
+        "create_chapter", "update_chapter", "delete_chapter",
+        "create_character", "update_character", "delete_character",
+        "create_outline_node", "update_outline_node", "delete_outline_node",
+        "create_worldbuilding_entry", "update_worldbuilding_entry", "delete_worldbuilding_entry",
+        "create_relationship", "update_relationship", "delete_relationship",
+        "remember", "forget",
+        "update_cataloging_candidate", "apply_pending_cataloging",
+        "set_cataloging_mode", "set_daily_word_goal",
+    }
+
+    _MANAGEMENT_TOOLS = {
+        "create_project", "update_project_info", "delete_project",
+        "import_text_as_chapters", "import_deconstruct_report", "export_project",
+        "create_scheduled_task", "update_scheduled_task", "delete_scheduled_task",
+        "run_scheduled_task_now",
+        "create_skill", "update_skill", "delete_skill", "reset_skill", "ensure_builtin_skills",
+        "start_cataloging_job", "start_deconstruct_job",
+        "resume_cataloging_job", "retry_current_cataloging_chapter",
+        "rerun_cataloging_resolution_current", "rerun_failed_deconstruct_chunks",
+        "cancel_cataloging_job", "pause_cataloging_job",
+        "set_cataloging_mode",
+    }
+
+    _DESTRUCTIVE_TOOLS = {
+        "delete_project", "delete_chapter", "delete_character",
+        "delete_outline_node", "delete_worldbuilding_entry",
+        "delete_relationship", "delete_scheduled_task", "delete_skill",
+        "merge_duplicate_characters",
+    }
+
+    _HIGH_RISK_TOOLS = {
+        "start_cataloging_job", "start_deconstruct_job",
+        "resume_cataloging_job", "retry_current_cataloging_chapter",
+        "rerun_cataloging_resolution_current", "rerun_failed_deconstruct_chunks",
+        "run_scheduled_task_now", "cancel_cataloging_job",
+    }
+
+    _READ_TAGS = {"read", "search"}
+    _ANALYSIS_TAGS = {"read", "analysis"}
+    _GENERATOR_TAGS = {"generator", "draft"}
+    _WRITE_TAGS = {"write", "create"}
+    _DELETE_TAGS = {"write", "delete"}
+    _MGMT_TAGS = {"write", "management"}
+    _TELEMETRY_TAGS = {"read", "telemetry"}
+
+    for name in registry.all_names():
+        td = registry.get(name)
+        if not td:
+            continue
+        if td.permission_tags:
+            continue
+
+        tags: set[str] = set()
+        risk = "safe"
+        writes = False
+
+        if td.tool_type in ("read", "analysis", "web"):
+            tags = _ANALYSIS_TAGS if td.tool_type == "analysis" else _READ_TAGS
+            risk = "safe"
+        elif td.tool_type == "generator":
+            tags = _GENERATOR_TAGS
+            risk = "low"
+        elif td.tool_type == "memory":
+            if name == "remember":
+                tags = {"memory", "write"}
+                writes = True
+                risk = "low"
+            elif name == "forget":
+                tags = {"memory", "delete"}
+                writes = True
+                risk = "medium"
+            else:
+                tags = {"memory", "read"}
+        elif td.tool_type == "scheduler":
+            tags = _MGMT_TAGS
+            risk = "medium"
+            writes = True
+        elif td.tool_type == "write":
+            if name in _DESTRUCTIVE_TOOLS:
+                tags = _DELETE_TAGS
+                risk = "destructive"
+                writes = True
+            elif name in _MANAGEMENT_TOOLS:
+                tags = _MGMT_TAGS
+                risk = "high" if name in _HIGH_RISK_TOOLS else "medium"
+                writes = True
+            elif name in _WRITE_PROJECT_DATA:
+                tags = _WRITE_TAGS
+                risk = "medium"
+                writes = True
+            else:
+                tags = _MGMT_TAGS
+                risk = "low"
+
+        # External agent reporting tools
+        if name in ("start_agent_run", "finish_agent_run", "append_draft_chunk", "mark_draft_ready") or name.startswith("report_"):
+            tags = _TELEMETRY_TAGS
+            risk = "safe"
+            writes = False
+
+        # Derive MCP permission pack
+        if name in _DESTRUCTIVE_TOOLS:
+            pack = "trusted_local_maintenance"
+        elif name in _MANAGEMENT_TOOLS:
+            pack = "project_management"
+        elif td.tool_type in ("read", "analysis", "web"):
+            pack = "readonly_collaboration"
+        elif td.tool_type == "memory":
+            pack = "readonly_collaboration" if not writes else "draft_generation"
+        elif td.tool_type == "generator":
+            pack = "draft_generation"
+        elif td.tool_type == "scheduler":
+            pack = "project_management"
+        elif writes:
+            pack = "project_writing"
+        else:
+            pack = "project_management"
+
+        # External agent reporting tools
+        if name in ("start_agent_run", "finish_agent_run", "append_draft_chunk", "mark_draft_ready") or name.startswith("report_"):
+            pack = "readonly_collaboration"
+
+        object.__setattr__(td, 'permission_tags', tags)
+        object.__setattr__(td, 'risk_level', risk)
+        object.__setattr__(td, 'writes_project_data', writes)
+        object.__setattr__(td, 'mcp_permission_pack', pack)
+
+
+_classify_all()
