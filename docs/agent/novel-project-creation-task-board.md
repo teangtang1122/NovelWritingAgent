@@ -95,8 +95,8 @@ Every implementation task must preserve the existing Moshu architecture:
 
 ### NOVEL-0002 - Define External No-API Writing Workflow
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `docs/agent/external-no-api-writing.md`
 - Goal:
@@ -823,3 +823,4 @@ Append completed-task evidence here. Use one entry per task:
 ### 2026-06-09
 
 - NOVEL-0001: `Test-Path docs/agent/shared-prompt-pack-contract.md` — file exists, 9 sections. Covers hidden vs public prompts, prompt pack fields (14 fields), scopes (7 scopes), compatibility rules, redaction rules, storage/indexing, backward compatibility.
+- NOVEL-0002: `Test-Path docs/agent/external-no-api-writing.md` — file exists, 7 sections. 10-step workflow documented. 19 API-free tools listed. 14 API-backed tools to skip. Failure handling for 4 scenarios. Example session included.
