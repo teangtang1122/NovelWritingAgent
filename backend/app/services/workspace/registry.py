@@ -1796,6 +1796,9 @@ def _register_all() -> None:
         get_external_chapter_draft,
         record_external_quality_review,
     )
+    from .tools.external_story_updates import (
+        apply_external_story_updates,
+    )
 
     _r(ToolDef(
         name="prepare_external_writing_context",
@@ -1857,6 +1860,21 @@ def _register_all() -> None:
         tool_type="read",
         estimated_cost="free",
         handler=record_external_quality_review,
+    ))
+
+    _r(ToolDef(
+        name="apply_external_story_updates",
+        description="Apply character/worldbuilding/outline updates after external writing. Supports manual (preview) and auto (apply) modes.",
+        input_schema={
+            "chapter_id": {"type": "string", "description": "Chapter ID for context"},
+            "updates": {"type": "object", "description": "Updates grouped by characters, worldbuilding, outline, chapter_summary"},
+            "mode": {"type": "string", "description": "manual|auto. Manual returns candidates, auto applies them."},
+        },
+        tool_type="write",
+        writes_project_data=True,
+        risk_level="medium",
+        estimated_cost="free",
+        handler=apply_external_story_updates,
     ))
 
     # ── Prompt Pack Tools ────────────────────────────────────────────────
@@ -1939,6 +1957,7 @@ def _classify_all() -> None:
         "remember", "forget",
         "update_cataloging_candidate", "apply_pending_cataloging",
         "set_cataloging_mode", "set_daily_word_goal",
+        "apply_external_story_updates",
     }
 
     _MANAGEMENT_TOOLS = {
