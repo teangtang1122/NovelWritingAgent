@@ -682,6 +682,301 @@
   - No API key/model secret tools are exposed or writable.
   - Existing internal project assistant and scheduler flows still work.
 
+## Phase 9 - External Agent Permission Packs And Single Tool Source
+
+> Purpose: make Claude Code / Codex permissions configurable without exposing secrets, and make every future Moshu project-assistant tool register once and become available to internal Agent, scheduler, MCP, docs, and frontend inspection through one shared registry contract.
+>
+> Strict rule for this phase: API key/model secret/config-secret tools remain permanently non-exposable through MCP and external Agent permission packs. Trusted local mode may reduce friction for project writes, but must not bypass secret boundaries or audit logging.
+
+### MCP-0901 - Define Permission Pack And Single Tool Source Spec
+
+- Status: `[x]`
+- Owner: Claude Code
+- File scope:
+  - `docs/mcp/permission-packs-and-tools.md`
+  - `docs/mcp/tasks.md`
+- Goal:
+  - Define how Moshu exposes one canonical workspace tool registry to internal project assistant, scheduled tasks, MCP clients, external Agent live sessions, and frontend tool inspection.
+  - Define configurable external Agent permission packs, including a trusted local mode.
+- Required content:
+  - Permission pack names and intent:
+    - `readonly_collaboration`
+    - `draft_generation`
+    - `project_writing`
+    - `project_management`
+    - `trusted_local_maintenance`
+  - Permanent deny-list:
+    - API key CRUD
+    - model secret CRUD
+    - encryption key access
+    - credential export
+    - raw confirmation token access
+  - Tool metadata contract:
+    - `name`
+    - `description`
+    - `schema`
+    - `handler`
+    - `tool_type`
+    - `permission_tags`
+    - `risk_level`
+    - `idempotent`
+    - `requires_confirmation`
+    - `writes_project_data`
+    - `expose_to_internal_agent`
+    - `expose_to_scheduler`
+    - `expose_to_mcp`
+    - `mcp_permission_pack`
+  - Rules for adding a new tool once:
+    - implement handler
+    - register metadata in ToolRegistry
+    - add focused tests
+    - no manual edits to separate MCP schema lists
+  - Trusted local mode rules:
+    - local machine only
+    - explicit user opt-in
+    - visible in UI
+    - all writes audited
+    - high-risk destructive operations still require confirmation
+  - Backward compatibility for existing `tool_type` tiers.
+- Verification:
+  - `Test-Path docs/mcp/permission-packs-and-tools.md`
+  - Reviewer can implement MCP-0902 through MCP-0909 from the spec without hidden assumptions.
+
+### MCP-0902 - Extend ToolRegistry Metadata Contract
+
+- Status: `[ ]`
+- Owner:
+- File scope:
+  - `backend/app/services/workspace/registry.py`
+  - `backend/app/services/workspace/tool_schemas.py`
+  - `backend/tests/test_tool_registry_metadata.py`
+- Goal:
+  - Make ToolRegistry the single source of truth for internal Agent, scheduler, MCP, and frontend tool metadata.
+- Required behavior:
+  - Extend `ToolDef` with permission-pack metadata from MCP-0901.
+  - Keep existing callers working.
+  - Provide registry methods:
+    - `list_for_internal_agent(...)`
+    - `list_for_scheduler(...)`
+    - `list_for_mcp(permission_pack=...)`
+    - `list_for_frontend(...)`
+  - Existing `SEARCH_TOOL_SCHEMAS`, `WRITE_TOOL_SCHEMAS`, `ALL_TOOL_SCHEMAS`, `SEARCH_TOOL_NAMES`, `WRITE_TOOL_NAMES` must remain derived from registry.
+  - No duplicated manual schema lists.
+- Verification:
+  - `py -m pytest backend/tests/test_tool_registry_metadata.py -q`
+  - Existing workspace tool tests still pass.
+
+### MCP-0903 - Classify Existing Tools Into Permission Packs
+
+- Status: `[ ]`
+- Owner:
+- File scope:
+  - `backend/app/services/workspace/registry.py`
+  - `backend/app/mcp/permissions.py`
+  - `backend/tests/test_mcp_permission_packs.py`
+- Goal:
+  - Assign every existing workspace tool to the correct external Agent permission pack without changing handler behavior.
+- Required behavior:
+  - Read/search/context tools belong to `readonly_collaboration`.
+  - Generator tools belong to `draft_generation`.
+  - Create/update writing tools belong to `project_writing` and require confirmed write unless trusted local policy says otherwise.
+  - Project CRUD/import/export/scheduler/skill/MCP-server management tools belong to `project_management`.
+  - Dangerous maintenance tools belong to `trusted_local_maintenance`.
+  - Secret/config-key tools are denied regardless of pack.
+  - Tests must assert every registered tool has a permission classification.
+- Verification:
+  - `py -m pytest backend/tests/test_mcp_permission_packs.py -q`
+  - Test confirms no unclassified tools and no secret tools exposed in any pack.
+
+### MCP-0904 - Add External Agent Permission Settings Model And API
+
+- Status: `[ ]`
+- Owner:
+- File scope:
+  - `backend/app/database/models.py`
+  - `backend/app/database/migrations.py`
+  - `backend/app/schemas/external_agent_settings.py`
+  - `backend/app/routers/external_agent.py`
+  - `backend/tests/test_external_agent_permission_settings.py`
+- Goal:
+  - Persist per-project external Agent permission settings.
+- Required behavior:
+  - Add project-level settings:
+    - enabled permission packs
+    - trusted local mode enabled/disabled
+    - trusted local client allow-list
+    - require confirmation for writes
+    - require confirmation for destructive actions
+    - updated_at
+  - Default setting must be safe:
+    - `readonly_collaboration` enabled
+    - `draft_generation` disabled unless user enables
+    - write/project-management/trusted packs disabled
+  - Runtime schema sync must migrate old user databases.
+  - API endpoints:
+    - `GET /api/v1/projects/{project_id}/external-agent/settings`
+    - `PUT /api/v1/projects/{project_id}/external-agent/settings`
+- Verification:
+  - `py -m pytest backend/tests/test_external_agent_permission_settings.py -q`
+  - Old database startup does not fail.
+
+### MCP-0905 - Enforce Permission Packs In MCP Adapter
+
+- Status: `[ ]`
+- Owner:
+- File scope:
+  - `backend/app/mcp/permissions.py`
+  - `backend/app/mcp/adapter.py`
+  - `backend/app/services/external_agent/run_service.py`
+  - `backend/tests/test_mcp_permission_pack_enforcement.py`
+- Goal:
+  - Make MCP `tools/list` and `tools/call` honor the project’s external Agent permission packs.
+- Required behavior:
+  - `tools/list` only returns tools allowed by enabled packs.
+  - `tools/call` re-checks permission at execution time.
+  - If no project id is available, only globally safe telemetry/read tools may appear.
+  - Trusted local mode requires:
+    - explicit project setting
+    - local stdio transport or localhost-only client identity
+    - audit event on every elevated call
+  - Disabled tools return structured permission errors.
+  - Existing confirmation-token write flow remains supported.
+- Verification:
+  - `py -m pytest backend/tests/test_mcp_permission_pack_enforcement.py -q`
+  - Existing MCP adapter/permission tests still pass.
+
+### MCP-0906 - Add Frontend Permission Pack Settings UI
+
+- Status: `[ ]`
+- Owner:
+- File scope:
+  - `frontend/src/pages/McpPage.tsx`
+  - `frontend/src/components/ExternalAgentPermissionPanel.tsx`
+  - `frontend/src/components/ExternalAgentPermissionPanel.css`
+  - `frontend/src/api/client.ts`
+  - `frontend/src/types/externalAgentSettings.ts`
+- Goal:
+  - Let users configure what Claude Code / Codex can do per project.
+- Required UI:
+  - Permission pack cards with plain-language explanations.
+  - Visible permanent deny-list note for API keys and model secrets.
+  - Trusted local mode toggle with warning copy.
+  - Confirmation toggles for project writes and destructive actions.
+  - Tool count preview for each pack.
+  - “View exposed tools” drawer using registry metadata.
+  - Clear warning when no project id is selected or MCP server is readonly only.
+- Verification:
+  - `cd frontend; npm run build`
+  - Manual UI smoke test: toggling packs updates backend settings and exposed tool preview.
+
+### MCP-0907 - Add Frontend Tool Catalog From Registry
+
+- Status: `[ ]`
+- Owner:
+- File scope:
+  - `backend/app/routers/tools.py`
+  - `backend/app/main.py`
+  - `frontend/src/pages/SkillsPage.tsx`
+  - `frontend/src/pages/McpPage.tsx`
+  - `frontend/src/types/toolCatalog.ts`
+  - `backend/tests/test_tool_catalog_api.py`
+- Goal:
+  - Make it easy to inspect all tools generated from the single ToolRegistry source.
+- Required behavior:
+  - Add API:
+    - `GET /api/v1/tools/catalog`
+    - `GET /api/v1/projects/{project_id}/tools/exposed`
+  - Response includes:
+    - name
+    - description
+    - tool_type
+    - permission tags
+    - risk level
+    - enabled surfaces
+    - requires confirmation
+    - denied reason if not exposed
+  - Frontend can show which tools are available to:
+    - project assistant
+    - scheduler
+    - MCP external Agent
+  - Adding a new registry tool should automatically appear in this catalog.
+- Verification:
+  - `py -m pytest backend/tests/test_tool_catalog_api.py -q`
+  - `cd frontend; npm run build`
+
+### MCP-0908 - Add New Tool Authoring Checklist And Linter
+
+- Status: `[ ]`
+- Owner:
+- File scope:
+  - `scripts/check-tool-registry.py`
+  - `docs/mcp/tool-authoring.md`
+  - `backend/tests/test_tool_registry_lint.py`
+- Goal:
+  - Prevent future contributors from creating tools that work internally but are invisible or unsafe externally.
+- Required behavior:
+  - Linter checks every registered tool has:
+    - description
+    - schema
+    - handler
+    - tool_type
+    - permission_tags
+    - risk_level
+    - idempotent flag
+    - requires_confirmation flag
+    - exposure flags
+  - Linter rejects secret-looking tools if exposed to MCP.
+  - Linter reports tools that are available internally but intentionally hidden externally with explicit reason.
+  - Documentation gives a copyable “how to add a tool once” checklist.
+- Verification:
+  - `py scripts/check-tool-registry.py`
+  - `py -m pytest backend/tests/test_tool_registry_lint.py -q`
+
+### MCP-0909 - Update Claude Code / Codex Client Docs For Permission Packs
+
+- Status: `[ ]`
+- Owner:
+- File scope:
+  - `docs/mcp/claude-code-codex-client.md`
+  - `README.md`
+  - `PACKAGING.md`
+- Goal:
+  - Document how external clients should work with permission packs and how users can safely grant more power.
+- Required content:
+  - Explain that Claude Code / Codex does not get all tools by default.
+  - Explain each permission pack with examples.
+  - Explain trusted local mode and its risks.
+  - Explain confirmed write flow.
+  - Explain how new project-assistant tools become available externally through ToolRegistry metadata.
+  - Include troubleshooting for “tool not listed”:
+    - project id missing
+    - permission pack disabled
+    - tool marked internal-only
+    - secret deny-list
+    - schema validation failure
+- Verification:
+  - Fresh user can understand why a tool is or is not exposed from docs alone.
+
+### MCP-0910 - Regression Gate For Permission Packs And Single Tool Source
+
+- Status: `[ ]`
+- Owner:
+- File scope:
+  - all Phase 9 touched areas
+- Required commands:
+  - `py -m pytest backend/tests -q`
+  - `cd frontend; npm run build`
+  - `py scripts/check-tool-registry.py`
+  - `py scripts/moshu-mcp-server.py --help`
+  - MCP `tools/list` smoke test for each permission pack
+  - packaged exe MCP smoke test if release build is requested
+- Release criteria:
+  - Claude Code / Codex can be granted broader project permissions through explicit project settings.
+  - Trusted local mode is auditable and cannot access API keys/model secrets.
+  - New tools only need ToolRegistry registration to flow into internal assistant, scheduler, MCP metadata, and frontend catalog.
+  - Existing internal project assistant behavior does not regress.
+  - Existing external Agent live session behavior does not regress.
+
 ## Completion Log
 
 Append verified completions here. Keep entries short and factual.
@@ -725,3 +1020,4 @@ Append verified completions here. Keep entries short and factual.
 - MCP-0808: Created docs/mcp/claude-code-codex-client.md with source/exe MCP config, 8-step operating rules, available tools table, troubleshooting section, security notes. README.md updated with Claude Code / Codex integration reference.
 - MCP-0809: `py -m pytest tests/test_external_agent_e2e.py -q` — 4 passed. E2E test verifies full workflow (create run → plan → progress → context → draft chunks → draft ready → finished). Write types validated. Smoke script (scripts/dev-external-agent-smoke.py) exists and compiles.
 - MCP-0810: `py -m pytest` — 307 passed, 101 subtests. `npm run build` — built in 5.08s. `py scripts/moshu-mcp-server.py --help` — exits 0. All Phase 8 release criteria met: external agent telemetry tools work, frontend panel implemented, confirmed write flow prevents silent mutation, no API key/model secret tools exposed.
+- MCP-0901: `Test-Path docs/mcp/permission-packs-and-tools.md` — file exists, 12 sections. Covers 5 permission packs, permanent deny-list, tool metadata contract (15 fields), single-source rules, trusted local mode, settings model, MCP adapter integration, tool catalog API, linter requirements.
