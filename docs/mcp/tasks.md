@@ -493,8 +493,8 @@
 
 ### MCP-0803 - Implement Agent Run Service And API
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/app/services/external_agent/run_service.py`
   - `backend/app/routers/external_agent.py`
@@ -717,3 +717,4 @@ Append verified completions here. Keep entries short and factual.
 - MCP-0703: `py -m pytest` — 253 passed, 87 subtests. `npm run build` — built in 7.02s. No API key/model secret tools exposed through MCP (0 found out of 99 tools). All release criteria met.
 - MCP-0801: `Test-Path docs/mcp/external-agent-live-session.md` — file exists, 10 sections. Covers run lifecycle (6 states), 12 event types, payload size limits, no-secret rules, frontend rendering contract, SSE format, backward compatibility.
 - MCP-0802: `py -m pytest tests/test_external_agent_runs.py -q` — 14 passed. Added AgentRun model (id, project_id, source, client_name, title, status, current_step, summary, timestamps) and AgentRunEvent model (id, run_id, sequence, event_type, status, message, payload_json, created_at). Pydantic schemas (Create, Read, List) for both. Indexes on project_id/status, run_id/sequence.
+- MCP-0803: `py -m pytest tests/test_external_agent_api.py -q` — 6 passed. Added external_agent/run_service.py (create_run, list_runs, add_event, get_events, cancel_run) with secret redaction and payload truncation. Router at /projects/{project_id}/agent-runs (POST create, GET list, GET detail, GET events, POST events, GET stream/SSE, POST cancel). Registered in main.py.

@@ -16,7 +16,7 @@ from .core.exceptions import (
 from .database.backup import backup_sqlite_database
 from .database.session import Base, SessionLocal, engine
 from .database.migrations import ensure_runtime_schema
-from .routers import projects, config, worldbuilding, characters, outline, chapters, ai_writer, stats, export, deconstruct, importer, cataloging, agent, skill, scheduler
+from .routers import projects, config, worldbuilding, characters, outline, chapters, ai_writer, stats, export, deconstruct, importer, cataloging, agent, skill, scheduler, mcp, external_agent
 from .services.workspace.run_log import mark_interrupted_assistant_runs
 from .version import APP_VERSION
 
@@ -85,6 +85,8 @@ app.include_router(cataloging.router, prefix="/api/v1")
 app.include_router(agent.router, prefix="/api/v1")
 app.include_router(skill.router, prefix="/api/v1")
 app.include_router(scheduler.router, prefix="/api/v1")
+app.include_router(mcp.router, prefix="/api/v1")
+app.include_router(external_agent.router, prefix="/api/v1")
 
 
 @app.get("/")
