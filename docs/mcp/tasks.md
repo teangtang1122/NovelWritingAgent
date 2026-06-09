@@ -641,8 +641,8 @@
 
 ### MCP-0809 - Add End-To-End External Agent Smoke Test
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/tests/test_external_agent_e2e.py`
   - `scripts/dev-external-agent-smoke.py`
@@ -723,3 +723,4 @@ Append verified completions here. Keep entries short and factual.
 - MCP-0806: `npm run build` — built in 5.20s. Added ExternalAgentRunPanel.tsx with collapsible run list, event timeline, status badges, SSE live updates, cancel button, draft preview. Added types/agentRun.ts with TypeScript interfaces.
 - MCP-0807: `py -m pytest tests/test_external_agent_confirmed_writes.py -q` — 7 passed. Added write_requests.py (request_write, confirm_write, reject_write) and router endpoints (POST write-requests, POST confirm, POST reject). Supports 8 write types. Confirmation issues single-use token via existing permissions layer.
 - MCP-0808: Created docs/mcp/claude-code-codex-client.md with source/exe MCP config, 8-step operating rules, available tools table, troubleshooting section, security notes. README.md updated with Claude Code / Codex integration reference.
+- MCP-0809: `py -m pytest tests/test_external_agent_e2e.py -q` — 4 passed. E2E test verifies full workflow (create run → plan → progress → context → draft chunks → draft ready → finished). Write types validated. Smoke script (scripts/dev-external-agent-smoke.py) exists and compiles.
