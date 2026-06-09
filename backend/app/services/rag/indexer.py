@@ -487,6 +487,60 @@ def reindex_project(db: Session, project_id: str) -> dict:
     return reindex_project_types(db, project_id, source_types=None)
 
 
+def _index_prompt_pack(db: Session, project_id: str, pack_id: str) -> int:
+    """Index a public prompt pack as RAG chunks."""
+    from app.database.models import PublicPromptPack
+
+    pack = db.query(PublicPromptPack).filter(
+        PublicPromptPack.pack_id == pack_id,
+        (PublicPromptPack.project_id == project_id) | (PublicPromptPack.project_id == None),
+        PublicPromptPack.enabled == True,
+    ).first()
+
+    if not pack:
+        return 0
+
+    _delete_chunks_for_source(db, project_id, "prompt_pack", pack.pack_id)
+
+    content_parts = [pack.system_prompt]
+    if pack.summary:
+        content_parts.insert(0, pack.summary)
+    content = "\n\n".join(content_parts)
+
+    _insert_chunk(
+        db, project_id, "prompt_pack", pack.pack_id,
+        pack.title, content[:4000],
+        {"scope": pack.scope, "version": pack.version, "is_builtin": pack.is_builtin},
+    )
+    return 1
+
+
+def _index_method_card(db: Session, project_id: str, card_id: str) -> int:
+    """Index a method card as RAG chunks."""
+    from app.database.models import MethodCard
+    import json
+
+    card = db.query(MethodCard).filter(
+        MethodCard.card_id == card_id,
+        (MethodCard.project_id == project_id) | (MethodCard.project_id == None),
+        MethodCard.enabled == True,
+    ).first()
+
+    if not card:
+        return 0
+
+    _delete_chunks_for_source(db, project_id, "method_card", card.card_id)
+
+    content = json.dumps(card.content_json, ensure_ascii=False) if card.content_json else ""
+
+    _insert_chunk(
+        db, project_id, "method_card", card.card_id,
+        card.title, content[:4000],
+        {"card_type": card.card_type, "version": card.version, "is_builtin": card.is_builtin},
+    )
+    return 1
+
+
 def reindex_project_types(
     db: Session,
     project_id: str,
@@ -538,6 +592,30 @@ def reindex_project_types(
         for mem in db.query(AssistantMemory).filter(AssistantMemory.project_id == project_id).all():
             count = _index_assistant_memory(db, project_id, mem.id)
             stats["assistant_memory"] = stats.get("assistant_memory", 0) + count
+            total += count
+
+    if should_index("prompt_pack"):
+        from app.database.models import PublicPromptPack
+        from app.services.prompt_packs.seed import ensure_builtin_packs
+        ensure_builtin_packs(db)
+        packs = db.query(PublicPromptPack).filter(
+            (PublicPromptPack.project_id == project_id) | (PublicPromptPack.project_id == None),
+            PublicPromptPack.enabled == True,
+        ).all()
+        for pack in packs:
+            count = _index_prompt_pack(db, project_id, pack.pack_id)
+            stats["prompt_pack"] = stats.get("prompt_pack", 0) + count
+            total += count
+
+    if should_index("method_card"):
+        from app.database.models import MethodCard
+        cards = db.query(MethodCard).filter(
+            (MethodCard.project_id == project_id) | (MethodCard.project_id == None),
+            MethodCard.enabled == True,
+        ).all()
+        for card in cards:
+            count = _index_method_card(db, project_id, card.card_id)
+            stats["method_card"] = stats.get("method_card", 0) + count
             total += count
 
     return {"total_chunks": total, "by_type": stats}
