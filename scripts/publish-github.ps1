@@ -67,8 +67,12 @@ try {
     "$sha  $LegacyAppName.exe"
   )
 
-  gh release view $Tag -R $Repo 1>$null 2>$null
-  if ($LASTEXITCODE -ne 0) {
+  $PreviousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  gh release view $Tag -R $Repo *>$null
+  $ReleaseExists = $LASTEXITCODE -eq 0
+  $ErrorActionPreference = $PreviousErrorActionPreference
+  if (-not $ReleaseExists) {
     gh release create $Tag -R $Repo --title $Tag --notes "Moshu $Tag"
   }
   gh release upload $Tag -R $Repo $ExePath $LegacyExePath $ShaPath $ManifestPath --clobber
