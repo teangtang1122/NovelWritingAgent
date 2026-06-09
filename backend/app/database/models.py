@@ -1055,3 +1055,29 @@ class MethodCard(Base):
         Index("ix_method_cards_project_card", "project_id", "card_id"),
         Index("ix_method_cards_type", "card_type"),
     )
+
+
+# ---------------------------------------------------------------------------
+# 26. novel_creation_sessions — 新小说创建会话表
+# ---------------------------------------------------------------------------
+class NovelCreationSession(Base):
+    __tablename__ = "novel_creation_sessions"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    source_project_id = Column(String(36), nullable=True)  # project that initiated (may be null)
+    created_project_id = Column(String(36), nullable=True)  # project created by this session
+    status = Column(String(30), nullable=False, default="drafting")  # drafting|reviewing|applying|completed|failed
+    mode = Column(String(20), nullable=False, default="internal_llm")  # internal_llm|external_agent
+    user_brief = Column(Text, nullable=True)
+    target_audience = Column(String(100), nullable=True)
+    genre = Column(String(100), nullable=True)
+    platform = Column(String(100), nullable=True)
+    blueprint_json = Column(JSON, nullable=True)
+    review_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_novel_creation_sessions_status", "status"),
+    )

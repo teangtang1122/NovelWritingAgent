@@ -382,8 +382,8 @@ Every implementation task must preserve the existing Moshu architecture:
 
 ### NOVEL-0301 - Add Novel Creation Session Model
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/app/database/models.py`
   - `backend/app/schemas/novel_creation.py`
