@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..core.response import ApiResponse
@@ -214,3 +215,81 @@ def cancel_agent_run(
         raise HTTPException(status_code=404, detail="Run not found")
     cancelled = cancel_run(db, run_id)
     return ApiResponse.success(data=_run_to_read(cancelled).model_dump(), message="Run cancelled")
+
+
+# ── Write request endpoints ──────────────────────────────────────────────
+
+class WriteRequestCreate(BaseModel):
+    write_type: str
+    payload_summary: str
+    payload_json: str | None = None
+
+
+class WriteConfirmResponse(BaseModel):
+    confirmation_token: str
+    tool: str
+
+
+@router.post("/{run_id}/write-requests")
+def request_agent_write(
+    project_id: str,
+    run_id: str,
+    body: WriteRequestCreate,
+    db: Session = Depends(get_db),
+):
+    """Request a write that requires user confirmation."""
+    get_project_or_404(db, project_id)
+    run = get_run(db, run_id)
+    if not run or run.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    from app.services.external_agent.write_requests import request_write
+    result = request_write(
+        db, run_id, body.write_type,
+        body.payload_summary,
+        payload_json=body.payload_json,
+    )
+    if result["status"] == "error":
+        raise HTTPException(status_code=400, detail=result["detail"])
+    return ApiResponse.success(data=result, message="Write request created")
+
+
+@router.post("/{run_id}/write-requests/{request_id}/confirm")
+def confirm_agent_write(
+    project_id: str,
+    run_id: str,
+    request_id: int,
+    db: Session = Depends(get_db),
+):
+    """Confirm a pending write request."""
+    get_project_or_404(db, project_id)
+    run = get_run(db, run_id)
+    if not run or run.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    from app.services.external_agent.write_requests import confirm_write
+    result = confirm_write(db, run_id, request_id)
+    if result["status"] == "error":
+        raise HTTPException(status_code=400, detail=result["detail"])
+    return ApiResponse.success(data=result, message="Write confirmed")
+
+
+@router.post("/{run_id}/write-requests/{request_id}/reject")
+def reject_agent_write(
+    project_id: str,
+    run_id: str,
+    request_id: int,
+    reason: str = "",
+    db: Session = Depends(get_db),
+):
+    """Reject a pending write request."""
+    get_project_or_404(db, project_id)
+    run = get_run(db, run_id)
+    if not run or run.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    from app.services.external_agent.write_requests import reject_write
+    result = reject_write(db, run_id, request_id, reason=reason)
+    if result["status"] == "error":
+        raise HTTPException(status_code=400, detail=result["detail"])
+    return ApiResponse.success(data=result, message="Write rejected")

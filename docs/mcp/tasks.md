@@ -592,8 +592,8 @@
 
 ### MCP-0807 - Add Confirmed Write Flow For External Agent Drafts
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/app/services/external_agent/write_requests.py`
   - `backend/app/routers/external_agent.py`
@@ -721,3 +721,4 @@ Append verified completions here. Keep entries short and factual.
 - MCP-0804: `py -m pytest tests/test_mcp_external_agent_tools.py -q` — 11 passed, 14 subtests. Added 7 external agent reporting tools to workspace registry (start_agent_run, report_agent_plan, report_agent_progress, report_context_selected, append_draft_chunk, mark_draft_ready, finish_agent_run). All registered as tool_type=read → readonly tier. Tests verify tools appear in MCP tools/list and secret tools remain excluded.
 - MCP-0805: `py -m pytest tests/test_mcp_tool_run_events.py -q` — 12 passed. Updated adapter.execute_tool to accept run_id, strip it from arguments, and auto-log tool_start/tool_result events via run_service.add_event. Added _build_args_summary for safe argument truncation. Telemetry failures never break tool execution.
 - MCP-0806: `npm run build` — built in 5.20s. Added ExternalAgentRunPanel.tsx with collapsible run list, event timeline, status badges, SSE live updates, cancel button, draft preview. Added types/agentRun.ts with TypeScript interfaces.
+- MCP-0807: `py -m pytest tests/test_external_agent_confirmed_writes.py -q` — 7 passed. Added write_requests.py (request_write, confirm_write, reject_write) and router endpoints (POST write-requests, POST confirm, POST reject). Supports 8 write types. Confirmation issues single-use token via existing permissions layer.
