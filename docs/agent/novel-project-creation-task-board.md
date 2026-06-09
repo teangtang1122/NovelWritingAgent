@@ -493,8 +493,8 @@ Every implementation task must preserve the existing Moshu architecture:
 
 ### NOVEL-0401 - Add Create-Novel Intent To Plan Agent
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - Depends on:
   - NOVEL-0305
 - File scope:

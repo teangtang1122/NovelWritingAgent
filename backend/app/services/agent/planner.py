@@ -20,6 +20,7 @@ _INTENT_SKILL = "skill"
 _INTENT_PROJECT = "project"
 _INTENT_EXPORT = "export"
 _INTENT_DECONSTRUCT = "deconstruct"
+_INTENT_CREATE_NOVEL = "create_novel"
 
 
 def plan_fast_chapter(
@@ -446,6 +447,40 @@ def plan_create_project(
     return PlanGraph(name="create_project", steps=steps)
 
 
+def plan_create_novel(
+    *,
+    requirements: str = "",
+) -> PlanGraph:
+    """New novel creation path — start session, draft blueprints, review, apply."""
+    steps = {
+        "start_session": StepDef(
+            tool="start_novel_creation_session",
+            args={"user_brief": requirements, "mode": "internal_llm"},
+            depends_on=[],
+            label="创建新小说会话",
+        ),
+        "draft_blueprints": StepDef(
+            tool="draft_novel_blueprint",
+            args={"session_id": "$start_session.session_id", "execution_mode": "internal_llm"},
+            depends_on=["start_session"],
+            label="生成创意方案",
+        ),
+        "review_blueprint": StepDef(
+            tool="review_novel_blueprint",
+            args={"session_id": "$start_session.session_id", "execution_mode": "internal_llm"},
+            depends_on=["draft_blueprints"],
+            label="评审创意方案",
+        ),
+        "apply_blueprint": StepDef(
+            tool="apply_novel_blueprint",
+            args={"session_id": "$start_session.session_id", "mode": "auto"},
+            depends_on=["review_blueprint"],
+            label="应用蓝图创建项目",
+        ),
+    }
+    return PlanGraph(name="create_novel", steps=steps)
+
+
 def plan_export_project(
     *,
     scope: str = "all",
@@ -602,6 +637,14 @@ def detect_intent(user_message: str) -> dict[str, Any] | None:
     if any(kw in text for kw in _INIT_KEYWORDS):
         return {"intent_type": _INTENT_PROJECT_INIT, "requirements": text}
 
+    # 1.1 Create novel (new novel from scratch)
+    _CREATE_NOVEL_KEYWORDS = [
+        "开一本", "开书", "创建新小说", "新小说", "写一本",
+        "帮我开", "帮我写一本", "从零开始写", "搭建一本",
+    ]
+    if any(kw in text for kw in _CREATE_NOVEL_KEYWORDS):
+        return {"intent_type": _INTENT_CREATE_NOVEL, "requirements": text}
+
     # 1.5 Scheduled tasks
     if any(kw in text for kw in _SCHEDULE_KEYWORDS) and any(kw in text for kw in ("任务", "搜索", "整理", "提醒", "监控", "收集")):
         cron_expr, interval_minutes = _extract_schedule(text)
@@ -704,6 +747,11 @@ def build_plan_from_intent(intent: dict[str, Any], *, outline_node_id: str = "")
             prompt=intent.get("prompt", ""),
             cron_expr=intent.get("cron_expr"),
             interval_minutes=intent.get("interval_minutes"),
+        )
+
+    if intent_type == _INTENT_CREATE_NOVEL:
+        return plan_create_novel(
+            requirements=intent.get("requirements", ""),
         )
 
     if intent_type == _INTENT_SKILL:
