@@ -29,6 +29,15 @@ class ToolDef:
     estimated_cost: str = "free"  # free | low | medium | high
     handler: ToolHandler | None = None
 
+    # Phase 9: permission pack metadata
+    permission_tags: set[str] = field(default_factory=set)
+    risk_level: str = "safe"  # safe | low | medium | high | destructive
+    writes_project_data: bool = False
+    expose_to_internal_agent: bool = True
+    expose_to_scheduler: bool = True
+    expose_to_mcp: bool = True
+    mcp_permission_pack: str = ""  # derived from tool_type if empty
+
 
 # ---------------------------------------------------------------------------
 # ToolRegistry — manages all registered tools
@@ -81,6 +90,101 @@ class ToolRegistry:
 
     def get_names_by_type(self, tool_type: str) -> set[str]:
         return {name for name, td in self._tools.items() if td.tool_type == tool_type}
+
+    def _derive_mcp_pack(self, td: ToolDef) -> str:
+        """Derive the MCP permission pack for a tool."""
+        if td.mcp_permission_pack:
+            return td.mcp_permission_pack
+
+        # Derive from tool_type and risk_level
+        if td.tool_type in ("read", "analysis", "web"):
+            return "readonly_collaboration"
+        if td.tool_type == "memory":
+            return "readonly_collaboration" if not td.writes_project_data else "draft_generation"
+        if td.tool_type == "generator":
+            return "draft_generation"
+        if td.tool_type == "scheduler":
+            return "project_management"
+        if td.tool_type == "write":
+            if td.risk_level in ("high", "destructive"):
+                return "trusted_local_maintenance"
+            if td.writes_project_data:
+                return "project_writing"
+            return "project_management"
+        return "readonly_collaboration"
+
+    def list_for_internal_agent(
+        self,
+        *,
+        tool_types: set[str] | None = None,
+        exclude_types: set[str] | None = None,
+    ) -> list[ToolDef]:
+        """Return tools available to the internal project assistant."""
+        result = []
+        for td in self._tools.values():
+            if not td.expose_to_internal_agent:
+                continue
+            if tool_types and td.tool_type not in tool_types:
+                continue
+            if exclude_types and td.tool_type in exclude_types:
+                continue
+            result.append(td)
+        return result
+
+    def list_for_scheduler(self) -> list[ToolDef]:
+        """Return tools available to scheduled tasks."""
+        return [td for td in self._tools.values() if td.expose_to_scheduler]
+
+    def list_for_mcp(
+        self,
+        *,
+        permission_pack: str = "readonly_collaboration",
+    ) -> list[ToolDef]:
+        """Return tools available to MCP clients for a given permission pack."""
+        # Pack hierarchy
+        pack_order = [
+            "readonly_collaboration",
+            "draft_generation",
+            "project_writing",
+            "project_management",
+            "trusted_local_maintenance",
+        ]
+        try:
+            max_level = pack_order.index(permission_pack)
+        except ValueError:
+            max_level = 0
+
+        result = []
+        for td in self._tools.values():
+            if not td.expose_to_mcp:
+                continue
+            pack = self._derive_mcp_pack(td)
+            try:
+                pack_level = pack_order.index(pack)
+            except ValueError:
+                continue
+            if pack_level <= max_level:
+                result.append(td)
+        return result
+
+    def list_for_frontend(self) -> list[dict]:
+        """Return tool metadata dicts for frontend display."""
+        result = []
+        for td in self._tools.values():
+            result.append({
+                "name": td.name,
+                "description": td.description,
+                "tool_type": td.tool_type,
+                "permission_tags": list(td.permission_tags),
+                "risk_level": td.risk_level,
+                "writes_project_data": td.writes_project_data,
+                "expose_to_internal_agent": td.expose_to_internal_agent,
+                "expose_to_scheduler": td.expose_to_scheduler,
+                "expose_to_mcp": td.expose_to_mcp,
+                "mcp_permission_pack": self._derive_mcp_pack(td),
+                "requires_confirmation": td.requires_confirmation,
+            })
+        return result
 
 
 # ---------------------------------------------------------------------------

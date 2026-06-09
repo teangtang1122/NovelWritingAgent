@@ -744,8 +744,8 @@
 
 ### MCP-0902 - Extend ToolRegistry Metadata Contract
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/app/services/workspace/registry.py`
   - `backend/app/services/workspace/tool_schemas.py`
@@ -1021,3 +1021,4 @@ Append verified completions here. Keep entries short and factual.
 - MCP-0809: `py -m pytest tests/test_external_agent_e2e.py -q` — 4 passed. E2E test verifies full workflow (create run → plan → progress → context → draft chunks → draft ready → finished). Write types validated. Smoke script (scripts/dev-external-agent-smoke.py) exists and compiles.
 - MCP-0810: `py -m pytest` — 307 passed, 101 subtests. `npm run build` — built in 5.08s. `py scripts/moshu-mcp-server.py --help` — exits 0. All Phase 8 release criteria met: external agent telemetry tools work, frontend panel implemented, confirmed write flow prevents silent mutation, no API key/model secret tools exposed.
 - MCP-0901: `Test-Path docs/mcp/permission-packs-and-tools.md` — file exists, 12 sections. Covers 5 permission packs, permanent deny-list, tool metadata contract (15 fields), single-source rules, trusted local mode, settings model, MCP adapter integration, tool catalog API, linter requirements.
+- MCP-0902: `py -m pytest tests/test_tool_registry_metadata.py -q` — 16 passed. Extended ToolDef with permission_tags, risk_level, writes_project_data, expose_to_internal_agent, expose_to_scheduler, expose_to_mcp, mcp_permission_pack. Added registry methods: list_for_internal_agent, list_for_scheduler, list_for_mcp, list_for_frontend, _derive_mcp_pack.
