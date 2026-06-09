@@ -356,8 +356,8 @@ Every implementation task must preserve the existing Moshu architecture:
 
 ### NOVEL-0205 - External Writing End-To-End No-API Test
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - Depends on:
   - NOVEL-0201
   - NOVEL-0202
@@ -833,3 +833,4 @@ Append completed-task evidence here. Use one entry per task:
 - NOVEL-0202: `py -m pytest tests/test_external_draft_storage.py -q` — 8 passed. Added save_external_chapter_draft and get_external_chapter_draft tools (API-free). Wraps existing generated_drafts module. Returns draft_id/content_ref for use with create_chapter. Registered in readonly_collaboration pack.
 - NOVEL-0203: `py -m pytest tests/test_external_quality_review.py -q` — 6 passed. Added record_external_quality_review tool (API-free). Accepts scores, issues, suggestions, pass/fail. Calculates total score. Attaches to chapter or draft. Registered in readonly_collaboration pack.
 - NOVEL-0204: `py -m pytest tests/test_external_story_updates.py -q` — 6 passed. Added apply_external_story_updates tool (manual/auto modes). Updates characters, worldbuilding, chapter summary. Manual returns candidates, auto applies. Registered in project_writing pack.
+- NOVEL-0205: `py -m pytest tests/test_external_writing_no_api_e2e.py -q` — 2 passed. E2E test proves full external writing workflow without LLM API: prepare context → save draft → record review → apply updates. LLMGateway never imported or called.
