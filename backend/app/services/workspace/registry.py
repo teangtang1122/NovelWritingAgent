@@ -1789,6 +1789,63 @@ def _register_all() -> None:
         handler=finish_agent_run,
     ))
 
+    # ── Prompt Pack Tools ────────────────────────────────────────────────
+    from .tools.prompt_packs import (
+        list_prompt_packs,
+        get_prompt_pack,
+        get_tool_playbook,
+        get_quality_rubric,
+    )
+
+    _r(ToolDef(
+        name="list_prompt_packs",
+        description="List available public prompt packs. Returns pack_id, scope, title, summary.",
+        input_schema={
+            "scope": {"type": "string", "description": "Filter by scope: new_project|chapter_writing|chapter_review|character_design|worldbuilding|outline_planning|anti_ai_review"},
+        },
+        tool_type="read",
+        estimated_cost="free",
+        handler=list_prompt_packs,
+    ))
+
+    _r(ToolDef(
+        name="get_prompt_pack",
+        description="Get a specific prompt pack with full system prompt, workflow, quality rubric, and forbidden patterns.",
+        input_schema={
+            "scope": {"type": "string", "description": "Prompt scope: chapter_writing|chapter_review|new_project|character_design|worldbuilding|outline_planning|anti_ai_review"},
+            "mode": {"type": "string", "description": "Mode: quality|fast (for chapter_writing scope)"},
+            "pack_id": {"type": "string", "description": "Direct pack_id lookup (overrides scope/mode)"},
+        },
+        tool_type="read",
+        estimated_cost="free",
+        handler=get_prompt_pack,
+    ))
+
+    _r(ToolDef(
+        name="get_tool_playbook",
+        description="Get a tool usage playbook explaining how to use a specific tool in a given scenario.",
+        input_schema={
+            "tool_name": {"type": "string", "description": "Tool name to get playbook for"},
+            "scenario": {"type": "string", "description": "Scenario: external_writing|internal_writing"},
+        },
+        required=["tool_name"],
+        tool_type="read",
+        estimated_cost="free",
+        handler=get_tool_playbook,
+    ))
+
+    _r(ToolDef(
+        name="get_quality_rubric",
+        description="Get quality rubric with scoring dimensions and passing criteria.",
+        input_schema={
+            "scope": {"type": "string", "description": "Scope: chapter_writing|chapter_review"},
+            "pack_id": {"type": "string", "description": "Direct pack_id lookup (overrides scope)"},
+        },
+        tool_type="read",
+        estimated_cost="free",
+        handler=get_quality_rubric,
+    ))
+
 
 _register_all()
 

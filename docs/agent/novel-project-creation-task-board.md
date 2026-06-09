@@ -177,8 +177,8 @@ Every implementation task must preserve the existing Moshu architecture:
 
 ### NOVEL-0103 - Expose Prompt Pack Read Tools
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - Depends on:
   - NOVEL-0102
 - File scope:
@@ -826,3 +826,4 @@ Append completed-task evidence here. Use one entry per task:
 - NOVEL-0002: `Test-Path docs/agent/external-no-api-writing.md` — file exists, 7 sections. 10-step workflow documented. 19 API-free tools listed. 14 API-backed tools to skip. Failure handling for 4 scenarios. Example session included.
 - NOVEL-0101: `py -m pytest tests/test_prompt_pack_models.py -q` — 10 passed. Added PublicPromptPack model (project_id, pack_id, version, scope, title, system_prompt, workflow/rubric/playbook/patterns/context/output JSON fields, enabled, is_builtin, tags) and MethodCard model (project_id, card_id, version, title, content_json, card_type, enabled, is_builtin). Pydantic schemas (Create, Read) for both.
 - NOVEL-0102: `py -m pytest tests/test_prompt_pack_seed.py -q` — 8 passed, 21 subtests. Added prompt_packs/seed.py with 8 built-in packs (new_project_setup, chapter_writing_quality, chapter_writing_fast, chapter_review_quality, character_design, worldbuilding_design, outline_planning, anti_ai_review). Each pack has system_prompt, workflow, quality_rubric, forbidden_patterns. Seed is idempotent.
+- NOVEL-0103: `py -m pytest tests/test_prompt_pack_tools.py -q` — 8 passed. `py scripts/check-tool-registry.py` — PASS, 110 tools. Added 4 prompt pack tools to workspace registry: list_prompt_packs, get_prompt_pack, get_tool_playbook, get_quality_rubric. All registered as tool_type=read → readonly tier. Tools appear in MCP readonly_collaboration pack.
