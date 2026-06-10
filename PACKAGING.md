@@ -140,3 +140,24 @@ python scripts/moshu-mcp-server.py --permission-pack project_management
 ```
 
 MCP Server 默认为只读模式，仅暴露查询和分析工具。
+
+## Smoke Test
+
+打包后运行冒烟测试验证发布产物：
+
+```powershell
+.\scripts\smoke-test-release.ps1
+```
+
+测试步骤：
+1. 验证 MCP 入口点可用
+2. 验证 `--permission-pack auto` 模式
+3. 验证配置脚本存在
+4. 验证文档存在
+5. 运行后端测试
+
+Dry run 模式（不实际执行）：
+
+```powershell
+.\scripts\smoke-test-release.ps1 -DryRun
+```

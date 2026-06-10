@@ -510,8 +510,8 @@ Result: the frontend setting and the actual MCP permission source are not the sa
 
 ### EAC-0503 - Packaged Smoke Test
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `scripts/smoke-test-release.ps1`
   - `PACKAGING.md`
