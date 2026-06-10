@@ -271,8 +271,8 @@ async def get_external_chapter_draft(
             "data": None,
         }
 
-    draft = get_chapter_draft(draft_id)
-    if not draft:
+    draft_content = get_chapter_draft(project_id, draft_id)
+    if not draft_content:
         return {
             "tool": "get_external_chapter_draft",
             "status": "skipped",
@@ -280,25 +280,17 @@ async def get_external_chapter_draft(
             "data": None,
         }
 
-    # Verify project ownership
-    if draft.get("project_id") != project_id:
-        return {
-            "tool": "get_external_chapter_draft",
-            "status": "skipped",
-            "detail": "Draft does not belong to this project",
-            "data": None,
-        }
+    # get_chapter_draft returns the content string directly
+    content = draft_content if isinstance(draft_content, str) else str(draft_content)
 
     return {
         "tool": "get_external_chapter_draft",
         "status": "ok",
-        "detail": f"Draft: {draft.get('title', 'Untitled')}",
+        "detail": f"Draft retrieved: {len(content)} chars",
         "data": {
             "draft_id": draft_id,
-            "title": draft.get("title"),
-            "content": draft.get("content"),
-            "outline_node_id": draft.get("outline_node_id"),
-            "word_count": len(draft.get("content", "")),
+            "content": content,
+            "word_count": len(content),
         },
     }
 
@@ -363,10 +355,13 @@ async def record_external_quality_review(
 
     # Try to get draft info
     if draft_id:
-        draft_content = get_chapter_draft(project_id, draft_id)
-        if draft_content:
-            review["draft_id"] = draft_id
-            review["draft_content_length"] = len(draft_content) if draft_content else 0
+        try:
+            draft_content = get_chapter_draft(project_id, draft_id)
+            if draft_content:
+                review["draft_id"] = draft_id
+                review["draft_content_length"] = len(draft_content) if isinstance(draft_content, str) else 0
+        except Exception:
+            pass  # Draft lookup is optional
 
     return {
         "tool": "record_external_quality_review",
