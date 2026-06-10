@@ -191,7 +191,7 @@ async def get_next_external_cataloging_chapter(
         "data": {
             "job_id": job_id,
             "chapter_id": chapter.id,
-            "chapter_index": chapter_run.chapter_index,
+            "chapter_index": chapter_run.chapter_order,
             "title": chapter.title,
             "content": chapter.content,
             "character_alias_index": char_index,

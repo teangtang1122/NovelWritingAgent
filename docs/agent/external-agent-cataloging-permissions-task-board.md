@@ -492,8 +492,8 @@ Result: the frontend setting and the actual MCP permission source are not the sa
 
 ### EAC-0502 - End-To-End No-API Cataloging Test
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/tests/test_external_cataloging_no_api_e2e.py`
 - Goal:
