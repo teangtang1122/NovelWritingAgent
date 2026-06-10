@@ -8,6 +8,7 @@ export interface ExternalAgentSettings {
   trusted_local_clients: string[]
   require_confirmation_for_writes: boolean
   require_confirmation_for_destructive: boolean
+  updated_at?: string | null
 }
 
 export interface PermissionPack {

@@ -30,6 +30,7 @@ interface ApiResponse<T> {
 
 interface ExternalAgentPermissionPanelProps {
   projectId: string
+  globalCliOverride?: boolean
 }
 
 const RISK_COLORS: Record<string, string> = {
@@ -40,27 +41,27 @@ const RISK_COLORS: Record<string, string> = {
   destructive: 'red',
 }
 
-function ExternalAgentPermissionPanel({ projectId }: ExternalAgentPermissionPanelProps) {
+function ExternalAgentPermissionPanel({ projectId, globalCliOverride }: ExternalAgentPermissionPanelProps) {
   const [settings, setSettings] = useState<ExternalAgentSettings | null>(null)
   const [loading, setLoading] = useState(false)
   const [showTools, setShowTools] = useState<string | null>(null)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
 
   const fetchSettings = useCallback(async () => {
+    setFetchError(null)
     try {
       const resp = await apiClient.get<ApiResponse<ExternalAgentSettings>>(
         `/projects/${projectId}/agent-runs/settings`
       )
       setSettings(resp.data.data)
-    } catch {
-      // Use defaults
-      setSettings({
-        project_id: projectId,
-        enabled_packs: ['readonly_collaboration'],
-        trusted_local_enabled: false,
-        trusted_local_clients: [],
-        require_confirmation_for_writes: true,
-        require_confirmation_for_destructive: true,
-      })
+      if (resp.data.data.updated_at) {
+        setLastSavedAt(resp.data.data.updated_at)
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '加载失败'
+      setFetchError(msg)
+      // Do NOT silently fall back to defaults — show error instead
     }
   }, [projectId])
 
@@ -72,11 +73,12 @@ function ExternalAgentPermissionPanel({ projectId }: ExternalAgentPermissionPane
     if (!settings) return
     setLoading(true)
     try {
-      const resp = await apiClient.put<ApiResponse<ExternalAgentSettings>>(
+      await apiClient.put<ApiResponse<ExternalAgentSettings>>(
         `/projects/${projectId}/agent-runs/settings`,
         updates
       )
-      setSettings(resp.data.data)
+      // Re-fetch to verify persistence
+      await fetchSettings()
       message.success('设置已更新')
     } catch (err: unknown) {
       message.error(err instanceof Error ? err.message : '更新失败')
@@ -111,6 +113,19 @@ function ExternalAgentPermissionPanel({ projectId }: ExternalAgentPermissionPane
     updateSettings({ [field]: value })
   }
 
+  if (fetchError) {
+    return (
+      <Card size="small" title="外部 Agent 权限设置" style={{ marginBottom: 16 }}>
+        <Alert
+          type="error"
+          message="加载权限设置失败"
+          description={fetchError}
+          showIcon
+        />
+      </Card>
+    )
+  }
+
   if (!settings) return null
 
   return (
@@ -120,10 +135,26 @@ function ExternalAgentPermissionPanel({ projectId }: ExternalAgentPermissionPane
         <Space>
           <SafetyOutlined />
           <span>外部 Agent 权限设置</span>
+          {lastSavedAt && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              上次保存: {new Date(lastSavedAt).toLocaleString()}
+            </Text>
+          )}
         </Space>
       }
       style={{ marginBottom: 16 }}
     >
+      {globalCliOverride && (
+        <Alert
+          type="warning"
+          message="CLI 覆盖生效中"
+          description="Claude/Codex 当前被 CLI --permission-pack 参数锁定。UI 设置更改不会生效，直到 MCP 服务器使用 --permission-pack auto 启动。"
+          showIcon
+          icon={<WarningOutlined />}
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       <Paragraph type="secondary" style={{ marginBottom: 16 }}>
         配置 Claude Code 或 Codex 可以在此项目中执行的操作。默认仅允许只读访问。
       </Paragraph>

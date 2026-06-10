@@ -241,8 +241,8 @@ Result: the frontend setting and the actual MCP permission source are not the sa
 
 ### EAC-0202 - Fix Permission Settings Persistence UX
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `frontend/src/components/ExternalAgentPermissionPanel.tsx`
   - `frontend/src/types/externalAgentSettings.ts`
