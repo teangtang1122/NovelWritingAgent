@@ -21,6 +21,7 @@ import {
   DeleteOutlined,
   BookOutlined,
   SettingOutlined,
+  ApiOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../stores'
 
@@ -146,6 +147,13 @@ function DashboardPage() {
           作品管理
         </h1>
         <Space size={12}>
+          <Button
+            type="text"
+            icon={<ApiOutlined />}
+            onClick={() => navigate('/external-agent')}
+          >
+            外部 Agent / MCP
+          </Button>
           <Button
             type="text"
             icon={<SettingOutlined />}
