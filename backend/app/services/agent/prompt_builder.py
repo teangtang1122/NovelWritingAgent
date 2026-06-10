@@ -55,7 +55,15 @@ def build_tool_policy_section(pack: PromptPack) -> str:
     return "【工具策略】\n" + "\n".join(lines)
 
 
-def build_system_prompt(pack: PromptPack, *, skill_prompts: str = "", **kwargs: Any) -> str:
+def build_system_prompt(
+    pack: PromptPack,
+    *,
+    skill_prompts: str = "",
+    db: Any = None,
+    scope: str = "chapter_writing",
+    mode: str = "quality",
+    **kwargs: Any,
+) -> str:
     """Build the full system prompt from a pack.
 
     Composes the pack's own ``build_system_prompt`` output with an optional
@@ -68,7 +76,12 @@ def build_system_prompt(pack: PromptPack, *, skill_prompts: str = "", **kwargs: 
         mode_prompt = f"{mode_prompt}\n\n{skill_prompts}"
     tool_policy = build_tool_policy_section(pack)
     if tool_policy:
-        return f"{mode_prompt}\n\n{tool_policy}"
+        mode_prompt = f"{mode_prompt}\n\n{tool_policy}"
+
+    # Inject public prompt pack section if db is available
+    if db is not None:
+        mode_prompt = inject_public_prompt_pack_section(mode_prompt, db, scope, mode)
+
     return mode_prompt
 
 

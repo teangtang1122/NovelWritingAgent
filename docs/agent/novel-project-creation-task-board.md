@@ -531,8 +531,8 @@ Every implementation task must preserve the existing Moshu architecture:
 
 ### NOVEL-0403 - Align Quality Mode With Shared Prompt Pack
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - Depends on:
   - NOVEL-0104
 - File scope:
