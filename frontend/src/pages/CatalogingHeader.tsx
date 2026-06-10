@@ -31,6 +31,7 @@ function CatalogingHeader({
         <Radio.Group value={mode} onChange={(event) => onModeChange(event.target.value)} buttonStyle="solid">
           <Radio.Button value="auto">自动</Radio.Button>
           <Radio.Button value="manual">手动确认</Radio.Button>
+          <Radio.Button value="external_agent">外部 Agent / 无 API</Radio.Button>
         </Radio.Group>
         <Button icon={<ReloadOutlined />} onClick={onRefreshChapters}>刷新章节</Button>
         <Button type="primary" icon={<PlayCircleOutlined />} loading={loading || streaming} onClick={onStartJob}>

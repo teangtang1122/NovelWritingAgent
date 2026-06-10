@@ -10,7 +10,7 @@ export interface ChapterItem {
   word_count: number
 }
 
-export type CatalogingMode = 'auto' | 'manual'
+export type CatalogingMode = 'auto' | 'manual' | 'external_agent'
 
 export interface CatalogingJob {
   id: string

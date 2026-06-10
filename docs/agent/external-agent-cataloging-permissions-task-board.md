@@ -345,8 +345,8 @@ Result: the frontend setting and the actual MCP permission source are not the sa
 
 ### EAC-0304 - Add External Cataloging Frontend Mode
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `frontend/src/pages/CatalogingPage.tsx`
   - `frontend/src/types/cataloging.ts`
