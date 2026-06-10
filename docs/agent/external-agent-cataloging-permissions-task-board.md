@@ -293,8 +293,8 @@ Result: the frontend setting and the actual MCP permission source are not the sa
 
 ### EAC-0302 - Create External Cataloging Job Tools
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/app/services/workspace/tools/external_cataloging.py`
   - `backend/app/services/workspace/registry.py`

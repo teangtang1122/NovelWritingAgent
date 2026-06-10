@@ -1852,6 +1852,13 @@ def _register_all() -> None:
     from .tools.mcp_status import (
         get_mcp_permission_status,
     )
+    from .tools.external_cataloging import (
+        start_external_cataloging_job,
+        get_next_external_cataloging_chapter,
+        save_external_cataloging_facts,
+        save_external_cataloging_candidates,
+        verify_external_cataloging_progress,
+    )
 
     _r(ToolDef(
         name="prepare_external_writing_context",
@@ -1999,6 +2006,74 @@ def _register_all() -> None:
         handler=get_mcp_permission_status,
     ))
 
+    # ── External Cataloging Tools ────────────────────────────────────────
+    _r(ToolDef(
+        name="start_external_cataloging_job",
+        description="Create a cataloging job for external agent mode. API-free. Creates one chapter run per chapter.",
+        input_schema={
+            "chapter_ids": {"type": "array", "items": {"type": "string"}, "description": "Optional chapter IDs to catalog. Omit for all chapters."},
+        },
+        tool_type="read",
+        estimated_cost="free",
+        handler=start_external_cataloging_job,
+    ))
+
+    _r(ToolDef(
+        name="get_next_external_cataloging_chapter",
+        description="Get the next pending chapter for external cataloging. Returns chapter text, character/wb indexes, and prompt pack. API-free.",
+        input_schema={
+            "job_id": {"type": "string", "description": "Cataloging job ID"},
+        },
+        required=["job_id"],
+        tool_type="read",
+        estimated_cost="free",
+        handler=get_next_external_cataloging_chapter,
+    ))
+
+    _r(ToolDef(
+        name="save_external_cataloging_facts",
+        description="Save facts extracted by the external model. API-free.",
+        input_schema={
+            "job_id": {"type": "string", "description": "Cataloging job ID"},
+            "chapter_id": {"type": "string", "description": "Chapter ID"},
+            "facts": {"type": "array", "items": {"type": "object"}, "description": "Extracted facts"},
+        },
+        required=["job_id", "chapter_id"],
+        tool_type="write",
+        writes_project_data=True,
+        risk_level="low",
+        estimated_cost="free",
+        handler=save_external_cataloging_facts,
+    ))
+
+    _r(ToolDef(
+        name="save_external_cataloging_candidates",
+        description="Save candidates proposed by the external model. API-free.",
+        input_schema={
+            "job_id": {"type": "string", "description": "Cataloging job ID"},
+            "chapter_id": {"type": "string", "description": "Chapter ID"},
+            "candidates": {"type": "array", "items": {"type": "object"}, "description": "Proposed candidates"},
+        },
+        required=["job_id", "chapter_id"],
+        tool_type="write",
+        writes_project_data=True,
+        risk_level="low",
+        estimated_cost="free",
+        handler=save_external_cataloging_candidates,
+    ))
+
+    _r(ToolDef(
+        name="verify_external_cataloging_progress",
+        description="Verify cataloging progress with counts and samples. API-free.",
+        input_schema={
+            "job_id": {"type": "string", "description": "Cataloging job ID"},
+        },
+        required=["job_id"],
+        tool_type="read",
+        estimated_cost="free",
+        handler=verify_external_cataloging_progress,
+    ))
+
     # ── Prompt Pack Tools ────────────────────────────────────────────────
     from .tools.prompt_packs import (
         list_prompt_packs,
@@ -2081,6 +2156,8 @@ def _classify_all() -> None:
         "set_cataloging_mode", "set_daily_word_goal",
         "apply_external_story_updates",
         "apply_novel_blueprint",
+        "save_external_cataloging_facts",
+        "save_external_cataloging_candidates",
     }
 
     _MANAGEMENT_TOOLS = {
