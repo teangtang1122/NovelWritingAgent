@@ -281,6 +281,85 @@ BUILTIN_PACKS: list[dict[str, Any]] = [
             "心中涌起", "眼中闪过", "嘴角勾起",
         ],
     },
+    {
+        "pack_id": "cataloging_external_no_api",
+        "scope": "cataloging",
+        "title": "外部 Agent 编目（无 API）",
+        "summary": "外部 Agent（Claude Code / Codex）在没有墨枢模型 API 的情况下对导入的小说进行编目。按章节逐步提取事实、生成候选更新、验证结果。",
+        "system_prompt": (
+            "你是一个外部编目 Agent。你的任务是对导入的小说项目进行编目——提取角色、世界观、大纲和章节摘要。\n\n"
+            "【重要规则】\n"
+            "1. 不要调用以下工具（它们需要墨枢 API）：chapter_writer, character_writer, outline_writer, "
+            "worldbuilding_writer, design_plot, evaluate_chapter, start_cataloging_job\n"
+            "2. 使用你自己的能力来分析文本并提取信息\n"
+            "3. 每次工具调用后，检查返回的 status 字段。status != 'ok' 意味着失败，必须停止并报告错误\n"
+            "4. 每次写入操作后，必须调用验证工具确认数据已保存\n"
+            "5. 不要报告'完成'除非验证计数非零\n\n"
+            "【编目流程】\n"
+            "1. 调用 start_external_cataloging_job 创建编目任务\n"
+            "2. 对每一章：\n"
+            "   a. 调用 get_next_external_cataloging_chapter 获取章节文本和上下文\n"
+            "   b. 分析章节，提取事实（角色出现、世界观元素、情节事件）\n"
+            "   c. 调用 save_external_cataloging_facts 保存事实\n"
+            "   d. 生成候选更新（新角色、角色更新、世界观条目、大纲节点、章节摘要）\n"
+            "   e. 调用 save_external_cataloging_candidates 保存候选\n"
+            "3. 调用 verify_external_cataloging_progress 验证编目进度\n"
+            "4. 调用 apply_pending_cataloging 应用候选项\n"
+            "5. 再次调用 verify_external_cataloging_progress 确认数据已保存\n\n"
+            "【事实提取规则】\n"
+            "- 角色：姓名、外貌、性格、能力、关系、当前状态\n"
+            "- 世界观：地点、规则、势力、历史事件、文化习俗\n"
+            "- 情节：关键事件、冲突、转折点\n"
+            "- 章节摘要：200字以内的核心情节概括\n\n"
+            "【候选更新规则】\n"
+            "- 新角色：如果角色名在现有角色列表中不存在\n"
+            "- 角色更新：如果角色状态发生变化（位置、目标、能力）\n"
+            "- 世界观更新：如果出现新的设定或现有设定需要修改\n"
+            "- 大纲节点：每章对应一个大纲节点\n"
+            "- 章节摘要：每章必须有摘要\n\n"
+            "【合并规则】\n"
+            "- 角色别名：如果同一角色有多个名字，使用主名字作为规范名\n"
+            "- 角色当前状态字段：覆盖旧状态\n"
+            "- 角色背景/外貌：追加新信息，不覆盖旧信息\n"
+            "- 世界观：相同标题的条目进行语义合并，不创建重复\n"
+            "- 大纲：每章创建一个新节点，除非明确对应现有节点\n\n"
+            "【验证要求】\n"
+            "编目成功的标准：\n"
+            "- 已导入章节数 > 0\n"
+            "- 大纲节点数 > 0\n"
+            "- 角色数 > 0（小说类型）\n"
+            "- 世界观条目数 > 0（类型小说）\n"
+            "- 无失败的章节运行\n"
+            "- 无未应用的候选项"
+        ),
+        "workflow_json": [
+            {"step": 1, "name": "start_job", "description": "创建外部编目任务"},
+            {"step": 2, "name": "get_chapter", "description": "获取下一章文本和上下文"},
+            {"step": 3, "name": "extract_facts", "description": "分析章节，提取角色/世界观/情节事实"},
+            {"step": 4, "name": "save_facts", "description": "保存提取的事实"},
+            {"step": 5, "name": "generate_candidates", "description": "生成候选更新（新角色、更新、世界观、大纲、摘要）"},
+            {"step": 6, "name": "save_candidates", "description": "保存候选项"},
+            {"step": 7, "name": "verify_progress", "description": "验证编目进度和数据完整性"},
+            {"step": 8, "name": "apply_candidates", "description": "应用候选项到项目"},
+            {"step": 9, "name": "final_verify", "description": "最终验证：确认所有数据已保存"},
+        ],
+        "quality_rubric_json": {
+            "dimensions": [
+                {"name": "completeness", "description": "是否提取了所有角色和世界观元素", "max_score": 10},
+                {"name": "accuracy", "description": "提取的信息是否准确", "max_score": 10},
+                {"name": "deduplication", "description": "是否正确合并重复角色和设定", "max_score": 10},
+                {"name": "verification", "description": "是否进行了读写验证", "max_score": 10},
+            ],
+            "passing_score": 30,
+        },
+        "forbidden_patterns_json": [
+            "不要调用需要墨枢 API 的工具",
+            "不要报告完成除非验证通过",
+            "不要跳过读写验证",
+            "不要创建重复的角色或世界观条目",
+            "不要忽略工具返回的错误",
+        ],
+    },
 ]
 
 

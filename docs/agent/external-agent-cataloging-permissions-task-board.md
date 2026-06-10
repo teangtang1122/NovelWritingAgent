@@ -268,8 +268,8 @@ Result: the frontend setting and the actual MCP permission source are not the sa
 
 ### EAC-0301 - Add External Cataloging Prompt Pack
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/app/services/prompt_packs/seed.py`
   - `backend/tests/test_prompt_packs_external_cataloging.py`
