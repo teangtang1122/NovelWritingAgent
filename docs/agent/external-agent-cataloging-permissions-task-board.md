@@ -464,8 +464,8 @@ Result: the frontend setting and the actual MCP permission source are not the sa
 
 ### EAC-0501 - Update Claude/Codex Client Guide
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `docs/mcp/claude-code-codex-client.md`
   - `README.md`

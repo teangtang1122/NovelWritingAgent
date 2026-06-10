@@ -250,7 +250,17 @@ Arguments: {
 ```
 
 Use `import_file_as_chapters` only when the target Moshu project already exists.
-After import, start a cataloging job if the user wants Moshu to initialize
+
+After import, verify the import succeeded:
+
+```
+Tool: get_project_archive_status
+Arguments: { "project_id": "YOUR_PROJECT_ID" }
+```
+
+This returns chapter count, character count, outline count, etc. If chapters > 0 but everything else is 0, the project needs cataloging.
+
+Start a cataloging job if the user wants Moshu to initialize
 chapter summaries, character cards, outline nodes, worldbuilding, and links.
 
 ## Available MCP Tools
