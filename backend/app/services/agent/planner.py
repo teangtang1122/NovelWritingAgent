@@ -22,6 +22,7 @@ _INTENT_EXPORT = "export"
 _INTENT_DECONSTRUCT = "deconstruct"
 _INTENT_CREATE_NOVEL = "create_novel"
 _INTENT_EXTERNAL_WRITING = "external_writing"
+_INTENT_EXTERNAL_CATALOGING = "external_cataloging"
 
 
 def plan_fast_chapter(
@@ -490,6 +491,28 @@ def plan_external_writing(
     return PlanGraph(name="external_writing", steps=steps)
 
 
+def plan_external_cataloging(
+    *,
+    requirements: str = "",
+) -> PlanGraph:
+    """External cataloging path — start job, process chapters, verify, apply."""
+    steps = {
+        "start_job": StepDef(
+            tool="start_external_cataloging_job",
+            args={},
+            depends_on=[],
+            label="创建外部编目任务",
+        ),
+        "verify_progress": StepDef(
+            tool="verify_external_cataloging_progress",
+            args={"job_id": "$start_job.job_id"},
+            depends_on=["start_job"],
+            label="验证编目进度",
+        ),
+    }
+    return PlanGraph(name="external_cataloging", steps=steps)
+
+
 def plan_export_project(
     *,
     scope: str = "all",
@@ -642,6 +665,20 @@ def detect_intent(user_message: str) -> dict[str, Any] | None:
     if any(kw in text for kw in ("拆书", "拆书分析", "阅读分析", "分析全书", "分析作品")):
         return {"intent_type": _INTENT_DECONSTRUCT, "requirements": text}
 
+    # 1.3 External cataloging (Claude Code / Codex catalogs without Moshu API)
+    # Must be checked BEFORE project_init because _INIT_KEYWORDS contains "建档"
+    # which is a substring of external cataloging keywords like "外部agent建档".
+    _EXTERNAL_CATALOGING_KEYWORDS = [
+        "外部建档", "外部agent建档", "用claude建档", "用codex建档",
+        "用 Claude 建档", "用 Codex 建档",
+        "不用墨枢api建档", "不用墨枢 API 建档", "不用api建档", "不用 API 建档",
+        "不用墨枢 API", "不用墨枢api",
+        "API欠费", "api欠费",
+        "外部编目",
+    ]
+    if any(kw in text for kw in _EXTERNAL_CATALOGING_KEYWORDS):
+        return {"intent_type": _INTENT_EXTERNAL_CATALOGING, "requirements": text}
+
     # 1. Project init
     if any(kw in text for kw in _INIT_KEYWORDS):
         return {"intent_type": _INTENT_PROJECT_INIT, "requirements": text}
@@ -773,6 +810,11 @@ def build_plan_from_intent(intent: dict[str, Any], *, outline_node_id: str = "")
 
     if intent_type == _INTENT_EXTERNAL_WRITING:
         return plan_external_writing(
+            requirements=intent.get("requirements", ""),
+        )
+
+    if intent_type == _INTENT_EXTERNAL_CATALOGING:
+        return plan_external_cataloging(
             requirements=intent.get("requirements", ""),
         )
 

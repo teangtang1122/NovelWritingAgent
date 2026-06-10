@@ -370,8 +370,8 @@ Result: the frontend setting and the actual MCP permission source are not the sa
 
 ### EAC-0305 - Route Assistant Intent Correctly
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/app/services/agent/planner.py`
   - `backend/app/services/agent/bridge.py`
@@ -413,8 +413,8 @@ Result: the frontend setting and the actual MCP permission source are not the sa
 
 ### EAC-0402 - Add Project Archive Status Tool
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/app/services/workspace/tools/project_status.py`
   - `backend/app/services/workspace/registry.py`
