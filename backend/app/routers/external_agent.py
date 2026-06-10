@@ -304,8 +304,7 @@ def get_external_agent_settings(
     db: Session = Depends(get_db),
 ):
     """Get external Agent permission settings for a project."""
-    get_project_or_404(db, project_id)
-
+    # Don't require project to exist — return defaults if not found
     from app.database.models import ExternalAgentSettings
     from app.schemas.external_agent_settings import (
         DEFAULT_ENABLED_PACKS, DEFAULT_TRUSTED_LOCAL_ENABLED,
