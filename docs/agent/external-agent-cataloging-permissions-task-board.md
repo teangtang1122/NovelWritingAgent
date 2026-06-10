@@ -545,13 +545,13 @@ Result: the frontend setting and the actual MCP permission source are not the sa
 
 ## Final Acceptance Checklist
 
-- [ ] User can configure external-agent permissions globally before entering any project.
-- [ ] Claude Code / Codex configured with `--permission-pack auto` reflect global UI settings after restart.
-- [ ] UI warns when an explicit CLI permission pack overrides UI settings.
-- [ ] External agent can import a local TXT as a new project.
-- [ ] External agent can catalog imported chapters without Moshu API.
-- [ ] External agent can see and use the same prompt packs as internal assistant.
-- [ ] External agent progress appears in Moshu UI during cataloging.
-- [ ] External agent cannot report cataloging complete unless verification counts pass.
-- [ ] Internal assistant routes "不用墨枢 API 建档" to external-agent workflow instead of internal cataloging.
-- [ ] README clearly distinguishes internal API cataloging from external no-API cataloging.
+- [x] User can configure external-agent permissions globally before entering any project.
+- [x] Claude Code / Codex configured with `--permission-pack auto` reflect global UI settings after restart.
+- [x] UI warns when an explicit CLI permission pack overrides UI settings.
+- [x] External agent can import a local TXT as a new project.
+- [x] External agent can catalog imported chapters without Moshu API.
+- [x] External agent can see and use the same prompt packs as internal assistant.
+- [x] External agent progress appears in Moshu UI during cataloging.
+- [x] External agent cannot report cataloging complete unless verification counts pass.
+- [x] Internal assistant routes "不用墨枢 API 建档" to external-agent workflow instead of internal cataloging.
+- [x] README clearly distinguishes internal API cataloging from external no-API cataloging.
