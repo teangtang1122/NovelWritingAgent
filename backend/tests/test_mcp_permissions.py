@@ -126,7 +126,12 @@ class WriteDenyTest(unittest.TestCase):
         self.assertFalse(is_allowed(td, allowed_tiers={"readonly"}))
 
     def test_import_tools_denied(self):
-        for name in ["import_text_as_chapters", "import_deconstruct_report"]:
+        for name in [
+            "import_text_as_chapters",
+            "import_file_as_chapters",
+            "import_file_as_project",
+            "import_deconstruct_report",
+        ]:
             td = registry.get(name)
             self.assertIsNotNone(td)
             self.assertFalse(is_allowed(td, allowed_tiers={"readonly"}))
@@ -296,6 +301,7 @@ class DraftTierTest(unittest.TestCase):
         write_tools = [
             "create_project", "delete_chapter", "update_character",
             "merge_duplicate_characters", "import_text_as_chapters",
+            "import_file_as_chapters", "import_file_as_project",
         ]
         for name in write_tools:
             with self.subTest(name=name):

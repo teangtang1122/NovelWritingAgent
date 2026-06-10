@@ -239,6 +239,8 @@ def _register_all() -> None:
         ensure_builtin_skills_tool,
         draft_skill,
         import_deconstruct_report_tool,
+        import_file_as_chapters,
+        import_file_as_project,
         import_text_as_chapters,
         list_cataloging_candidates,
         list_cataloging_facts,
@@ -439,6 +441,48 @@ def _register_all() -> None:
         idempotent=True,
         estimated_cost="low",
         handler=import_text_as_chapters,
+    ))
+
+    _r(ToolDef(
+        name="import_file_as_chapters",
+        description="Import a local TXT/DOCX file from file_path into an existing project as chapters. Prefer this over passing a whole novel as text through MCP.",
+        input_schema={
+            "file_path": {"type": "string", "description": "Local .txt or .docx path on the same machine as Moshu"},
+            "splits": {"type": "array", "items": {"type": "object"}, "description": "Optional split suggestions from preview_import_splits"},
+            "outline_node_id": {"type": "string", "description": "Optional outline node ID to link imported chapters"},
+            "auto_split": {"type": "boolean", "description": "Auto-detect chapter boundaries when splits are omitted; default true"},
+            "model": {"type": "string", "description": "Optional model override for split correction"},
+        },
+        required=["file_path"],
+        tool_type="write",
+        idempotent=True,
+        estimated_cost="low",
+        handler=import_file_as_chapters,
+    ))
+
+    _r(ToolDef(
+        name="import_file_as_project",
+        description="Create a new project from a local TXT/DOCX file and import the file as chapters in one step. Best tool for requests like '导入这本小说为新作品'.",
+        input_schema={
+            "file_path": {"type": "string", "description": "Local .txt or .docx path on the same machine as Moshu"},
+            "title": {"type": "string", "description": "Project title; defaults to the file name without extension"},
+            "description": {"type": "string", "description": "Project description"},
+            "tags": {"type": "array", "items": {"type": "string"}, "description": "Project tags"},
+            "narrative_perspective": {"type": "string", "description": "Narrative perspective, e.g. third_person/first_person"},
+            "writing_style": {"type": "string", "description": "Writing style preference"},
+            "forbidden_sentence_patterns": {"type": "string", "description": "Forbidden sentence patterns, one per line"},
+            "rhetoric_guidelines": {"type": "string", "description": "Rhetoric and metaphor guidelines"},
+            "short_sentences": {"type": "boolean", "description": "Enable short sentence mode"},
+            "custom_style_prompt": {"type": "string", "description": "Custom style prompt"},
+            "daily_word_goal": {"type": "integer", "description": "Daily word goal"},
+            "auto_split": {"type": "boolean", "description": "Auto-detect chapter boundaries; default true"},
+            "model": {"type": "string", "description": "Optional model override for split correction"},
+        },
+        required=["file_path"],
+        tool_type="write",
+        idempotent=True,
+        estimated_cost="low",
+        handler=import_file_as_project,
     ))
 
     _r(ToolDef(
@@ -2029,7 +2073,8 @@ def _classify_all() -> None:
 
     _MANAGEMENT_TOOLS = {
         "create_project", "update_project_info", "delete_project",
-        "import_text_as_chapters", "import_deconstruct_report", "export_project",
+        "import_text_as_chapters", "import_file_as_chapters", "import_file_as_project",
+        "import_deconstruct_report", "export_project",
         "create_scheduled_task", "update_scheduled_task", "delete_scheduled_task",
         "run_scheduled_task_now",
         "create_skill", "update_skill", "delete_skill", "reset_skill", "ensure_builtin_skills",

@@ -1,19 +1,19 @@
-"""Import service — TXT/DOCX parsing, AI-split correction, and chapter creation."""
+"""TXT/DOCX import service: parse files, split chapters, and create chapter rows."""
 from __future__ import annotations
 
 import asyncio
 import io
 import json
+import os
 import re
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
+from docx import Document as DocxDocument
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
-from docx import Document as DocxDocument
-
 from ..ai.gateway import LLMGateway
-from ..core.db_helpers import get_outline_node_or_404
 from ..core.exceptions import ValidationError
 from ..core.utils import count_words
 from ..database.models import Chapter
@@ -22,9 +22,11 @@ from ..prompts.import_prompts import build_split_correction_messages
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 LLM_SPLIT_GROUP_SIZE = 3
 LLM_SPLIT_OVERLAP = 1
+SUPPORTED_IMPORT_EXTENSIONS = {"txt", "docx"}
 CHAPTER_TITLE_RE = re.compile(
     r"(?im)^\s*("
-    r"第[零一二三四五六七八九十百千万\d]+[章节回部卷](?:[^\n一-鿿][^\n]{0,39})?"
+    r"第[零〇一二三四五六七八九十百千万\d]+[章节部卷](?:[^\n]{0,60})?"
+    r"|第\s*[0-9]+\s*[章节部卷](?:[^\n]{0,60})?"
     r"|Chapter\s+\d+[^\n]{0,60}"
     r"|CHAPTER\s+\d+[^\n]{0,60}"
     r"|Part\s+\d+[^\n]{0,60}"
@@ -33,7 +35,7 @@ CHAPTER_TITLE_RE = re.compile(
 
 
 def _parse_txt(raw: bytes) -> str:
-    for encoding in ("utf-8", "gbk", "gb18030", "utf-16"):
+    for encoding in ("utf-8", "utf-8-sig", "gb18030", "gbk", "utf-16"):
         try:
             return raw.decode(encoding)
         except UnicodeDecodeError:
@@ -48,22 +50,14 @@ def _parse_docx(raw: bytes) -> str:
     return "\n\n".join(paragraphs)
 
 
-def parse_uploaded_file(file: UploadFile) -> dict:
-    filename = file.filename or ""
+def _parse_raw_file(filename: str, raw: bytes) -> dict:
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-
-    if ext not in ("txt", "docx"):
+    if ext not in SUPPORTED_IMPORT_EXTENSIONS:
         raise ValidationError("仅支持 .txt 和 .docx 格式文件")
-
-    raw = file.file.read()
     if len(raw) > MAX_UPLOAD_BYTES:
-        raise ValidationError("文件太大，最大支持10MB")
+        raise ValidationError("文件太大，最大支持 10MB")
 
-    if ext == "docx":
-        text = _parse_docx(raw)
-    else:
-        text = _parse_txt(raw)
-
+    text = _parse_docx(raw) if ext == "docx" else _parse_txt(raw)
     if not text.strip():
         raise ValidationError("文件内容为空或无法解析")
 
@@ -74,6 +68,24 @@ def parse_uploaded_file(file: UploadFile) -> dict:
         "word_count": len(text),
         "preview": text[:500],
     }
+
+
+def parse_uploaded_file(file: UploadFile) -> dict:
+    """Parse an uploaded TXT/DOCX file and return text payload metadata."""
+    filename = file.filename or ""
+    raw = file.file.read()
+    return _parse_raw_file(filename, raw)
+
+
+def parse_local_file(file_path: str) -> dict:
+    """Parse a local TXT/DOCX file by path for workspace/MCP import tools."""
+    expanded = os.path.expandvars(str(file_path or "").strip())
+    path = Path(expanded).expanduser()
+    if not path.exists() or not path.is_file():
+        raise ValidationError(f"文件不存在：{file_path}")
+    data = _parse_raw_file(path.name, path.read_bytes())
+    data["path"] = str(path)
+    return data
 
 
 def _fallback_splits(text: str, chunk_size: int = 5000) -> list[dict]:
@@ -197,7 +209,10 @@ async def _llm_correct_split_group(
     for attempt in range(3):
         try:
             result = await LLMGateway.chat_completion(
-                messages=messages, model=model, temperature=0.2, max_tokens=2000
+                messages=messages,
+                model=model,
+                temperature=0.2,
+                max_tokens=2000,
             )
             splits_text = result.get("content", "")
             parsed = json.loads(splits_text.strip().removeprefix("```json").removesuffix("```").strip())
@@ -241,7 +256,11 @@ def _merge_chunked_splits(results: list[dict]) -> tuple[list[dict], int]:
     return merged, failed_blocks
 
 
-async def _llm_correct_splits_chunked(text: str, candidates: list[dict], model: Optional[str]) -> tuple[Optional[list[dict]], int]:
+async def _llm_correct_splits_chunked(
+    text: str,
+    candidates: list[dict],
+    model: Optional[str],
+) -> tuple[Optional[list[dict]], int]:
     if not model:
         return None, 0
     groups = _split_candidate_groups(candidates)
@@ -265,6 +284,12 @@ async def build_split_preview(text: str, model: Optional[str] = None) -> tuple[l
     return candidates, method, needs_review, 0
 
 
+def _split_attr(split: Any, key: str, default: Any = None) -> Any:
+    if isinstance(split, dict):
+        return split.get(key, default)
+    return getattr(split, key, default)
+
+
 def execute_import(
     db: Session,
     project_id: str,
@@ -276,18 +301,17 @@ def execute_import(
     created_chapters: list[Chapter] = []
     if splits:
         for i, split in enumerate(splits):
-            start = max(0, int(split.start_char))
-            end = min(len(text), int(split.end_char))
+            start = max(0, int(_split_attr(split, "start_char", 0) or 0))
+            end = min(len(text), int(_split_attr(split, "end_char", len(text)) or len(text)))
             chunk = text[start:end].strip()
             if not chunk:
                 continue
-            word_count = count_words(chunk)
             chapter = Chapter(
                 project_id=project_id,
-                title=split.title or f"导入章节 {i + 1}",
+                title=str(_split_attr(split, "title", "") or f"导入章节 {i + 1}")[:200],
                 content=chunk,
                 outline_node_id=outline_node_id,
-                word_count=word_count,
+                word_count=count_words(chunk),
                 current_version=1,
             )
             db.add(chapter)

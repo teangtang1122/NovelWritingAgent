@@ -208,6 +208,26 @@ Arguments: {
 }
 ```
 
+## Importing Local Novels
+
+When the user asks to import a local TXT/DOCX novel as a new Moshu project,
+prefer `import_file_as_project` instead of reading the whole file and passing the
+full text through MCP arguments.
+
+Example:
+
+```
+Tool: import_file_as_project
+Arguments: {
+  "file_path": "E:\\download\\穿越女娃，竟被病毒追着杀.txt",
+  "title": "穿越女娃，竟被病毒追着杀"
+}
+```
+
+Use `import_file_as_chapters` only when the target Moshu project already exists.
+After import, start a cataloging job if the user wants Moshu to initialize
+chapter summaries, character cards, outline nodes, worldbuilding, and links.
+
 ## Available MCP Tools
 
 ### Read-Only Tools (Always Available)
@@ -247,6 +267,17 @@ Arguments: {
 | `rewrite_text` | Rewrite text |
 | `expand_text` | Expand text details |
 | `continue_text` | Continue writing |
+
+### Project Management Tools
+
+| Tool | Description |
+|------|-------------|
+| `create_project` | Create a new Moshu project |
+| `import_file_as_project` | Create a project from a local TXT/DOCX file and import chapters |
+| `import_file_as_chapters` | Import a local TXT/DOCX file into an existing project |
+| `import_text_as_chapters` | Import pasted text into an existing project |
+| `start_cataloging_job` | Initialize project cards from imported chapters |
+| `export_project` | Export project content |
 
 ## Permission Packs
 

@@ -96,6 +96,7 @@ class ProjectManagementPackTest(unittest.TestCase):
 
     def test_management_tools_in_management_pack(self):
         mgmt_tools = ["create_project", "update_project_info",
+                       "import_file_as_project", "import_file_as_chapters",
                        "create_scheduled_task", "update_scheduled_task",
                        "create_skill", "update_skill"]
         for name in mgmt_tools:

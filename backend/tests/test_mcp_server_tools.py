@@ -124,6 +124,17 @@ class ExecuteToolTest(unittest.TestCase):
         call_args = mock_exec.call_args
         self.assertEqual(call_args[0][1], "p1")  # project_id
         self.assertEqual(call_args[0][2]["tool"], "list_projects")
+        mock_db.commit.assert_called_once()
+        mock_db.rollback.assert_not_called()
+
+    @patch("app.services.workspace.executor.execute_workspace_action", new_callable=AsyncMock)
+    def test_non_ok_tool_result_rolls_back_session(self, mock_exec):
+        mock_exec.return_value = {"tool": "get_project_info", "status": "skipped", "detail": "Not found"}
+        mock_db = MagicMock()
+        result = asyncio.run(execute_tool(mock_db, "p1", "get_project_info", {}))
+        self.assertTrue(result.is_error)
+        mock_db.rollback.assert_called_once()
+        mock_db.commit.assert_not_called()
 
     @patch("app.services.workspace.executor.execute_workspace_action", new_callable=AsyncMock)
     def test_executor_exception_returns_error(self, mock_exec):
@@ -134,6 +145,7 @@ class ExecuteToolTest(unittest.TestCase):
         parsed = json.loads(result.content[0]["text"])
         self.assertEqual(parsed["status"], "error")
         self.assertIn("RuntimeError", parsed["detail"])
+        mock_db.rollback.assert_called_once()
 
     @patch("app.services.workspace.executor.execute_workspace_action", new_callable=AsyncMock)
     def test_arguments_passed_through(self, mock_exec):

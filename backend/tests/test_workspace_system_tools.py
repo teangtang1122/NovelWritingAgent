@@ -1,6 +1,7 @@
 """Tests for system-management workspace tools exposed to the assistant."""
 
 import os
+import tempfile
 import unittest
 
 os.environ["DATABASE_URL"] = "sqlite:///./test_workspace_system_tools.db"
@@ -94,6 +95,40 @@ class WorkspaceSystemToolsTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["data"]["format"], "txt")
         self.assertTrue(result["data"]["file_id"])
 
+    async def test_agent_can_import_local_file_as_project(self):
+        text = "\n".join([
+            "第一章 初入陆家",
+            "特昂糖睁开眼，看见院中的石狮子。",
+            "",
+            "第二章 吐纳",
+            "陆老爷子教她吐纳，灵气第一次沿经脉运行。",
+        ])
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", encoding="utf-8", delete=False) as handle:
+            handle.write(text)
+            path = handle.name
+
+        try:
+            result = await execute_workspace_action(
+                self.db,
+                self.project.id,
+                {
+                    "tool": "import_file_as_project",
+                    "arguments": {
+                        "file_path": path,
+                        "title": "穿越女娃，竟被病毒追着杀",
+                    },
+                },
+            )
+            self.db.commit()
+        finally:
+            os.remove(path)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["project"]["title"], "穿越女娃，竟被病毒追着杀")
+        self.assertEqual(result["data"]["total"], 2)
+        imported = self.db.query(Chapter).filter(Chapter.project_id == result["data"]["project"]["id"]).all()
+        self.assertEqual(len(imported), 2)
+
     async def test_list_characters_excludes_merged_alias_placeholders(self):
         self.db.add(Character(project_id=self.project.id, name="Primary", role_type="protagonist"))
         self.db.add(Character(project_id=self.project.id, name="Alias Placeholder", role_type="merged_alias"))
@@ -171,6 +206,8 @@ class WorkspaceSystemIntentTestCase(unittest.TestCase):
         self.assertIn("export_project", names)
         self.assertIn("preview_import_splits", names)
         self.assertIn("import_text_as_chapters", names)
+        self.assertIn("import_file_as_chapters", names)
+        self.assertIn("import_file_as_project", names)
         self.assertIn("start_cataloging_job", names)
         self.assertIn("list_cataloging_candidates", names)
         self.assertIn("start_deconstruct_job", names)

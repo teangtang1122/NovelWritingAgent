@@ -43,7 +43,8 @@ class McpToolListTest(unittest.TestCase):
             "update_project_info", "update_character", "update_chapter",
             "delete_project", "delete_character", "delete_chapter",
             "merge_duplicate_characters",
-            "import_text_as_chapters", "import_deconstruct_report",
+            "import_text_as_chapters", "import_file_as_chapters", "import_file_as_project",
+            "import_deconstruct_report",
             "start_cataloging_job", "start_deconstruct_job",
             "run_scheduled_task_now",
         ]

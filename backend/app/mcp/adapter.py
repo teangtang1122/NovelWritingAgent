@@ -224,6 +224,21 @@ def _build_args_summary(arguments: dict[str, Any]) -> str:
     return result[:300] if len(result) > 300 else result
 
 
+def _safe_commit(db: Any) -> None:
+    commit = getattr(db, "commit", None)
+    if callable(commit):
+        commit()
+
+
+def _safe_rollback(db: Any) -> None:
+    rollback = getattr(db, "rollback", None)
+    if callable(rollback):
+        try:
+            rollback()
+        except Exception:
+            logger.exception("Failed to roll back MCP database session")
+
+
 async def execute_tool(
     db: Any,
     project_id: str,
@@ -302,6 +317,14 @@ async def execute_tool(
             effective_project_id,
             {"tool": tool_name, "arguments": arguments},
         )
+        if raw_result.get("status", "ok") == "ok":
+            try:
+                _safe_commit(db)
+            except Exception:
+                _safe_rollback(db)
+                raise
+        else:
+            _safe_rollback(db)
 
         # Log the MCP tool call
         _log_mcp_tool_call(
@@ -320,6 +343,7 @@ async def execute_tool(
 
         return _format_tool_result(raw_result)
     except Exception as exc:
+        _safe_rollback(db)
         logger.exception("MCP tool execution failed: %s", tool_name)
 
         # Log the failure

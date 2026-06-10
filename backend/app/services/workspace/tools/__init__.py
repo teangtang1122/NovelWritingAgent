@@ -54,7 +54,7 @@ from .skills import (
     update_skill,
 )
 from .export import export_project, get_export_word_count
-from .import_tools import import_text_as_chapters, preview_import_splits
+from .import_tools import import_file_as_chapters, import_file_as_project, import_text_as_chapters, preview_import_splits
 from .cataloging import (
     apply_pending_cataloging,
     cancel_cataloging_job,
@@ -155,6 +155,8 @@ __all__ = [
     "get_export_word_count",
     "preview_import_splits",
     "import_text_as_chapters",
+    "import_file_as_chapters",
+    "import_file_as_project",
     "start_cataloging_job",
     "list_cataloging_jobs",
     "get_cataloging_job",

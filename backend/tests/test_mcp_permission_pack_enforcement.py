@@ -46,6 +46,8 @@ class ListMcpToolsByPackTest(unittest.TestCase):
         names = {t.name for t in tools}
         self.assertIn("create_project", names)
         self.assertIn("create_scheduled_task", names)
+        self.assertIn("import_file_as_project", names)
+        self.assertIn("import_file_as_chapters", names)
 
     def test_trusted_pack_includes_destructive(self):
         tools = list_mcp_tools(permission_pack="trusted_local_maintenance")
