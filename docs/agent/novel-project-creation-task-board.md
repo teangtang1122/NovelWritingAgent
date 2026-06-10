@@ -673,8 +673,8 @@ Every implementation task must preserve the existing Moshu architecture:
 
 ### NOVEL-0603 - Add New Novel Creation Wizard
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - Depends on:
   - NOVEL-0305
 - File scope:
