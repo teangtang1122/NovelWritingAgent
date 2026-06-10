@@ -384,13 +384,14 @@ Result: the frontend setting and the actual MCP permission source are not the sa
   - Normal "建档" still uses internal cataloging when API is available.
 - Verification:
   - `py -m pytest backend/tests/test_agent_external_cataloging_plan.py -q`
+  - Verified 2026-06-10: 13 passed
 
 ## Phase 4 - External Agent Reliability Contract
 
 ### EAC-0401 - Add Tool Result Contract For External Agents
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `docs/mcp/claude-code-codex-client.md`
   - `docs/agent/external-no-api-cataloging.md`
@@ -410,6 +411,7 @@ Result: the frontend setting and the actual MCP permission source are not the sa
     - no pending failed chapter run
 - Verification:
   - `py -m pytest backend/tests/test_prompt_pack_tool_contract.py -q`
+  - Verified 2026-06-10: 10 passed
 
 ### EAC-0402 - Add Project Archive Status Tool
 
@@ -437,11 +439,12 @@ Result: the frontend setting and the actual MCP permission source are not the sa
   - `recommended_next_steps`
 - Verification:
   - `py -m pytest backend/tests/test_project_archive_status_tool.py -q`
+  - Verified 2026-06-10: 5 passed
 
 ### EAC-0403 - Improve MCP Error Visibility
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - File scope:
   - `backend/app/mcp/adapter.py`
   - `backend/app/mcp/schemas.py`
@@ -455,6 +458,7 @@ Result: the frontend setting and the actual MCP permission source are not the sa
   - Include `next_suggestions` for recoverable cases.
 - Verification:
   - `py -m pytest backend/tests/test_mcp_error_contract.py -q`
+  - Verified 2026-06-10: 9 passed
 
 ## Phase 5 - Documentation And Release
 

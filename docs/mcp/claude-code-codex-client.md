@@ -208,6 +208,31 @@ Arguments: {
 }
 ```
 
+## Tool Result Contract
+
+Every Moshu MCP tool returns a JSON result with a `status` field. Follow these rules:
+
+1. **Always check `status`** — after every tool call, parse the result JSON.
+2. **`status != "ok"` means failure** — stop immediately, report the exact error
+   to the user, and do not summarize as complete.
+3. **Verify after writes** — after write operations, call a read/verify tool to
+   confirm data was persisted. Do not trust the write response alone.
+4. **Never report "done" without verification** — for cataloging, success requires:
+   - Imported chapter count > 0
+   - Outline node count > 0 (unless user selected "chapter summaries only")
+   - Character count > 0 (for fiction imports)
+   - Worldbuilding count > 0 (for genre fiction)
+   - No pending failed chapter runs
+   - No unapplied candidates
+
+If a tool returns `isError: true`, the error payload includes:
+- `tool` — which tool failed
+- `status` — always `"error"`
+- `detail` — human-readable explanation
+- `error_type` — exception class name
+- `traceback_code` — short hash for log correlation
+- `next_suggestions` — actionable recovery steps (when available)
+
 ## Importing Local Novels
 
 When the user asks to import a local TXT/DOCX novel as a new Moshu project,
@@ -461,6 +486,57 @@ apply_novel_blueprint({
 })
 ```
 
+### Cataloging Without Moshu API
+
+After importing a novel, you can catalog it (extract characters, worldbuilding,
+outline, and chapter summaries) without Moshu's model API:
+
+```
+# 1. Get the cataloging prompt pack
+get_prompt_pack({
+  "scope": "cataloging",
+  "mode": "external_no_api"
+})
+
+# 2. Start external cataloging job
+start_external_cataloging_job({
+  "project_id": "YOUR_PROJECT_ID"
+})
+
+# 3. For each chapter:
+get_next_external_cataloging_chapter({
+  "job_id": "JOB_ID"
+})
+# [Analyze the chapter text, extract facts and candidates]
+
+save_external_cataloging_facts({
+  "job_id": "JOB_ID",
+  "chapter_id": "CHAPTER_ID",
+  "facts": [...]
+})
+
+save_external_cataloging_candidates({
+  "job_id": "JOB_ID",
+  "chapter_id": "CHAPTER_ID",
+  "candidates": [...]
+})
+
+# 4. Verify progress after all chapters
+verify_external_cataloging_progress({
+  "job_id": "JOB_ID"
+})
+
+# 5. Apply candidates
+apply_pending_cataloging({
+  "job_id": "JOB_ID"
+})
+
+# 6. Final verification
+verify_external_cataloging_progress({
+  "job_id": "JOB_ID"
+})
+```
+
 ### Tools That Work Without Moshu API
 
 | Tool | Purpose |
@@ -487,6 +563,11 @@ apply_novel_blueprint({
 | `detect_character_changes` | Detect character state changes |
 | `detect_new_worldbuilding` | Detect unrecorded worldbuilding |
 | `detect_forbidden_patterns` | Check for AI patterns |
+| `start_external_cataloging_job` | Start API-free cataloging job |
+| `get_next_external_cataloging_chapter` | Get next chapter for cataloging |
+| `save_external_cataloging_facts` | Save extracted facts |
+| `save_external_cataloging_candidates` | Save proposed candidates |
+| `verify_external_cataloging_progress` | Check cataloging progress |
 
 ### Tools That Require Moshu API
 

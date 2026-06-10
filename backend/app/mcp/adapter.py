@@ -6,8 +6,10 @@ Does NOT modify the ToolRegistry.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import traceback
 from copy import deepcopy
 from typing import Any
 
@@ -101,6 +103,72 @@ def _truncate_content(text: str, limit: int = _CONTENT_TRUNCATE_LIMIT) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n\n[truncated — {len(text)} chars total]"
+
+
+def _traceback_code(exc: Exception) -> str:
+    """Generate a short, safe traceback identifier for logging correlation.
+
+    Not a real stack trace — just a short hash that support can use to
+    correlate client reports with server logs without exposing internals.
+    """
+    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    return hashlib.md5(tb.encode()).hexdigest()[:8]
+
+
+def _suggest_next_steps(exc: Exception, tool_name: str) -> list[str]:
+    """Return actionable suggestions for recoverable error types."""
+    exc_type = type(exc).__name__
+
+    if exc_type == "PendingRollbackError":
+        return [
+            "Database session is in a failed state. Retry the last tool call.",
+            "If this persists, restart the MCP server process.",
+        ]
+    if exc_type == "IntegrityError":
+        return [
+            "A data constraint was violated. Check for duplicate entries or missing references.",
+        ]
+    if exc_type == "OperationalError":
+        return [
+            "Database connection issue. Verify the database file is accessible.",
+        ]
+    if "timeout" in str(exc).lower() or exc_type == "TimeoutError":
+        return [
+            "The operation timed out. Try with fewer items or a smaller request.",
+        ]
+    return []
+
+
+def _build_error_payload(
+    *,
+    tool_name: str,
+    exc: Exception,
+    detail: str = "",
+) -> dict:
+    """Build a structured MCP error response with actionable details."""
+    exc_type = type(exc).__name__
+    tb_code = _traceback_code(exc)
+    suggestions = _suggest_next_steps(exc, tool_name)
+
+    # PendingRollbackError gets a specific, non-generic message
+    if exc_type == "PendingRollbackError":
+        effective_detail = (
+            "Database session rolled back unexpectedly. "
+            "The previous operation may have failed. Retry the last call."
+        )
+    else:
+        effective_detail = detail or f"Tool execution failed: {exc_type}"
+
+    payload: dict[str, Any] = {
+        "status": "error",
+        "tool": tool_name,
+        "detail": effective_detail,
+        "error_type": exc_type,
+        "traceback_code": tb_code,
+    }
+    if suggestions:
+        payload["next_suggestions"] = suggestions
+    return payload
 
 
 def _format_tool_result(raw: dict) -> McpToolResult:
@@ -346,11 +414,13 @@ async def execute_tool(
         _safe_rollback(db)
         logger.exception("MCP tool execution failed: %s", tool_name)
 
+        error_payload = _build_error_payload(tool_name=tool_name, exc=exc)
+
         # Log the failure
         _log_mcp_tool_call(
             db, effective_project_id, tool_name, arguments,
             status="error",
-            detail=str(exc)[:500],
+            detail=error_payload["detail"],
         )
 
         # Log tool_result error event if run_id is provided
@@ -358,13 +428,10 @@ async def execute_tool(
             _log_run_tool_event(
                 db, run_id, "tool_result", tool_name, arguments,
                 status="error",
-                detail=str(exc)[:500],
+                detail=error_payload["detail"],
             )
 
         return make_text_result(
-            json.dumps({
-                "status": "error",
-                "detail": f"Tool execution failed: {type(exc).__name__}",
-            }),
+            json.dumps(error_payload, ensure_ascii=False),
             is_error=True,
         )
