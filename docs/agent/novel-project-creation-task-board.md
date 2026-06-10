@@ -588,8 +588,8 @@ Every implementation task must preserve the existing Moshu architecture:
 
 ### NOVEL-0503 - Expose New Novel Creation Tools Through MCP
 
-- Status: `[ ]`
-- Owner:
+- Status: `[x]`
+- Owner: Claude Code
 - Depends on:
   - NOVEL-0305
 - File scope:
