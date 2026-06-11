@@ -2086,6 +2086,7 @@ def _register_all() -> None:
 
     # ── Prompt Pack Tools ────────────────────────────────────────────────
     from .tools.prompt_packs import (
+        get_moshu_usage_guide,
         list_prompt_packs,
         get_prompt_pack,
         get_tool_playbook,
@@ -2093,10 +2094,22 @@ def _register_all() -> None:
     )
 
     _r(ToolDef(
+        name="get_moshu_usage_guide",
+        description="First-stop guide for Claude Code/Codex/external agents. Explains the correct Moshu workflow for importing, API-free cataloging, internal cataloging, external writing, and verification. API-free; call this when unsure which tools to use.",
+        input_schema={
+            "scenario": {"type": "string", "description": "quickstart|import_file|cataloging_no_api|cataloging_internal|writing_no_api|writing_internal"},
+            "no_api": {"type": "boolean", "description": "True when Moshu internal API is unavailable or the external agent should do the reasoning itself."},
+        },
+        tool_type="read",
+        estimated_cost="free",
+        handler=get_moshu_usage_guide,
+    ))
+
+    _r(ToolDef(
         name="list_prompt_packs",
         description="List available public prompt packs. Returns pack_id, scope, title, summary.",
         input_schema={
-            "scope": {"type": "string", "description": "Filter by scope: new_project|chapter_writing|chapter_review|character_design|worldbuilding|outline_planning|anti_ai_review"},
+            "scope": {"type": "string", "description": "Filter by scope: new_project|chapter_writing|chapter_review|character_design|worldbuilding|outline_planning|cataloging|anti_ai_review"},
         },
         tool_type="read",
         estimated_cost="free",
@@ -2107,8 +2120,8 @@ def _register_all() -> None:
         name="get_prompt_pack",
         description="Get a specific prompt pack with full system prompt, workflow, quality rubric, and forbidden patterns.",
         input_schema={
-            "scope": {"type": "string", "description": "Prompt scope: chapter_writing|chapter_review|new_project|character_design|worldbuilding|outline_planning|anti_ai_review"},
-            "mode": {"type": "string", "description": "Mode: quality|fast (for chapter_writing scope)"},
+            "scope": {"type": "string", "description": "Prompt scope: chapter_writing|chapter_review|new_project|character_design|worldbuilding|outline_planning|cataloging|anti_ai_review"},
+            "mode": {"type": "string", "description": "Mode: quality|fast|external_no_api"},
             "pack_id": {"type": "string", "description": "Direct pack_id lookup (overrides scope/mode)"},
         },
         tool_type="read",
@@ -2121,7 +2134,7 @@ def _register_all() -> None:
         description="Get a tool usage playbook explaining how to use a specific tool in a given scenario.",
         input_schema={
             "tool_name": {"type": "string", "description": "Tool name to get playbook for"},
-            "scenario": {"type": "string", "description": "Scenario: external_writing|internal_writing"},
+            "scenario": {"type": "string", "description": "Scenario: external_writing|internal_writing|external_cataloging|internal_cataloging"},
         },
         required=["tool_name"],
         tool_type="read",

@@ -16,6 +16,17 @@ LEGACY_APP_NAME = "NovelWritingAgent"
 DEFAULT_PORT = 8765
 
 
+def _configure_stdio_utf8() -> None:
+    """Prefer UTF-8 stdio for MCP mode on Windows hosts."""
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
 def _app_home() -> Path:
     env_home = os.environ.get("MOSHU_HOME") or os.environ.get("NOVEL_AGENT_HOME")
     if env_home:
@@ -93,6 +104,7 @@ def _run_mcp_server() -> None:
         help="MCP permission pack to expose. 'auto' resolves from global/project settings.",
     )
     args, _ = parser.parse_known_args()
+    _configure_stdio_utf8()
 
     _prepare_data_environment()
 

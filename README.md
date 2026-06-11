@@ -114,6 +114,8 @@
 
 推荐先使用 `project_management` 权限包。它可以管理作品、写章节、创建新小说、管理技能和导出数据，但不会暴露 API Key、模型密钥等敏感配置，也不会暴露危险删除/合并工具。
 
+长上下文对话中，建议让 Claude Code / Codex 反复以墨枢工具结果为准：不确定流程时先调用 `get_moshu_usage_guide`，需要建档时读取 `get_prompt_pack(pack_id="cataloging_external_no_api")`。中文小说必须用中文保存角色名、别名、章节标题、摘要、大纲、事实和世界观，不要改成英文或拼音。无 API 建档时每章都按 `get_next_external_cataloging_chapter -> save_external_cataloging_facts -> save_external_cataloging_candidates -> apply_pending_cataloging -> verify_external_cataloging_progress` 执行，最后再用 `get_project_archive_status` 验证真实入库数量。
+
 ### 自动配置
 
 推荐先运行自动配置脚本。脚本会自动检测本机是否安装 Claude Code / Codex，自动寻找同目录、下载目录、桌面、`release` 目录或 `%LOCALAPPDATA%` 下的 `Moshu.exe`，找不到 exe 时会回退到源码里的 `scripts\moshu-mcp-server.py`。

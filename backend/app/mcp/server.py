@@ -8,11 +8,15 @@ V1 serves over stdio only.
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from typing import Any, TextIO
 
 from app.mcp.adapter import list_mcp_tools, is_tool_allowed, get_tool_def, execute_tool
+from app.mcp.prompts import list_prompts, render_prompt
 from app.mcp.schemas import McpToolResult, make_text_result, make_json_result
+
+logger = logging.getLogger(__name__)
 
 # ── MCP protocol constants ───────────────────────────────────────────────
 
@@ -38,13 +42,28 @@ def _jsonrpc_error(id: Any, code: int, message: str, data: Any = None) -> str:
     if data is not None:
         err["data"] = data
     resp = {"jsonrpc": "2.0", "id": id, "error": err}
-    return json.dumps(resp, ensure_ascii=False)
+    # Keep the wire payload ASCII-safe for Windows stdio MCP clients. JSON
+    # parsers still recover the original Unicode strings after decoding.
+    return json.dumps(resp, ensure_ascii=True)
 
 
 def _jsonrpc_result(id: Any, result: Any) -> str:
     """Build a JSON-RPC success response string."""
     resp = {"jsonrpc": "2.0", "id": id, "result": result}
-    return json.dumps(resp, ensure_ascii=False)
+    # Keep the wire payload ASCII-safe for Windows stdio MCP clients. JSON
+    # parsers still recover the original Unicode strings after decoding.
+    return json.dumps(resp, ensure_ascii=True)
+
+
+def _configure_stdio_utf8() -> None:
+    """Prefer UTF-8 stdio when the host process supports reconfiguration."""
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
 
 def handle_message(
@@ -85,6 +104,10 @@ def handle_message(
         return _handle_tools_list(msg_id, allowed_tiers, permission_pack)
     elif method == "tools/call":
         return _handle_tools_call(msg_id, params, db, project_id, allowed_tiers, permission_pack)
+    elif method == "prompts/list":
+        return _handle_prompts_list(msg_id)
+    elif method == "prompts/get":
+        return _handle_prompts_get(msg_id, params, db)
     elif method == "ping":
         return _jsonrpc_result(msg_id, {})
     else:
@@ -97,6 +120,7 @@ def _handle_initialize(msg_id: Any, params: dict) -> str:
         "protocolVersion": PROTOCOL_VERSION,
         "capabilities": {
             "tools": {"listChanged": False},
+            "prompts": {"listChanged": False},
         },
         "serverInfo": {
             "name": SERVER_NAME,
@@ -117,6 +141,50 @@ def _handle_tools_list(msg_id: Any, allowed_tiers: set[str], permission_pack: st
             "inputSchema": t.input_schema,
         })
     return _jsonrpc_result(msg_id, {"tools": tool_dicts})
+
+
+def _handle_prompts_list(msg_id: Any) -> str:
+    """Handle prompts/list request."""
+    prompts = []
+    for prompt in list_prompts():
+        prompts.append({
+            "name": prompt.name,
+            "description": prompt.description,
+            "arguments": [
+                {
+                    "name": arg.name,
+                    "description": arg.description,
+                    "required": arg.required,
+                }
+                for arg in prompt.args
+            ],
+        })
+    return _jsonrpc_result(msg_id, {"prompts": prompts})
+
+
+def _handle_prompts_get(msg_id: Any, params: dict, db: Any) -> str:
+    """Handle prompts/get request."""
+    if db is None:
+        return _jsonrpc_error(msg_id, INTERNAL_ERROR, "Database session not available for prompt rendering")
+    name = str(params.get("name") or "").strip()
+    arguments = params.get("arguments", {})
+    if not name:
+        return _jsonrpc_error(msg_id, INVALID_PARAMS, "Prompt name is required")
+    if not isinstance(arguments, dict):
+        arguments = {}
+    messages = render_prompt(db, name, {str(k): str(v) for k, v in arguments.items()})
+    if messages is None:
+        return _jsonrpc_error(msg_id, METHOD_NOT_FOUND, f"Prompt not found: {name}")
+    return _jsonrpc_result(msg_id, {
+        "description": f"Moshu prompt: {name}",
+        "messages": [
+            {
+                "role": message.role,
+                "content": {"type": "text", "text": message.content},
+            }
+            for message in messages
+        ],
+    })
 
 
 async def _handle_tools_call_async(
@@ -222,6 +290,8 @@ def serve_stdio(
         permission_pack: Permission pack name. If "auto", resolves from
             global/project settings. If a fixed pack name, uses that directly.
     """
+    _configure_stdio_utf8()
+
     # Resolve "auto" permission pack from settings
     resolved_pack = permission_pack
     if permission_pack == "auto" and db is not None:

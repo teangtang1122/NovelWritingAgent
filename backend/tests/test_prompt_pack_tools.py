@@ -4,7 +4,7 @@ import json
 import sys
 import os
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -13,6 +13,11 @@ from app.services.workspace.registry import registry
 
 class PromptPackToolsRegisteredTest(unittest.TestCase):
     """Verify prompt pack tools are registered in the workspace registry."""
+
+    def test_get_moshu_usage_guide_registered(self):
+        td = registry.get("get_moshu_usage_guide")
+        self.assertIsNotNone(td)
+        self.assertEqual(td.tool_type, "read")
 
     def test_list_prompt_packs_registered(self):
         td = registry.get("list_prompt_packs")
@@ -33,7 +38,7 @@ class PromptPackToolsRegisteredTest(unittest.TestCase):
 
     def test_all_prompt_tools_are_readonly(self):
         from app.mcp.permissions import get_tier
-        for name in ["list_prompt_packs", "get_prompt_pack", "get_tool_playbook", "get_quality_rubric"]:
+        for name in ["get_moshu_usage_guide", "list_prompt_packs", "get_prompt_pack", "get_tool_playbook", "get_quality_rubric"]:
             td = registry.get(name)
             self.assertIsNotNone(td)
             self.assertEqual(get_tier(td), "readonly", f"{name} should be readonly")
@@ -55,6 +60,23 @@ class ListPromptPacksTest(unittest.TestCase):
         result = asyncio.run(list_prompt_packs(db, "p1", {}))
         self.assertEqual(result["status"], "ok")
         self.assertIn("items", result["data"])
+
+
+class GetMoshuUsageGuideTest(unittest.TestCase):
+    """Verify the quickstart guide is available without model calls."""
+
+    def test_cataloging_no_api_guide_mentions_external_tools(self):
+        from app.services.workspace.tools.prompt_packs import get_moshu_usage_guide
+        db = MagicMock()
+
+        with patch("app.services.prompt_packs.seed.ensure_builtin_packs"):
+            result = asyncio.run(get_moshu_usage_guide(db, "p1", {"scenario": "cataloging_no_api", "no_api": True}))
+
+        self.assertEqual(result["status"], "ok")
+        text = json.dumps(result["data"], ensure_ascii=False)
+        self.assertIn("start_external_cataloging_job", text)
+        self.assertIn("apply_pending_cataloging", text)
+        self.assertIn("start_cataloging_job", text)
 
 
 class GetPromptPackTest(unittest.TestCase):
@@ -79,6 +101,7 @@ class ToolRegistrationTest(unittest.TestCase):
         from app.mcp.adapter import list_mcp_tools
         tools = list_mcp_tools(permission_pack="readonly_collaboration")
         names = {t.name for t in tools}
+        self.assertIn("get_moshu_usage_guide", names)
         self.assertIn("list_prompt_packs", names)
         self.assertIn("get_prompt_pack", names)
         self.assertIn("get_tool_playbook", names)

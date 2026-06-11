@@ -501,7 +501,20 @@ apply_novel_blueprint({
 After importing a novel, you can catalog it (extract characters, worldbuilding,
 outline, and chapter summaries) without Moshu's model API:
 
+For long Claude Code / Codex conversations, treat Moshu's tool results as the
+current source of truth. If the agent is unsure what to do next, call
+`get_moshu_usage_guide({"scenario":"cataloging_no_api","no_api":true})` again.
+For Chinese novels, keep all archive data in Chinese: character names, aliases,
+chapter titles, summaries, outline nodes, facts, evidence, and worldbuilding.
+Do not translate to English or pinyin unless the user explicitly requests it.
+
 ```
+# 0. Ask Moshu which workflow to use
+get_moshu_usage_guide({
+  "scenario": "cataloging_no_api",
+  "no_api": true
+})
+
 # 1. Get the cataloging prompt pack
 get_prompt_pack({
   "scope": "cataloging",
@@ -531,21 +544,25 @@ save_external_cataloging_candidates({
   "candidates": [...]
 })
 
-# 4. Verify progress after all chapters
-verify_external_cataloging_progress({
-  "job_id": "JOB_ID"
-})
-
-# 5. Apply candidates
+# 4. Apply this chapter's candidates before moving to the next chapter
 apply_pending_cataloging({
   "job_id": "JOB_ID"
 })
 
-# 6. Final verification
+# 5. Verify this chapter wrote real project data
 verify_external_cataloging_progress({
   "job_id": "JOB_ID"
 })
+
+# 6. Repeat steps 3-5 for each chapter; then do final verification
+get_project_archive_status({})
 ```
+
+`save_external_cataloging_candidates` only stages data. The data is not visible
+as real characters, outline nodes, worldbuilding, or chapter summaries until
+`apply_pending_cataloging` succeeds. If `verify_external_cataloging_progress`
+reports `pending_candidates > 0` or `chapters_awaiting_confirmation > 0`, apply
+the pending chapter before moving to the next chapter.
 
 ### Tools That Work Without Moshu API
 
@@ -553,6 +570,7 @@ verify_external_cataloging_progress({
 |------|---------|
 | `list_projects` | List all projects |
 | `get_project_info` | Get project metadata |
+| `get_moshu_usage_guide` | First-stop guide for external agents |
 | `list_prompt_packs` | List available writing methods |
 | `get_prompt_pack` | Get a specific writing method |
 | `get_tool_playbook` | Get tool usage guide |

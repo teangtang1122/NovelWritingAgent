@@ -26,6 +26,14 @@ class ListPromptsTest(unittest.TestCase):
         self.assertIsNotNone(p)
         self.assertEqual(p.name, "moshu_writing_context")
 
+    def test_quickstart_exists(self):
+        p = get_prompt("moshu_quickstart")
+        self.assertIsNotNone(p)
+
+    def test_external_cataloging_exists(self):
+        p = get_prompt("moshu_external_cataloging")
+        self.assertIsNotNone(p)
+
     def test_continuity_check_exists(self):
         p = get_prompt("moshu_continuity_check")
         self.assertIsNotNone(p)
@@ -247,6 +255,23 @@ class RenderFanficDraftTest(unittest.TestCase):
 
 class RenderPromptDispatchTest(unittest.TestCase):
     """Verify render_prompt dispatches correctly."""
+
+    def test_quickstart_does_not_require_project_id(self):
+        db = MagicMock()
+        result = render_prompt(db, "moshu_quickstart", {"task": "导入并建档", "no_api": "true"})
+        self.assertIsNotNone(result)
+        content = result[0].content
+        self.assertIn("get_moshu_usage_guide", content)
+        self.assertIn("start_external_cataloging_job", content)
+        self.assertIn("start_cataloging_job", content)
+
+    def test_external_cataloging_does_not_require_project_id(self):
+        db = MagicMock()
+        result = render_prompt(db, "moshu_external_cataloging", {})
+        self.assertIsNotNone(result)
+        content = result[0].content
+        self.assertIn("save_external_cataloging_candidates", content)
+        self.assertIn("apply_pending_cataloging", content)
 
     def test_unknown_returns_none(self):
         db = MagicMock()

@@ -157,7 +157,19 @@ async def apply_pending_cataloging(db: Session, project_id: str, args: dict[str,
     db.flush()
     if job.execution_mode == "auto":
         asyncio.create_task(_consume_cataloging_stream(project_id, job.id))
-    return {"tool": "apply_pending_cataloging", "status": "ok", "detail": "候选项已写入", "data": {"job": job_to_dict(job), "run": run_to_dict(run), "events": events}}
+    data: dict[str, Any] = {"job": job_to_dict(job), "run": run_to_dict(run), "events": events}
+    if job.execution_mode == "external_agent":
+        data["next_tool"] = "verify_external_cataloging_progress"
+        data["workflow_reminder"] = {
+            "mode": "external_cataloging_no_api",
+            "language_rule": (
+                "Use the novel/source language for archive data. For Chinese novels, save Chinese names, "
+                "titles, summaries, facts, candidates, aliases, outline nodes, and worldbuilding."
+            ),
+            "next_tool": "verify_external_cataloging_progress",
+            "note": "Verify this chapter was written into project data before moving to the next chapter.",
+        }
+    return {"tool": "apply_pending_cataloging", "status": "ok", "detail": "候选项已写入", "data": data}
 
 
 async def retry_current_cataloging_chapter(db: Session, project_id: str, args: dict[str, Any]) -> dict:

@@ -46,6 +46,12 @@ class ExternalCatalogingPackTest(unittest.TestCase):
         self.assertIn("start_cataloging_job", prompt)
         self.assertIn("不要调用", prompt)
 
+    def test_pack_requires_source_language_archive(self):
+        pack = next(p for p in BUILTIN_PACKS if p["pack_id"] == "cataloging_external_no_api")
+        prompt = pack["system_prompt"]
+        self.assertIn("中文小说必须用中文建档", prompt)
+        self.assertIn("不要改成英文或拼音", prompt)
+
     def test_pack_requires_verification(self):
         pack = next(p for p in BUILTIN_PACKS if p["pack_id"] == "cataloging_external_no_api")
         prompt = pack["system_prompt"]

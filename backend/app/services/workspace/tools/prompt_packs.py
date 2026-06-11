@@ -11,6 +11,141 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 
+async def get_moshu_usage_guide(
+    db: Session,
+    project_id: str,
+    args: dict[str, Any],
+) -> dict:
+    """Return the external-agent quickstart and scenario workflows.
+
+    This tool is intentionally API-free. It gives Claude Code, Codex, and the
+    in-app assistant a deterministic first stop when they do not know which
+    Moshu workflow to use.
+    """
+    from app.services.prompt_packs.seed import ensure_builtin_packs
+
+    ensure_builtin_packs(db)
+
+    scenario = str(args.get("scenario") or "quickstart").strip() or "quickstart"
+    no_api = bool(args.get("no_api") if "no_api" in args else scenario in {"cataloging_no_api", "writing_no_api"})
+
+    workflows = {
+        "quickstart": {
+            "title": "墨枢外部 Agent 快速入口",
+            "rules": [
+                "中文小说必须用中文保存角色名、别名、章节标题、摘要、大纲、事实和世界观；不要因为工具调用失败就改成英文或拼音，除非用户明确要求翻译。",
+                "先调用 list_projects 或 get_project_info 确认作品；所有写入工具都必须传入正确 project_id。",
+                "如果用户说 API 欠费、没有在墨枢配置 API、或要求由 Claude/Codex 自己分析，禁止调用 start_cataloging_job、chapter_writer、character_writer、outline_writer、worldbuilding_writer 这类内部 LLM 工具。",
+                "创建或导入后不要只凭工具返回口头确认，必须调用 get_project_archive_status 或对应 search/list 工具验证数据真的存在。",
+                "遇到不确定流程，先调用 get_prompt_pack(pack_id='cataloging_external_no_api') 或 get_tool_playbook，而不是手动猜 CRUD。",
+            ],
+            "first_tools": [
+                "get_mcp_permission_status",
+                "list_projects",
+                "get_project_archive_status",
+                "list_prompt_packs",
+                "get_prompt_pack",
+            ],
+        },
+        "import_file": {
+            "title": "把本地 txt/docx 等导入为新作品",
+            "steps": [
+                "调用 import_file_as_project，传入 file_path 和 title。",
+                "读取返回的 project.id；之后所有写入都使用这个 project_id。",
+                "调用 get_project_archive_status 验证 chapters_count 是否正确。",
+                "如果用户还要建档，按 cataloging_no_api 或 cataloging_internal 分支继续。",
+            ],
+        },
+        "cataloging_no_api": {
+            "title": "无墨枢 API 建档，由外部 Agent 自己读章节并写入",
+            "steps": [
+                "语言规则：中文小说全程用中文建档；角色名、别名、章节标题、摘要、大纲、世界观和证据都保留原文语言。",
+                "调用 get_prompt_pack(pack_id='cataloging_external_no_api') 读取建档提示词和输出契约。",
+                "调用 start_external_cataloging_job 创建任务。",
+                "循环：get_next_external_cataloging_chapter -> 由外部 Agent 阅读章节 -> save_external_cataloging_facts -> save_external_cataloging_candidates -> apply_pending_cataloging。",
+                "每章 apply 后调用 verify_external_cataloging_progress；发现 pending_candidates 或 warnings 时先处理，不要跳过关键章节。",
+                "最终调用 get_project_archive_status，确认角色、大纲、世界观、章节摘要数量符合预期后才报告完成。",
+            ],
+            "canonical_candidate_types": [
+                "chapter_summary",
+                "character_create",
+                "character_update",
+                "character_state_update",
+                "character_timeline",
+                "character_relationship",
+                "character_merge_candidate",
+                "outline_create",
+                "outline_update",
+                "worldbuilding_create",
+                "worldbuilding_update",
+                "worldbuilding_timeline",
+                "chapter_link",
+            ],
+            "forbidden_when_no_api": [
+                "start_cataloging_job",
+                "chapter_writer",
+                "character_writer",
+                "outline_writer",
+                "worldbuilding_writer",
+                "design_plot",
+                "evaluate_chapter",
+            ],
+        },
+        "cataloging_internal": {
+            "title": "使用墨枢内部 API 建档",
+            "steps": [
+                "确认系统设置里 API 可用且用户允许消耗模型额度。",
+                "调用 start_cataloging_job；前端会显示实时进度。",
+                "失败时使用 retry_current_cataloging_chapter 或 rerun_cataloging_resolution_current。",
+                "完成后调用 get_project_archive_status 验证数据。",
+            ],
+        },
+        "writing_no_api": {
+            "title": "无墨枢 API 写作，由外部 Agent 生成正文",
+            "steps": [
+                "调用 prepare_external_writing_context 获取大纲、角色、世界观、摘要、质量规则和禁用句式。",
+                "外部 Agent 按 prompt pack 自己写正文并自检。",
+                "调用 save_external_chapter_draft 保存草稿。",
+                "调用 record_external_quality_review 记录外部质量检查。",
+                "用户确认后调用 create_chapter；再调用 apply_external_story_updates 写入角色状态、章节摘要、世界观变化。",
+            ],
+        },
+        "writing_internal": {
+            "title": "使用墨枢内部 API 写作",
+            "steps": [
+                "质量模式会检索上下文、设计剧情、角色对戏、生成正文、评估、检测角色和世界观变化。",
+                "快速模式会减少评估和角色对戏，优先速度。",
+                "内部写作会消耗系统设置里的模型 API 额度。",
+            ],
+        },
+    }
+
+    selected = workflows.get(scenario, workflows["quickstart"])
+    return {
+        "tool": "get_moshu_usage_guide",
+        "status": "ok",
+        "detail": f"Usage guide: {scenario}",
+        "data": {
+            "scenario": scenario,
+            "project_id": project_id,
+            "no_api": no_api,
+            "guide": selected,
+            "recommended_next": _recommended_next(scenario, no_api),
+        },
+    }
+
+
+def _recommended_next(scenario: str, no_api: bool) -> list[dict[str, Any]]:
+    if scenario == "cataloging_no_api" or no_api:
+        return [
+            {"tool": "get_prompt_pack", "arguments": {"pack_id": "cataloging_external_no_api"}},
+            {"tool": "start_external_cataloging_job", "arguments": {}},
+        ]
+    if scenario == "import_file":
+        return [{"tool": "import_file_as_project", "arguments": {"file_path": "<path>", "title": "<title>"}}]
+    return [{"tool": "list_projects", "arguments": {}}, {"tool": "get_mcp_permission_status", "arguments": {}}]
+
+
 async def list_prompt_packs(
     db: Session,
     project_id: str,
@@ -81,6 +216,8 @@ async def get_prompt_pack(
             ("character_design", ""): "character_design",
             ("worldbuilding", ""): "worldbuilding_design",
             ("outline_planning", ""): "outline_planning",
+            ("cataloging", "external_no_api"): "cataloging_external_no_api",
+            ("cataloging", ""): "cataloging_external_no_api",
             ("anti_ai_review", ""): "anti_ai_review",
         }
         mapped_id = scope_mode_map.get((scope, mode), scope_mode_map.get((scope, ""), ""))

@@ -100,8 +100,10 @@ def inject_public_prompt_pack_section(
     try:
         from app.database.models import PublicPromptPack
         from app.services.prompt_packs.seed import ensure_builtin_packs
+        from sqlalchemy.orm import Session as OrmSession
 
-        ensure_builtin_packs(db)
+        if isinstance(db, OrmSession):
+            ensure_builtin_packs(db)
 
         # Map scope+mode to pack_id
         scope_mode_map = {

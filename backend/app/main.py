@@ -102,7 +102,7 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Detailed health check."""
-    return {"status": "healthy", "version": APP_VERSION}
+    return {"status": "healthy", "version": APP_VERSION, "build": "eac-external-agent-nav"}
 
 
 @app.on_event("startup")

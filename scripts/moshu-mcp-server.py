@@ -31,6 +31,17 @@ if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
 
 
+def _configure_stdio_utf8() -> None:
+    """Prefer UTF-8 stdio for Windows MCP clients."""
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
 def _app_home() -> Path:
     env_home = os.environ.get("MOSHU_HOME") or os.environ.get("NOVEL_AGENT_HOME")
     if env_home:
@@ -90,6 +101,7 @@ def main() -> None:
         help="Enable verbose logging to stderr.",
     )
     args = parser.parse_args()
+    _configure_stdio_utf8()
 
     # ── Logging ──────────────────────────────────────────────────────────
     import logging

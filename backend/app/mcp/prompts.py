@@ -37,6 +37,23 @@ def list_prompts() -> list[McpPrompt]:
     """Return all available MCP prompts."""
     return [
         McpPrompt(
+            name="moshu_quickstart",
+            description="Explain how an external agent should use Moshu safely. Covers project selection, import, API-free cataloging, writing, and verification.",
+            args=[
+                McpPromptArg(name="task", description="User task or scenario (optional)"),
+                McpPromptArg(name="project_id", description="Project ID when known (optional)"),
+                McpPromptArg(name="no_api", description="true when Moshu internal model API should not be used (optional)"),
+            ],
+        ),
+        McpPrompt(
+            name="moshu_external_cataloging",
+            description="API-free cataloging workflow for Claude Code/Codex. Use when Moshu API is unavailable and the external agent must analyze chapters itself.",
+            args=[
+                McpPromptArg(name="project_id", description="Project ID when known (optional)"),
+                McpPromptArg(name="job_id", description="Cataloging job ID when already started (optional)"),
+            ],
+        ),
+        McpPrompt(
             name="moshu_writing_context",
             description="Generate a compact writing context prompt for a chapter. "
                         "Contains outline, recent summaries, character states, "
@@ -76,6 +93,96 @@ def get_prompt(name: str) -> McpPrompt | None:
         if p.name == name:
             return p
     return None
+
+
+def render_quickstart(
+    db: Any,
+    *,
+    task: str | None = None,
+    project_id: str | None = None,
+    no_api: str | None = None,
+) -> list[McpPromptMessage]:
+    """Render a project-optional quickstart prompt."""
+    no_api_flag = str(no_api or "").lower() in {"1", "true", "yes", "y", "是"}
+    parts = [
+        "# Moshu / 墨枢外部 Agent 快速入门",
+        "",
+        "你正在通过 MCP 操作墨枢。不要把工具列表当成普通 CRUD 猜着用，先根据任务选择工作流。",
+        "",
+        "## 通用规则",
+        "- 第一步通常调用 get_moshu_usage_guide；不确定时 scenario=quickstart。",
+        "- 中文小说必须用中文保存角色名、别名、章节标题、摘要、大纲、事实和世界观；不要因为一次工具错误就改成英文或拼音。",
+        "- 先调用 list_projects 或 get_project_info 确认作品；所有项目写入都必须使用正确 project_id。",
+        "- 完成导入、建档、写作后，必须调用 get_project_archive_status 或 search/list 工具验证数据真的存在。",
+        "- 如果用户说墨枢 API 欠费、未配置 API、或要求由 Claude/Codex 自己分析，禁止调用内部 LLM 工具。",
+        "- 内部 LLM 工具包括 start_cataloging_job、chapter_writer、character_writer、outline_writer、worldbuilding_writer、design_plot、evaluate_chapter。",
+        "",
+        "## 导入本地小说",
+        "1. import_file_as_project(file_path, title)",
+        "2. get_project_archive_status() 验证 chapters_count",
+        "3. 需要建档时继续无 API 建档或内部建档",
+        "",
+        "## 无 API 建档",
+        "1. get_prompt_pack(pack_id='cataloging_external_no_api')",
+        "2. start_external_cataloging_job()",
+        "3. 循环：get_next_external_cataloging_chapter -> 外部 Agent 阅读章节 -> save_external_cataloging_facts -> save_external_cataloging_candidates -> apply_pending_cataloging",
+        "4. 每章 verify_external_cataloging_progress，最后 get_project_archive_status",
+        "",
+        "## 无 API 写章节",
+        "1. prepare_external_writing_context()",
+        "2. 外部 Agent 自己写正文并按质量规则自检",
+        "3. save_external_chapter_draft -> record_external_quality_review -> create_chapter -> apply_external_story_updates",
+    ]
+    if task:
+        parts.append(f"\n## 当前任务\n{task}")
+    if project_id:
+        parts.append(f"\n## 当前 project_id\n{project_id}")
+    if no_api_flag:
+        parts.append("\n## 当前限制\n用户要求不使用墨枢内部 API。请走 external/no-api 工具链。")
+    return [McpPromptMessage(role="user", content="\n".join(parts))]
+
+
+def render_external_cataloging(
+    db: Any,
+    *,
+    project_id: str | None = None,
+    job_id: str | None = None,
+) -> list[McpPromptMessage]:
+    """Render the API-free external cataloging prompt."""
+    parts = [
+        "# 墨枢无 API 建档工作流",
+        "",
+        "目标：外部 Agent 自己阅读章节，提取事实，生成候选，交给墨枢工具落库。全过程不调用墨枢内部模型 API。",
+        "",
+        "## 工具顺序",
+        "1. get_prompt_pack(pack_id='cataloging_external_no_api')",
+        "2. start_external_cataloging_job",
+        "3. get_next_external_cataloging_chapter",
+        "4. save_external_cataloging_facts",
+        "5. save_external_cataloging_candidates",
+        "6. apply_pending_cataloging",
+        "7. verify_external_cataloging_progress",
+        "8. 全部章节完成后 get_project_archive_status",
+        "",
+        "## 候选 item_type",
+        "- chapter_summary",
+        "- character_create / character_update / character_state_update / character_timeline / character_relationship / character_merge_candidate",
+        "- outline_create / outline_update",
+        "- worldbuilding_create / worldbuilding_update / worldbuilding_timeline",
+        "- chapter_link",
+        "",
+        "## 要求",
+        "- 中文小说必须用中文建档；角色名、别名、章节标题、摘要、大纲节点、世界观条目和证据均保留原文语言。",
+        "- 使用原文语言和小说里的称呼，不要把中文作品粗略改成英文档案。",
+        "- 每章处理后必须 apply_pending_cataloging，否则候选只是暂存，不会成为角色、大纲、世界观数据。",
+        "- 报告完成前必须验证 characters_count、outline_nodes_count、worldbuilding_count、chapters_count。",
+        "- 如果用户说 API 欠费，禁止调用 start_cataloging_job。",
+    ]
+    if project_id:
+        parts.append(f"\n## project_id\n{project_id}")
+    if job_id:
+        parts.append(f"\n## job_id\n{job_id}")
+    return [McpPromptMessage(role="user", content="\n".join(parts))]
 
 
 def render_writing_context(
@@ -274,6 +381,20 @@ def render_prompt(
 
     Returns None if the prompt name is unknown.
     """
+    if name == "moshu_quickstart":
+        return render_quickstart(
+            db,
+            task=arguments.get("task"),
+            project_id=arguments.get("project_id"),
+            no_api=arguments.get("no_api"),
+        )
+    if name == "moshu_external_cataloging":
+        return render_external_cataloging(
+            db,
+            project_id=arguments.get("project_id"),
+            job_id=arguments.get("job_id"),
+        )
+
     project_id = arguments.get("project_id", "")
     if not project_id:
         return [McpPromptMessage(role="user", content="Error: project_id is required.")]

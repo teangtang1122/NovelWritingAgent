@@ -507,12 +507,19 @@ def _index_prompt_pack(db: Session, project_id: str, pack_id: str) -> int:
         content_parts.insert(0, pack.summary)
     content = "\n\n".join(content_parts)
 
-    _insert_chunk(
-        db, project_id, "prompt_pack", pack.pack_id,
-        pack.title, content[:4000],
-        {"scope": pack.scope, "version": pack.version, "is_builtin": pack.is_builtin},
+    doc = _get_or_create_document(db, project_id, "prompt_pack", pack.pack_id, _content_hash(content))
+    count = _insert_chunks(
+        db,
+        project_id,
+        doc.id,
+        "prompt_pack",
+        pack.pack_id,
+        pack.title,
+        [content[:4000]],
+        [{"scope": pack.scope, "version": pack.version, "is_builtin": pack.is_builtin}],
     )
-    return 1
+    doc.chunk_count = count
+    return count
 
 
 def _index_method_card(db: Session, project_id: str, card_id: str) -> int:
@@ -533,12 +540,19 @@ def _index_method_card(db: Session, project_id: str, card_id: str) -> int:
 
     content = json.dumps(card.content_json, ensure_ascii=False) if card.content_json else ""
 
-    _insert_chunk(
-        db, project_id, "method_card", card.card_id,
-        card.title, content[:4000],
-        {"card_type": card.card_type, "version": card.version, "is_builtin": card.is_builtin},
+    doc = _get_or_create_document(db, project_id, "method_card", card.card_id, _content_hash(content))
+    count = _insert_chunks(
+        db,
+        project_id,
+        doc.id,
+        "method_card",
+        card.card_id,
+        card.title,
+        [content[:4000]],
+        [{"card_type": card.card_type, "version": card.version, "is_builtin": card.is_builtin}],
     )
-    return 1
+    doc.chunk_count = count
+    return count
 
 
 def reindex_project_types(
@@ -594,7 +608,7 @@ def reindex_project_types(
             stats["assistant_memory"] = stats.get("assistant_memory", 0) + count
             total += count
 
-    if should_index("prompt_pack"):
+    if source_types is not None and should_index("prompt_pack"):
         from app.database.models import PublicPromptPack
         from app.services.prompt_packs.seed import ensure_builtin_packs
         ensure_builtin_packs(db)
@@ -607,7 +621,7 @@ def reindex_project_types(
             stats["prompt_pack"] = stats.get("prompt_pack", 0) + count
             total += count
 
-    if should_index("method_card"):
+    if source_types is not None and should_index("method_card"):
         from app.database.models import MethodCard
         cards = db.query(MethodCard).filter(
             (MethodCard.project_id == project_id) | (MethodCard.project_id == None),

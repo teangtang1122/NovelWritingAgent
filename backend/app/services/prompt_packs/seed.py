@@ -288,6 +288,8 @@ BUILTIN_PACKS: list[dict[str, Any]] = [
         "summary": "外部 Agent（Claude Code / Codex）在没有墨枢模型 API 的情况下对导入的小说进行编目。按章节逐步提取事实、生成候选更新、验证结果。",
         "system_prompt": (
             "你是一个外部编目 Agent。你的任务是对导入的小说项目进行编目——提取角色、世界观、大纲和章节摘要。\n\n"
+            "【语言规则】\n"
+            "中文小说必须用中文建档。角色名、别名、章节标题、摘要、大纲节点、世界观条目、事实证据都保留原文语言；不要改成英文或拼音，除非用户明确要求翻译。\n\n"
             "【工具调用结果契约】\n"
             "每次工具调用后，你必须：\n"
             "1. 解析返回 JSON 中的 status 字段\n"
@@ -300,6 +302,7 @@ BUILTIN_PACKS: list[dict[str, Any]] = [
             "4. 每次写入操作（save_external_cataloging_facts / save_external_cataloging_candidates / apply_pending_cataloging）后，必须调用读取验证工具确认数据已保存\n"
             "5. 验证必须从新的查询获取，不能使用缓存结果\n\n"
             "【禁止行为】\n"
+            "- 不要因为一次工具调用编码错误就把中文小说改为英文或拼音建档\n"
             "- 不要调用以下工具（它们需要墨枢 API）：chapter_writer, character_writer, outline_writer, "
             "worldbuilding_writer, design_plot, evaluate_chapter, start_cataloging_job\n"
             "- 不要在任何工具返回 status != 'ok' 后继续处理下一章\n"
@@ -313,9 +316,9 @@ BUILTIN_PACKS: list[dict[str, Any]] = [
             "   c. 调用 save_external_cataloging_facts 保存事实 → 检查 status\n"
             "   d. 生成候选更新（新角色、角色更新、世界观条目、大纲节点、章节摘要）\n"
             "   e. 调用 save_external_cataloging_candidates 保存候选 → 检查 status\n"
-            "3. 调用 verify_external_cataloging_progress 验证编目进度\n"
-            "4. 调用 apply_pending_cataloging 应用候选项 → 检查 status\n"
-            "5. 调用 get_project_archive_status 做最终验证\n\n"
+            "   f. 调用 apply_pending_cataloging 应用当前章节候选项 → 检查 status\n"
+            "   g. 调用 verify_external_cataloging_progress 验证数据已写入，再处理下一章\n"
+            "3. 调用 get_project_archive_status 做最终验证\n\n"
             "【事实提取规则】\n"
             "- 角色：姓名、外貌、性格、能力、关系、当前状态\n"
             "- 世界观：地点、规则、势力、历史事件、文化习俗\n"
@@ -364,6 +367,7 @@ BUILTIN_PACKS: list[dict[str, Any]] = [
             "passing_score": 30,
         },
         "forbidden_patterns_json": [
+            "不要把中文小说档案改成英文或拼音",
             "不要调用需要墨枢 API 的工具",
             "不要报告完成除非 get_project_archive_status 验证通过",
             "不要跳过读写验证",
@@ -391,11 +395,24 @@ def seed_builtin_packs(db: Session) -> int:
         ).first()
 
         if existing:
+            existing.version = "1.0.1"
+            existing.scope = pack_data["scope"]
+            existing.title = pack_data["title"]
+            existing.summary = pack_data.get("summary")
+            existing.system_prompt = pack_data["system_prompt"]
+            existing.workflow_json = pack_data.get("workflow_json")
+            existing.quality_rubric_json = pack_data.get("quality_rubric_json")
+            existing.tool_playbook_json = pack_data.get("tool_playbook_json")
+            existing.forbidden_patterns_json = pack_data.get("forbidden_patterns_json")
+            existing.context_policy_json = pack_data.get("context_policy_json")
+            existing.output_contract_json = pack_data.get("output_contract_json")
+            existing.is_builtin = True
+            existing.tags_json = None
             continue
 
         pack = PublicPromptPack(
             pack_id=pack_data["pack_id"],
-            version="1.0.0",
+            version="1.0.1",
             scope=pack_data["scope"],
             title=pack_data["title"],
             summary=pack_data.get("summary"),

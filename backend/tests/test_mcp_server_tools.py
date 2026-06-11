@@ -208,11 +208,54 @@ class HandleMessageToolsCallTest(unittest.TestCase):
         resp = json.loads(handle_message(msg))
         self.assertIn("result", resp)
         self.assertEqual(resp["result"]["serverInfo"]["name"], "moshu")
+        self.assertIn("prompts", resp["result"]["capabilities"])
 
     def test_ping_still_works(self):
         msg = json.dumps({"jsonrpc": "2.0", "id": 5, "method": "ping", "params": {}})
         resp = json.loads(handle_message(msg))
         self.assertIn("result", resp)
+
+    def test_prompts_list_returns_quickstart(self):
+        msg = json.dumps({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "prompts/list",
+            "params": {},
+        })
+        resp = json.loads(handle_message(msg))
+        self.assertIn("result", resp)
+        names = {item["name"] for item in resp["result"]["prompts"]}
+        self.assertIn("moshu_quickstart", names)
+
+    def test_prompts_get_quickstart(self):
+        msg = json.dumps({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "prompts/get",
+            "params": {"name": "moshu_quickstart", "arguments": {"no_api": "true"}},
+        })
+        resp = json.loads(handle_message(msg, db=MagicMock()))
+        self.assertIn("result", resp)
+        messages = resp["result"]["messages"]
+        self.assertGreater(len(messages), 0)
+        self.assertIn("start_external_cataloging_job", messages[0]["content"]["text"])
+
+    def test_prompts_get_response_is_ascii_safe_with_chinese(self):
+        msg = json.dumps({
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "prompts/get",
+            "params": {
+                "name": "moshu_quickstart",
+                "arguments": {"task": "中文小说建档", "no_api": "true"},
+            },
+        })
+        raw = handle_message(msg, db=MagicMock())
+        raw.encode("ascii")
+        resp = json.loads(raw)
+        text = resp["result"]["messages"][0]["content"]["text"]
+        self.assertIn("中文小说建档", text)
+        self.assertIn("start_external_cataloging_job", text)
 
 
 if __name__ == "__main__":

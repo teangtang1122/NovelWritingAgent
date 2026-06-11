@@ -114,6 +114,43 @@ class OldDataCompatibilityTest(unittest.TestCase):
         self.assertEqual(len(BUILTIN_PACKS), 9)
         self.assertTrue(callable(seed_builtin_packs))
 
+    def test_seed_refreshes_existing_builtin_prompt_pack(self):
+        """Existing built-in prompt packs in old user DBs should receive updated content."""
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from app.database.models import Base, PublicPromptPack
+        from app.services.prompt_packs.seed import seed_builtin_packs
+
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            db.add(PublicPromptPack(
+                pack_id="cataloging_external_no_api",
+                version="0.0.1",
+                scope="cataloging",
+                title="Old External Cataloging",
+                system_prompt="old prompt",
+                enabled=True,
+                is_builtin=True,
+            ))
+            db.commit()
+
+            seed_builtin_packs(db)
+            db.commit()
+
+            pack = db.query(PublicPromptPack).filter(
+                PublicPromptPack.pack_id == "cataloging_external_no_api",
+            ).first()
+            self.assertEqual(pack.version, "1.0.1")
+            self.assertIn("中文小说必须用中文建档", pack.system_prompt)
+            self.assertIn("不要改成英文或拼音", pack.system_prompt)
+            self.assertTrue(pack.enabled)
+        finally:
+            db.close()
+
 
 if __name__ == "__main__":
     unittest.main()

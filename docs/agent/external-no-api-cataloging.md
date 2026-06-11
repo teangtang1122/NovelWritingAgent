@@ -95,7 +95,17 @@ Arguments: {
 
 **API-free**: Yes. Stores candidates in CatalogingCandidate table.
 
-### Step 7: Verify Progress
+### Step 7: Apply Candidates
+
+```
+Tool: apply_pending_cataloging
+Arguments: { "job_id": "JOB_ID" }
+Result: { "status": "ok", "data": { "events": [...] } }
+```
+
+**API-free**: Yes. Uses existing cataloging applier.
+
+### Step 8: Verify Progress
 
 ```
 Tool: verify_external_cataloging_progress
@@ -103,27 +113,16 @@ Arguments: { "job_id": "JOB_ID" }
 Result: {
   "chapters_processed": 10,
   "chapters_total": 150,
-  "characters_found": 5,
-  "worldbuilding_found": 3,
-  "outline_nodes_created": 10,
-  "summaries_created": 10,
-  "pending_candidates": 15,
+  "characters_count": 5,
+  "worldbuilding_count": 3,
+  "outline_nodes_count": 10,
+  "pending_candidates": 0,
   "failed_chapters": 0,
   "warnings": []
 }
 ```
 
 **API-free**: Yes. Reads from database.
-
-### Step 8: Apply Candidates
-
-```
-Tool: apply_pending_cataloging
-Arguments: { "job_id": "JOB_ID" }
-Result: { "applied": 15, "skipped": 0 }
-```
-
-**API-free**: Yes. Uses existing cataloging applier.
 
 ### Step 9: Final Verify
 
@@ -140,7 +139,7 @@ Result: {
 }
 ```
 
-**Success criteria**: `pending_candidates == 0` and `characters_found > 0`.
+**Success criteria**: `pending_candidates == 0` and `characters_count > 0`.
 
 ## 3. Forbidden Internal API Tools
 
@@ -212,17 +211,17 @@ These tools must NOT be called in external no-API mode:
   })
 < { "status": "ok", "candidates_saved": 3 }
 
-## 6. Repeat for chapters 2-150...
-
-## 7. Verify progress
-> verify_external_cataloging_progress({ "job_id": "job-001" })
-< { "chapters_processed": 150, "characters": 45, "worldbuilding": 23, "outline": 150, "pending_candidates": 450 }
-
-## 8. Apply candidates
+## 6. Apply chapter 1 candidates
 > apply_pending_cataloging({ "job_id": "job-001" })
-< { "status": "ok", "applied": 450 }
+< { "status": "ok", "data": { "events": [...] } }
+
+## 7. Verify progress before moving on
+> verify_external_cataloging_progress({ "job_id": "job-001" })
+< { "chapters_processed": 1, "characters_count": 1, "worldbuilding_count": 1, "outline_nodes_count": 1, "pending_candidates": 0 }
+
+## 8. Repeat steps 2-7 for chapters 2-150...
 
 ## 9. Final verify
 > verify_external_cataloging_progress({ "job_id": "job-001" })
-< { "chapters_processed": 150, "characters": 45, "worldbuilding": 23, "outline": 150, "pending_candidates": 0 }
+< { "chapters_processed": 150, "characters_count": 45, "worldbuilding_count": 23, "outline_nodes_count": 150, "pending_candidates": 0 }
 ```
