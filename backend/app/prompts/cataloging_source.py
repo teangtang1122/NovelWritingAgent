@@ -31,17 +31,21 @@ def get_cataloging_candidate_rules() -> str:
     return “””【候选写入规则】
 1. 每章必须至少生成 1 条 chapter_summary 和 1 条 chapter 级 outline_create。
 
-2. 当前章节出现或状态发生变化的角色，必须输出 character_state_update。
-   状态字段表示”本章结束时最新状态”，只能覆盖，不能拼接旧章节状态。
-   character_state_update 必须包含：appearance、age、life_status、current_location、realm_or_level、physical_state、mental_state、current_goal、active_conflict、abilities_state、items_or_assets。
-   - appearance 和 age 也是当前状态：外貌会因受伤/换装/成长变化，年龄会随时间推进。
-   - 每章出场角色都要输出，即使只是确认”没有变化”也要输出当前值。
+2. 每个出场角色，必须输出 character_state_update 和 character_update（除非是全新角色用 character_create）。
+   这是两个不同的候选类型，都要输出：
 
-3. 当角色档案本体有新信息时（新经历、性格发展、能力变化），输出 character_update。
-   background 和 custom_system_prompt 必须每次都是重写合并后的完整版本，不是追加片段。
+   character_state_update — 当前状态（逐章覆盖）：
+   必须包含：appearance、age、life_status、current_location、realm_or_level、physical_state、mental_state、current_goal、active_conflict、abilities_state、items_or_assets。
+   每章出场角色都要输出，即使没有变化也要输出当前值。
+
+   character_update — 角色档案（有新信息就输出）：
+   包含：name、aliases、role_type、personality、background、abilities、tone_style、catchphrases、emotion_tendency、custom_system_prompt。
+   ⚠️ background 和 custom_system_prompt 必须每次都是重写合并后的完整版本：
    - 读取已有角色档案，把本章新经历整合进已有背景，输出完整的 background。
    - 不要只写”本章新增：xxx”，要写”角色名，身份xxx，曾经历xxx，本章又xxx”。
-   - 如果角色没有档案本体变化（只有状态变化），不需要输出 character_update。
+   - custom_system_prompt 也要输出可直接替换旧提示词的完整版本，不要输出增量片段。
+   - aliases 要包含所有已知称呼（本章新发现的 + 之前已有的）。
+   如果本章没有任何新的角色信息（只是出场但没揭示新内容），可以不输出 character_update。
 
 4. age 是描述性文本，不是精确数字。示例：”3岁”、”约16岁”、”外表约16岁，实际经历约200年”、”年龄不详”。
 
@@ -139,9 +143,12 @@ background 必须是完整的背景档案，不是本章新增片段。
 {“type”: “character_create”, “name”: “特昂糖”, “aliases”: [“糖糖”, “陆糖”], “role_type”: “protagonist”, “age”: “3岁”, “appearance”: “3岁幼女，矮小但步伐稳健，眼神中带着不属于这个年龄的冷静与洞察”, “personality”: “冷静理性、分析能力强、成熟超越年龄、偶尔流露前世成人的思维方式”, “background”: “前世是华清实验室神经网络研究员，姚班天才少女。穿越到修仙世界成为陆家旁支幼女。拥有前世记忆和科学思维，能用数据分析方法理解修炼体系。”, “abilities”: [“感知灵气波动”, “优化修炼路径”, “数据分析”], “tone_style”: “简洁冷静，偶尔用科学术语”, “catchphrases”: “数据不会说谎”, “emotion_tendency”: “表面冷静内心温暖”, “custom_system_prompt”: “你是特昂糖，3岁幼女身体里住着一个成年科学家的灵魂。你用数据分析的方式理解修仙世界，说话简洁但精准。你关心家人但不善表达。你有强烈的求知欲和探索精神。在危险面前你保持冷静分析，但内心深处害怕失去来之不易的家人。300-800字，包含身份、已知经历、性格动机、说话方式、当前立场、关系网、行动边界和禁止违背的设定。”}
 
 4. 角色状态更新（每个出场角色都必须输出！用 character_state_update）：
-这是单独的候选类型，不是 character_create 的一部分。
 appearance 和 age 也是当前状态，必须包含。
 {“type”: “character_state_update”, “name”: “特昂糖”, “appearance”: “3岁幼女，左臂缠着绷带（本章受伤）”, “age”: “3岁”, “current_location”: “陆家后院”, “current_goal”: “找到回家的方法”, “life_status”: “alive”, “physical_state”: “左臂受伤，行动受限”, “mental_state”: “冷静分析中带着迷茫”, “active_conflict”: “身份暴露的风险”, “realm_or_level”: “未修炼”, “abilities_state”: “感知灵气波动”, “items_or_assets”: “无”}
+
+5. 角色档案更新（有新信息时必须输出！用 character_update，与 character_state_update 是两个不同的候选）：
+background 必须是完整重写，不是追加。custom_system_prompt 也要完整替换。
+{“type”: “character_update”, “name”: “特昂糖”, “aliases”: [“糖糖”, “陆糖”, “陆家小妹”], “personality”: “冷静理性、分析能力强、本章展现出对哥哥的依赖和信任”, “background”: “前世是华清实验室神经网络研究员，姚班天才少女。穿越到修仙世界成为陆家旁支幼女。拥有前世记忆和科学思维。本章中遭遇周氏袭击，左臂受伤，被哥哥陆景珩救下，从此更加信任哥哥。”, “custom_system_prompt”: “你是特昂糖，3岁幼女身体里住着一个成年科学家的灵魂...（完整300-800字）”}
 
 5. 世界观条目（content 必须具体：定义、规则、限制、代价、来源、影响范围、与角色/剧情的关系）：
 {“type”: “worldbuilding_create”, “title”: “护族大阵”, “dimension”: “power_system”, “content”: “陆家祖传防护阵法，由历代家主灵力维持。激活需要消耗大量灵石，可抵御筑基期以下攻击。阵法核心在祖祠地下，与陆家血脉绑定。本章中被旁支周氏暗中破坏了东侧节点。”}
