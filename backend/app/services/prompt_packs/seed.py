@@ -2,6 +2,9 @@
 
 These packs summarize Moshu's writing methodology and are exposed
 to both internal project assistant and external agents (Claude Code, Codex).
+
+IMPORTANT: Writing quality content comes from backend/app/prompts/prompt_source.py.
+Edit that file to change behavior for BOTH internal assistant and external agents.
 """
 from __future__ import annotations
 
@@ -13,6 +16,21 @@ from sqlalchemy.orm import Session
 from app.database.models import PublicPromptPack, MethodCard
 
 logger = logging.getLogger(__name__)
+
+
+def _get_writing_quality_content() -> dict:
+    """Load writing quality content from the single source of truth."""
+    from app.prompts.prompt_source import (
+        get_forbidden_patterns,
+        get_quality_rubric,
+        get_chapter_writing_rules,
+    )
+    return {
+        "forbidden_patterns": get_forbidden_patterns(),
+        "quality_rubric": get_quality_rubric(),
+        "writing_rules": get_chapter_writing_rules(),
+    }
+
 
 # ── Built-in prompt pack definitions ─────────────────────────────────────
 
@@ -425,7 +443,11 @@ def seed_builtin_packs(db: Session) -> int:
     """Seed built-in prompt packs if they don't exist.
 
     Returns the number of packs created.
+    Writing quality content is loaded from prompt_source.py (single source of truth).
     """
+    # Load shared content from source files
+    quality_content = _get_writing_quality_content()
+
     created = 0
     for pack_data in BUILTIN_PACKS:
         existing = db.query(PublicPromptPack).filter(
@@ -433,35 +455,43 @@ def seed_builtin_packs(db: Session) -> int:
             PublicPromptPack.is_builtin == True,
         ).first()
 
+        # Merge shared quality content into packs that need it
+        merged = dict(pack_data)
+        if pack_data["scope"] in ("chapter_writing", "chapter_review", "anti_ai_review"):
+            if not merged.get("quality_rubric_json"):
+                merged["quality_rubric_json"] = quality_content["quality_rubric"]
+            if not merged.get("forbidden_patterns_json"):
+                merged["forbidden_patterns_json"] = quality_content["forbidden_patterns"]
+
         if existing:
             existing.version = "1.0.1"
-            existing.scope = pack_data["scope"]
-            existing.title = pack_data["title"]
-            existing.summary = pack_data.get("summary")
-            existing.system_prompt = pack_data["system_prompt"]
-            existing.workflow_json = pack_data.get("workflow_json")
-            existing.quality_rubric_json = pack_data.get("quality_rubric_json")
-            existing.tool_playbook_json = pack_data.get("tool_playbook_json")
-            existing.forbidden_patterns_json = pack_data.get("forbidden_patterns_json")
-            existing.context_policy_json = pack_data.get("context_policy_json")
-            existing.output_contract_json = pack_data.get("output_contract_json")
+            existing.scope = merged["scope"]
+            existing.title = merged["title"]
+            existing.summary = merged.get("summary")
+            existing.system_prompt = merged["system_prompt"]
+            existing.workflow_json = merged.get("workflow_json")
+            existing.quality_rubric_json = merged.get("quality_rubric_json")
+            existing.tool_playbook_json = merged.get("tool_playbook_json")
+            existing.forbidden_patterns_json = merged.get("forbidden_patterns_json")
+            existing.context_policy_json = merged.get("context_policy_json")
+            existing.output_contract_json = merged.get("output_contract_json")
             existing.is_builtin = True
             existing.tags_json = None
             continue
 
         pack = PublicPromptPack(
-            pack_id=pack_data["pack_id"],
+            pack_id=merged["pack_id"],
             version="1.0.1",
-            scope=pack_data["scope"],
-            title=pack_data["title"],
-            summary=pack_data.get("summary"),
-            system_prompt=pack_data["system_prompt"],
-            workflow_json=pack_data.get("workflow_json"),
-            quality_rubric_json=pack_data.get("quality_rubric_json"),
-            tool_playbook_json=pack_data.get("tool_playbook_json"),
-            forbidden_patterns_json=pack_data.get("forbidden_patterns_json"),
-            context_policy_json=pack_data.get("context_policy_json"),
-            output_contract_json=pack_data.get("output_contract_json"),
+            scope=merged["scope"],
+            title=merged["title"],
+            summary=merged.get("summary"),
+            system_prompt=merged["system_prompt"],
+            workflow_json=merged.get("workflow_json"),
+            quality_rubric_json=merged.get("quality_rubric_json"),
+            tool_playbook_json=merged.get("tool_playbook_json"),
+            forbidden_patterns_json=merged.get("forbidden_patterns_json"),
+            context_policy_json=merged.get("context_policy_json"),
+            output_contract_json=merged.get("output_contract_json"),
             enabled=True,
             is_builtin=True,
             tags_json=None,
