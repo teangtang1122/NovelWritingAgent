@@ -78,6 +78,28 @@ class GetMoshuUsageGuideTest(unittest.TestCase):
         self.assertIn("apply_pending_cataloging", text)
         self.assertIn("start_cataloging_job", text)
 
+    def test_quickstart_tells_external_agents_to_store_long_content(self):
+        from app.services.workspace.tools.prompt_packs import get_moshu_usage_guide
+        db = MagicMock()
+
+        with patch("app.services.prompt_packs.seed.ensure_builtin_packs"):
+            result = asyncio.run(get_moshu_usage_guide(db, "p1", {"scenario": "quickstart"}))
+
+        self.assertEqual(result["status"], "ok")
+        text = json.dumps(result["data"], ensure_ascii=False)
+        self.assertIn("长正文", text)
+        self.assertIn("save_external_chapter_draft", text)
+        self.assertIn("save_external_cataloging_candidates", text)
+
+    def test_api_free_rules_tell_agents_to_store_long_content(self):
+        from app.prompts.prompt_source import get_api_free_mode_rules
+
+        rules = get_api_free_mode_rules()
+        self.assertIn("长内容处理规则", rules)
+        self.assertIn("save_external_chapter_draft", rules)
+        self.assertIn("不要把整章正文", rules)
+        self.assertIn("save_external_cataloging_candidates", rules)
+
 
 class GetPromptPackTest(unittest.TestCase):
     """Verify get_prompt_pack tool behavior."""

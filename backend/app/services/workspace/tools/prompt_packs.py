@@ -38,6 +38,7 @@ async def get_moshu_usage_guide(
                 "如果用户说 API 欠费、没有在墨枢配置 API、或要求由 Claude/Codex 自己分析，禁止调用 start_cataloging_job、chapter_writer、character_writer、outline_writer、worldbuilding_writer 这类内部 LLM 工具。",
                 "创建或导入后不要只凭工具返回口头确认，必须调用 get_project_archive_status 或对应 search/list 工具验证数据真的存在。",
                 "遇到不确定流程，先调用 get_prompt_pack(pack_id='cataloging_external_no_api') 或 get_tool_playbook，而不是手动猜 CRUD。",
+                "长正文、完整章节、完整档案和大量候选 JSON 不要完整输出到聊天里；必须写入 save_external_chapter_draft、save_external_cataloging_facts、save_external_cataloging_candidates 或对应写入工具，聊天只返回摘要、ID、字数、数量和验证结果。",
             ],
             "first_tools": [
                 "get_mcp_permission_status",
@@ -105,9 +106,9 @@ async def get_moshu_usage_guide(
             "steps": [
                 "调用 prepare_external_writing_context 获取大纲、角色、世界观、摘要、质量规则和禁用句式。",
                 "外部 Agent 按 prompt pack 自己写正文并自检。",
-                "调用 save_external_chapter_draft 保存草稿。",
+                "调用 save_external_chapter_draft 保存完整草稿；聊天里不要完整输出正文。",
                 "调用 record_external_quality_review 记录外部质量检查。",
-                "用户确认后调用 create_chapter；再调用 apply_external_story_updates 写入角色状态、章节摘要、世界观变化。",
+                "用户确认后调用 create_chapter，并传 draft_id/content_ref，不要把整章正文塞进 content；再调用 apply_external_story_updates 写入角色状态、章节摘要、世界观变化。",
             ],
         },
         "writing_internal": {
