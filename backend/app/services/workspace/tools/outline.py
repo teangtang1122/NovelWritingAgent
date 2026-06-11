@@ -55,6 +55,10 @@ async def create_outline_node(
             if args.get("sort_order") is not None
             else next_outline_sort_order(db, project_id, parent_id)
         ),
+        source_chapter_id=str(args.get("source_chapter_id") or "")[:36] or None,
+        actual_summary=str(args.get("actual_summary") or "") or None,
+        planned_summary=str(args.get("planned_summary") or "") or None,
+        cataloging_status=str(args.get("cataloging_status") or "")[:30] or None,
     )
     db.add(node)
     db.flush()
@@ -96,6 +100,14 @@ async def update_outline_node(
         node.node_type = str(args.get("node_type"))
     if "character_names" in args:
         replace_outline_links_by_names(db, project_id, node, args.get("character_names"))
+    if "source_chapter_id" in args:
+        node.source_chapter_id = str(args.get("source_chapter_id") or "")[:36] or None
+    if "actual_summary" in args:
+        node.actual_summary = str(args.get("actual_summary") or "") or None
+    if "planned_summary" in args:
+        node.planned_summary = str(args.get("planned_summary") or "") or None
+    if "cataloging_status" in args:
+        node.cataloging_status = str(args.get("cataloging_status") or "")[:30] or None
     node.updated_at = datetime.utcnow()
     return {
         "tool": "update_outline_node",

@@ -101,6 +101,9 @@ async def search_chapters(
             "word_count": ch.word_count or 0,
             "summary": summary_text,
             "content": (ch.content or "")[:8000],
+            "quality_score": ch.quality_score,
+            "quality_detail": ch.quality_detail,
+            "quality_evaluated_at": ch.quality_evaluated_at.isoformat() if ch.quality_evaluated_at else None,
         })
     labels = []
     if query:
@@ -149,6 +152,10 @@ async def search_outline(
             "summary": node.summary or "",
             "status": node.status,
             "sort_order": node.sort_order,
+            "source_chapter_id": node.source_chapter_id,
+            "actual_summary": node.actual_summary,
+            "planned_summary": node.planned_summary,
+            "cataloging_status": node.cataloging_status,
             "linked_characters": linked,
             "children": [
                 {
@@ -191,6 +198,10 @@ async def search_outline(
             "summary": node.summary or "",
             "status": node.status,
             "sort_order": node.sort_order,
+            "source_chapter_id": node.source_chapter_id,
+            "actual_summary": node.actual_summary,
+            "planned_summary": node.planned_summary,
+            "cataloging_status": node.cataloging_status,
             "linked_characters": linked,
         })
     return {
@@ -231,6 +242,10 @@ async def search_worldbuilding(
             "title": e.title,
             "content": e.content or "",
             "sort_order": e.sort_order,
+            "status": e.status,
+            "confidence": e.confidence,
+            "first_seen_chapter_id": e.first_seen_chapter_id,
+            "last_updated_chapter_id": e.last_updated_chapter_id,
         }
         for e in entries
     ]

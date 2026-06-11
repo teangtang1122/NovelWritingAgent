@@ -57,6 +57,10 @@ def outline_node_payload(node: OutlineNode) -> dict:
         "summary": node.summary,
         "status": node.status,
         "sort_order": node.sort_order,
+        "source_chapter_id": node.source_chapter_id,
+        "actual_summary": node.actual_summary,
+        "planned_summary": node.planned_summary,
+        "cataloging_status": node.cataloging_status,
         "linked_characters": [
             {"id": link.character.id, "name": link.character.name, "role_in_scene": link.role_in_scene}
             for link in node.linked_characters
@@ -72,6 +76,10 @@ def worldbuilding_payload(entry: WorldbuildingEntry) -> dict:
         "title": entry.title,
         "content": entry.content,
         "sort_order": entry.sort_order,
+        "status": entry.status,
+        "confidence": entry.confidence,
+        "first_seen_chapter_id": entry.first_seen_chapter_id,
+        "last_updated_chapter_id": entry.last_updated_chapter_id,
     }
 
 

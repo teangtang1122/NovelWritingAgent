@@ -66,7 +66,6 @@ async def update_relationship(
         rel.relationship_type = str(args.get("relationship_type"))[:100]
     if "description" in args:
         rel.description = str(args.get("description") or "")[:4000]
-    rel.updated_at = datetime.utcnow()
     return {
         "tool": "update_relationship",
         "status": "ok",

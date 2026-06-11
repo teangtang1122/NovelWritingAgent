@@ -56,6 +56,10 @@ async def create_worldbuilding_entry(
             if args.get("sort_order") is not None
             else next_worldbuilding_sort_order(db, project_id, dimension)
         ),
+        status=str(args.get("status") or "active")[:30],
+        confidence=float(args.get("confidence")) if args.get("confidence") is not None else None,
+        first_seen_chapter_id=str(args.get("first_seen_chapter_id") or "")[:36] or None,
+        last_updated_chapter_id=str(args.get("last_updated_chapter_id") or "")[:36] or None,
     )
     db.add(entry)
     db.flush()
@@ -83,6 +87,14 @@ async def update_worldbuilding_entry(
         entry.content = str(args.get("content") or "")[:12000]
     if args.get("sort_order") is not None:
         entry.sort_order = int(args.get("sort_order"))
+    if "status" in args:
+        entry.status = str(args.get("status") or "active")[:30]
+    if "confidence" in args:
+        entry.confidence = float(args.get("confidence")) if args.get("confidence") is not None else None
+    if "first_seen_chapter_id" in args:
+        entry.first_seen_chapter_id = str(args.get("first_seen_chapter_id") or "")[:36] or None
+    if "last_updated_chapter_id" in args:
+        entry.last_updated_chapter_id = str(args.get("last_updated_chapter_id") or "")[:36] or None
     entry.updated_at = datetime.utcnow()
     return {
         "tool": "update_worldbuilding_entry",
