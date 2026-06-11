@@ -12,6 +12,7 @@ def get_forbidden_patterns() -> list[str]:
     from .anti_ai_prompts import (
         TIER1_BANNED_WORDS,
         TIER2_THRESHOLD_WORDS,
+        TIER3_SENTENCE_PATTERNS,
         CHAPTER_END_BAN_PATTERNS,
     )
 
@@ -21,6 +22,8 @@ def get_forbidden_patterns() -> list[str]:
         patterns.extend(category_words)
     # Tier 2 threshold words
     patterns.extend(TIER2_THRESHOLD_WORDS)
+    # Tier 3 sentence-level structural patterns
+    patterns.extend(TIER3_SENTENCE_PATTERNS)
     # Chapter end patterns
     patterns.extend(CHAPTER_END_BAN_PATTERNS)
     return list(dict.fromkeys(patterns))  # dedupe, preserve order

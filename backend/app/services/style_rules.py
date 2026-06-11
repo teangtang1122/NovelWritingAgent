@@ -6,10 +6,8 @@ from typing import Optional
 
 from ..ai.gateway import LLMGateway
 from ..database.models import Project
-from ..prompts.style_prompts import (
-    DEFAULT_FORBIDDEN_SENTENCE_PATTERNS,
-    build_style_repair_messages,
-)
+from ..prompts.prompt_source import get_forbidden_patterns
+from ..prompts.style_prompts import build_style_repair_messages
 
 
 STYLE_OPTIONS = ["vivid", "concise", "serious", "humorous", "poetic"]
@@ -211,8 +209,10 @@ FORBIDDEN_SENTENCE_REGEXES = {
 
 
 def _project_forbidden_patterns(project: Project) -> list[str]:
-    raw = (project.forbidden_sentence_patterns or DEFAULT_FORBIDDEN_SENTENCE_PATTERNS).strip()
-    return [line.strip() for line in raw.splitlines() if line.strip()]
+    user_patterns = (project.forbidden_sentence_patterns or "").strip()
+    if user_patterns:
+        return [line.strip() for line in user_patterns.splitlines() if line.strip()]
+    return get_forbidden_patterns()
 
 
 def _generic_forbidden_regex(pattern: str) -> Optional[str]:

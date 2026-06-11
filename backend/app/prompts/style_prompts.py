@@ -42,73 +42,15 @@ def build_style_repair_messages(
     ]
 
 
-DEFAULT_FORBIDDEN_SENTENCE_PATTERNS = "\n".join([
-    "不是……是……",
-    "不是……而是……",
-    "不是……却是……",
-    "与其说……不如说……",
-    "在……中……",
-    "在……时……",
-    "随着……",
-    "仿佛……",
-    "似乎……",
-    "只见……",
-    "只听得……",
-    "不由得……",
-    "不禁……",
-    "忍不住……",
-    "这一切都说明……",
-    "从那天起……",
-    "此后……",
-    "与此同时……",
-    "另一方面……",
-    "很愤怒",
-    "感到悲伤",
-    "感到恐惧",
-    "显得很……",
-    "他的眼中……",
-    "她的心里……",
-    "深深地",
-    "无比",
-    "极其",
-    "一股……",
-    "一种……的感觉",
-    "令人……",
-    "让人……",
-    "充满了",
-    "充斥着",
-    "缓缓地",
-    "默默地",
-    "静静地",
-    "淡淡地",
-    "微微……",
-    "然而",
-    "于是",
-    "突然",
-    "忽然",
-    "终于",
-    "其实",
-    "总之",
-    "无论如何",
-    "毋庸置疑",
-    "某种程度上",
-    "某种意义上",
-    "彰显",
-    "诠释",
-    "赋能",
-    "映射",
-    "折射",
-    "油然而生",
-    "心潮澎湃",
-    "这一刻",
-    "宛如",
-    "格外",
-    "分外",
-    "由此可见",
-    "总而言之",
-    "值得注意的是",
-    "不难发现",
-])
+# NOTE: DEFAULT_FORBIDDEN_SENTENCE_PATTERNS was removed — it duplicated
+# anti_ai_prompts.py with different entries.  effective_forbidden_patterns()
+# now reads from prompt_source.get_forbidden_patterns() which is the single
+# source of truth (aggregates TIER1_BANNED_WORDS, TIER2_THRESHOLD_WORDS,
+# CHAPTER_END_BAN_PATTERNS from anti_ai_prompts.py).
+#
+# Additional sentence-level patterns that are NOT word-level bans (like
+# "不是……是……" or "在……中……") should be added to anti_ai_prompts.py as a
+# new tier, not maintained here.
 
 DEFAULT_RHETORIC_GUIDELINES = (
     "克制使用比喻、拟人、排比等修辞，禁止连续堆叠比喻。"
@@ -130,8 +72,13 @@ DEFAULT_RHETORIC_GUIDELINES = (
 
 
 def effective_forbidden_patterns(project: "Project") -> str:
-    """Merge system defaults with user-customized forbidden patterns."""
-    default_patterns = {line.strip() for line in DEFAULT_FORBIDDEN_SENTENCE_PATTERNS.splitlines() if line.strip()}
+    """Merge system defaults with user-customized forbidden patterns.
+
+    System defaults come from anti_ai_prompts.py via prompt_source — the
+    single source of truth for all forbidden patterns.
+    """
+    from .prompt_source import get_forbidden_patterns
+    default_patterns = set(get_forbidden_patterns())
     user_forbidden = (project.forbidden_sentence_patterns or "").strip()
     user_patterns = {line.strip() for line in user_forbidden.splitlines() if line.strip()} if user_forbidden else set()
     merged = default_patterns | user_patterns
