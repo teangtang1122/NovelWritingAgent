@@ -326,7 +326,12 @@ BUILTIN_PACKS: list[dict[str, Any]] = [
             "   a. 调用 get_next_external_cataloging_chapter 获取章节文本和上下文\n"
             "   b. 分析章节，提取事实（角色出现、世界观元素、情节事件）\n"
             "   c. 调用 save_external_cataloging_facts 保存事实 → 检查 status\n"
-            "   d. 生成候选更新（新角色、角色更新、世界观条目、大纲节点、章节摘要）\n"
+            "   d. 生成候选更新：\n"
+            "      - 新角色：character_create（基本信息）\n"
+            "      - 每个出场角色：character_state（当前状态）⚠️ 必须\n"
+            "      - 世界观：worldbuilding_create\n"
+            "      - 大纲：outline_create\n"
+            "      - 摘要：chapter_summary\n"
             "   e. 调用 save_external_cataloging_candidates 保存候选 → 检查 status\n"
             "   f. 调用 apply_pending_cataloging 应用当前章节候选项 → 检查 status\n"
             "   g. 调用 verify_external_cataloging_progress 验证数据已写入，再处理下一章\n"
@@ -337,11 +342,13 @@ BUILTIN_PACKS: list[dict[str, Any]] = [
             "- 情节：关键事件、冲突、转折点\n"
             "- 章节摘要：200字以内的核心情节概括\n\n"
             "【候选更新规则】\n"
-            "- 新角色：如果角色名在现有角色列表中不存在\n"
-            "- 角色更新：如果角色状态发生变化（位置、目标、能力）\n"
+            "- 新角色：如果角色名在现有角色列表中不存在，用 character_create 创建\n"
+            "- 角色当前状态：每个本章出场的角色，必须用 character_state 更新当前状态\n"
             "- 世界观更新：如果出现新的设定或现有设定需要修改\n"
             "- 大纲节点：每章对应一个大纲节点\n"
             "- 章节摘要：每章必须有摘要\n\n"
+            "⚠️ 重要：character_create 只创建角色基本信息（外貌、性格、背景），不包含当前状态。\n"
+            "每个出场角色都必须额外输出一条 character_state，写入本章结束时的最新状态。\n\n"
             "【候选类型格式】\n"
             "save_external_cataloging_candidates 的 candidates 数组中，每个候选的格式：\n\n"
             "1. 章节摘要（尽量详细，不要只写一句话）：\n"
@@ -364,14 +371,18 @@ BUILTIN_PACKS: list[dict[str, Any]] = [
             '"catchphrases": "数据不会说谎", '
             '"emotion_tendency": "表面冷静内心温暖", '
             '"custom_system_prompt": "你是特昂糖，3岁幼女身体里住着一个成年科学家的灵魂。你用数据分析的方式理解修仙世界，说话简洁但精准。你关心家人但不善表达。你有强烈的求知欲和探索精神。在危险面前你保持冷静分析，但内心深处害怕失去来之不易的家人。300-800字，包含身份、已知经历、性格动机、说话方式、当前立场、关系网、行动边界和禁止违背的设定。"}\n\n'
-            "4. 角色状态更新（当前状态变化，用 character_state）：\n"
+            "4. 角色状态更新（⚠️ 每个出场角色都必须输出！用 character_state）：\n"
+            "这是单独的候选类型，不是 character_create 的一部分。\n"
             '{"type": "character_state", "name": "特昂糖", '
             '"current_location": "陆家后院", '
             '"current_goal": "找到回家的方法", '
             '"life_status": "alive", '
             '"physical_state": "3岁幼女身体，体力有限", '
             '"mental_state": "冷静分析中带着迷茫", '
-            '"active_conflict": "身份暴露的风险"}\n\n'
+            '"active_conflict": "身份暴露的风险", '
+            '"realm_or_level": "未修炼", '
+            '"abilities_state": "感知灵气波动", '
+            '"items_or_assets": "无"}\n\n'
             "5. 世界观条目（content 必须具体：定义、规则、限制、代价、来源、影响范围、与角色/剧情的关系）：\n"
             '{"type": "worldbuilding_create", "title": "护族大阵", "dimension": "power_system", '
             '"content": "陆家祖传防护阵法，由历代家主灵力维持。激活需要消耗大量灵石，可抵御筑基期以下攻击。阵法核心在祖祠地下，与陆家血脉绑定。本章中被旁支周氏暗中破坏了东侧节点。"}\n\n'
