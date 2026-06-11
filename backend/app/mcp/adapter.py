@@ -190,6 +190,8 @@ def _format_tool_result(raw: dict) -> McpToolResult:
         "status": status,
         "detail": raw.get("detail", ""),
     }
+    if "tool" in raw:
+        payload["tool"] = raw["tool"]
     if "data" in raw and raw["data"] is not None:
         payload["data"] = raw["data"]
     if "warnings" in raw and raw["warnings"]:

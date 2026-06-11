@@ -166,9 +166,10 @@ async def forget(
         if not memory:
             return {"tool": "forget", "status": "error", "detail": "未找到该记忆"}
         delete_source_index(db, project_id, "assistant_memory", memory.id)
+        key_deleted = memory.key
         db.delete(memory)
         db.commit()
-        return {"tool": "forget", "status": "ok", "detail": f"已删除记忆「{memory.key}」"}
+        return {"tool": "forget", "status": "ok", "detail": f"已删除记忆「{key_deleted}」", "data": {"id": memory_id, "key": key_deleted}}
 
     if key:
         targets = (
@@ -184,8 +185,8 @@ async def forget(
             db.delete(m)
         db.commit()
         if targets:
-            return {"tool": "forget", "status": "ok", "detail": f"已删除 {len(targets)} 条匹配「{key}」的记忆"}
-        return {"tool": "forget", "status": "ok", "detail": f"没有匹配「{key}」的记忆"}
+            return {"tool": "forget", "status": "ok", "detail": f"已删除 {len(targets)} 条匹配「{key}」的记忆", "data": {"key": key, "deleted_count": len(targets)}}
+        return {"tool": "forget", "status": "ok", "detail": f"没有匹配「{key}」的记忆", "data": {"key": key, "deleted_count": 0}}
 
     return {"tool": "forget", "status": "error", "detail": "需要提供 id 或 key"}
 

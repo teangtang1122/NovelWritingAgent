@@ -135,9 +135,10 @@ async def delete_scheduled_task(db: Session, project_id: str, args: dict[str, An
     if not task:
         return {"tool": "delete_scheduled_task", "status": "skipped", "detail": "未找到自动任务"}
     name = task.name
+    task_id = task.id
     db.delete(task)
     db.flush()
-    return {"tool": "delete_scheduled_task", "status": "ok", "detail": f"已删除自动任务：{name}"}
+    return {"tool": "delete_scheduled_task", "status": "ok", "detail": f"已删除自动任务：{name}", "data": {"id": task_id}}
 
 
 async def run_scheduled_task_now(db: Session, project_id: str, args: dict[str, Any]) -> dict:

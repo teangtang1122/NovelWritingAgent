@@ -18,7 +18,10 @@ export interface CatalogingJob {
   status: string
   execution_mode: CatalogingMode
   current_chapter_id?: string | null
+  last_completed_chapter_id?: string | null
   blocked_chapter_id?: string | null
+  context_integrity?: string | null
+  model?: string | null
   total_chapters: number
   completed_chapters: number
   failed_chapters: number

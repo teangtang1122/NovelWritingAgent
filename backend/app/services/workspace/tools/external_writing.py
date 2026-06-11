@@ -137,12 +137,12 @@ async def prepare_external_writing_context(
         if characters:
             char_ids = [c.id for c in characters]
             rels = db.query(CharacterRelationship).filter(
-                CharacterRelationship.source_id.in_(char_ids),
+                CharacterRelationship.character_a_id.in_(char_ids),
             ).all()
             result["relationships"] = [
                 {
-                    "source_id": r.source_id,
-                    "target_id": r.target_id,
+                    "source_id": r.character_a_id,
+                    "target_id": r.character_b_id,
                     "relationship_type": r.relationship_type,
                     "description": r.description,
                 }
