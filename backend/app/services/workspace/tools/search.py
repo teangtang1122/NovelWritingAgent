@@ -52,6 +52,16 @@ async def search_characters(
             "personality": c.personality or "",
             "background": c.background or "",
             "abilities": abilities,
+            # Current-state fields
+            "life_status": c.life_status or "",
+            "current_location": c.current_location or "",
+            "realm_or_level": c.realm_or_level or "",
+            "physical_state": c.physical_state or "",
+            "mental_state": c.mental_state or "",
+            "current_goal": c.current_goal or "",
+            "active_conflict": c.active_conflict or "",
+            "abilities_state": c.abilities_state or "",
+            "items_or_assets": c.items_or_assets or "",
         })
     return {
         "tool": "search_characters",

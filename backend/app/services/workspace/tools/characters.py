@@ -44,6 +44,16 @@ async def create_character(
         ),
         role_type=str(args.get("role_type") or "supporting"),
         is_evolution_tracked=True,
+        # Current-state fields
+        life_status=str(args.get("life_status") or "")[:50] or None,
+        current_location=str(args.get("current_location") or "")[:200] or None,
+        realm_or_level=str(args.get("realm_or_level") or "")[:200] or None,
+        physical_state=str(args.get("physical_state") or "")[:4000] or None,
+        mental_state=str(args.get("mental_state") or "")[:4000] or None,
+        current_goal=str(args.get("current_goal") or "")[:4000] or None,
+        active_conflict=str(args.get("active_conflict") or "")[:4000] or None,
+        abilities_state=str(args.get("abilities_state") or "")[:4000] or None,
+        items_or_assets=str(args.get("items_or_assets") or "")[:4000] or None,
     )
     db.add(character)
     db.flush()
@@ -82,6 +92,15 @@ async def update_character(
     for field, limit in [("appearance", 4000), ("personality", 4000), ("background", 8000), ("role_type", 100)]:
         if field in args:
             setattr(character, field, str(args.get(field) or "")[:limit])
+            changed = True
+    # Current-state fields
+    for field, limit in [
+        ("life_status", 50), ("current_location", 200), ("realm_or_level", 200),
+        ("physical_state", 4000), ("mental_state", 4000), ("current_goal", 4000),
+        ("active_conflict", 4000), ("abilities_state", 4000), ("items_or_assets", 4000),
+    ]:
+        if field in args:
+            setattr(character, field, str(args.get(field) or "")[:limit] or None)
             changed = True
     extra_background = []
     for label, key in [("说话风格", "speech_style"), ("当前动机", "motivation"), ("核心冲突", "conflict")]:

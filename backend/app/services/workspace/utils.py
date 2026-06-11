@@ -35,6 +35,16 @@ def character_payload(character: Character) -> dict:
         "abilities": abilities,
         "role_type": character.role_type,
         "current_version": character.current_version,
+        # Current-state fields
+        "life_status": character.life_status,
+        "current_location": character.current_location,
+        "realm_or_level": character.realm_or_level,
+        "physical_state": character.physical_state,
+        "mental_state": character.mental_state,
+        "current_goal": character.current_goal,
+        "active_conflict": character.active_conflict,
+        "abilities_state": character.abilities_state,
+        "items_or_assets": character.items_or_assets,
     }
 
 
