@@ -332,28 +332,49 @@ BUILTIN_PACKS: list[dict[str, Any]] = [
             "- 章节摘要：每章必须有摘要\n\n"
             "【候选类型格式】\n"
             "save_external_cataloging_candidates 的 candidates 数组中，每个候选的格式：\n\n"
-            "1. 章节摘要：\n"
-            '{"type": "chapter_summary", "summary": "200字以内的摘要"}\n\n'
-            "2. 大纲节点：\n"
-            '{"type": "outline_create", "title": "第一章 穿越", "node_type": "chapter", "summary": "节点摘要"}\n\n'
-            "3. 新角色（必须用 character_create，不要用 new_character）：\n"
-            '{"type": "character_create", "name": "特昂糖", "appearance": "外貌", "personality": "性格", '
-            '"background": "背景", "abilities": ["能力1"], "role_type": "protagonist", '
-            '"motivation": "动机", "conflict": "冲突", "speech_style": "说话风格"}\n\n'
+            "1. 章节摘要（尽量详细，不要只写一句话）：\n"
+            '{"type": "chapter_summary", "summary": "详细摘要，包含本章目标、冲突、关键转折、结尾钩子、涉及角色，至少200字"}\n\n'
+            "2. 大纲节点（summary 要写清楚：本章目标、冲突、关键转折、结尾钩子、涉及角色）：\n"
+            '{"type": "outline_create", "title": "第一章 穿越", "node_type": "chapter", '
+            '"summary": "张三穿越到修仙世界，发现自己是废柴体质，但意外获得神秘功法。冲突是身份暴露的风险，转折是发现功法来源，结尾钩子是有人在追查他。", '
+            '"related_characters": ["张三"]}\n\n'
+            "3. 新角色（必须用 character_create，所有字段都要尽量填写完整）：\n"
+            "重要：appearance、personality、background、abilities 都必须详细描写，不要只写一两个词。\n"
+            "background 必须是完整的背景档案，不是本章新增片段。\n"
+            '{"type": "character_create", "name": "特昂糖", '
+            '"aliases": ["糖糖", "陆糖"], '
+            '"role_type": "protagonist", '
+            '"appearance": "3岁幼女，矮小但步伐稳健，眼神中带着不属于这个年龄的冷静与洞察", '
+            '"personality": "冷静理性、分析能力强、成熟超越年龄、偶尔流露前世成人的思维方式", '
+            '"background": "前世是华清实验室神经网络研究员，姚班天才少女。穿越到修仙世界成为陆家旁支幼女。拥有前世记忆和科学思维，能用数据分析方法理解修炼体系。", '
+            '"abilities": ["感知灵气波动", "优化修炼路径", "数据分析"], '
+            '"tone_style": "简洁冷静，偶尔用科学术语", '
+            '"catchphrases": "数据不会说谎", '
+            '"emotion_tendency": "表面冷静内心温暖", '
+            '"custom_system_prompt": "你是特昂糖，3岁幼女身体里住着一个成年科学家的灵魂。你用数据分析的方式理解修仙世界，说话简洁但精准。你关心家人但不善表达。你有强烈的求知欲和探索精神。在危险面前你保持冷静分析，但内心深处害怕失去来之不易的家人。300-800字，包含身份、已知经历、性格动机、说话方式、当前立场、关系网、行动边界和禁止违背的设定。"}\n\n'
             "4. 角色状态更新（当前状态变化，用 character_state）：\n"
-            '{"type": "character_state", "name": "特昂糖", "current_location": "新位置", '
-            '"current_goal": "新目标", "life_status": "状态"}\n\n'
-            "5. 世界观条目（必须用 worldbuilding_create，不要用 new_worldbuilding）：\n"
-            '{"type": "worldbuilding_create", "title": "护族大阵", "dimension": "geography", '
-            '"content": "详细描述"}\n\n'
-            "6. 角色关系：\n"
-            '{"type": "character_relationship", "source_name": "角色A", "target_name": "角色B", '
-            '"relationship_type": "父女", "description": "关系描述"}\n\n'
-            "注意：\n"
+            '{"type": "character_state", "name": "特昂糖", '
+            '"current_location": "陆家后院", '
+            '"current_goal": "找到回家的方法", '
+            '"life_status": "alive", '
+            '"physical_state": "3岁幼女身体，体力有限", '
+            '"mental_state": "冷静分析中带着迷茫", '
+            '"active_conflict": "身份暴露的风险"}\n\n'
+            "5. 世界观条目（content 必须具体：定义、规则、限制、代价、来源、影响范围、与角色/剧情的关系）：\n"
+            '{"type": "worldbuilding_create", "title": "护族大阵", "dimension": "power_system", '
+            '"content": "陆家祖传防护阵法，由历代家主灵力维持。激活需要消耗大量灵石，可抵御筑基期以下攻击。阵法核心在祖祠地下，与陆家血脉绑定。本章中被旁支周氏暗中破坏了东侧节点。"}\n\n'
+            "6. 角色关系（描述要说明关系的来源和表现）：\n"
+            '{"type": "character_relationship", "source_name": "陆景珩", "target_name": "特昂糖", '
+            '"relationship_type": "兄妹", '
+            '"description": "陆景珩是特昂糖的哥哥，对她保护有加。在修炼中主动帮妹妹挡危险，教她基础吐纳法。"}\n\n'
+            "重要规则：\n"
             "- character_create 的 name 字段是必填的\n"
             "- character_state 用于更新角色当前状态（位置、目标等），不是创建新角色\n"
             "- character_update 用于更新角色基本信息（外貌、性格等），需要 name 字段\n"
-            "- 不要使用 new_character、new_worldbuilding 等非标准类型\n\n"
+            "- 不要使用 new_character、new_worldbuilding 等非标准类型\n"
+            "- 所有字段都要尽量详细，不要只写一两个词\n"
+            "- background 必须是完整背景，不是增量补丁\n"
+            "- custom_system_prompt 要写300-800字，帮助AI扮演该角色\n\n"
             "【合并规则】\n"
             "- 角色别名：如果同一角色有多个名字，使用主名字作为规范名\n"
             "- 角色当前状态字段：覆盖旧状态\n"
