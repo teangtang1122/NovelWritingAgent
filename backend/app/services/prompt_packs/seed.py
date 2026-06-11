@@ -501,13 +501,14 @@ def seed_builtin_packs(db: Session) -> int:
             PublicPromptPack.is_builtin == True,
         ).first()
 
-        # Merge shared quality content into packs that need it
+        # Merge shared quality content into packs that need it.
+        # Always prefer the canonical forbidden_patterns from prompt_source
+        # over any hardcoded subset in the pack definition.
         merged = dict(pack_data)
         if pack_data["scope"] in ("chapter_writing", "chapter_review", "anti_ai_review"):
             if not merged.get("quality_rubric_json"):
                 merged["quality_rubric_json"] = quality_content["quality_rubric"]
-            if not merged.get("forbidden_patterns_json"):
-                merged["forbidden_patterns_json"] = quality_content["forbidden_patterns"]
+            merged["forbidden_patterns_json"] = quality_content["forbidden_patterns"]
 
         if pack_data["pack_id"] == "cataloging_external_no_api":
             merged.update(cataloging_content)
