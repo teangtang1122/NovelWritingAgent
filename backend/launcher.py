@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 import socket
 import sys
 import tempfile
@@ -108,6 +109,63 @@ def _app_home() -> Path:
     return current
 
 
+def _launcher_settings_path(home: Path) -> Path:
+    return home / "launcher-settings.json"
+
+
+def _load_launcher_settings(home: Path) -> dict:
+    path = _launcher_settings_path(home)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_launcher_settings(home: Path, settings: dict) -> None:
+    path = _launcher_settings_path(home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _pick_content_root(home: Path) -> Path | None:
+    if (
+        "--mcp-server" in sys.argv
+        or os.environ.get("MOSHU_NO_GUI_FOLDER_PICKER")
+        or "pytest" in sys.modules
+    ):
+        return None
+    try:
+        import tkinter
+        from tkinter import filedialog, messagebox
+
+        root = tkinter.Tk()
+        root.withdraw()
+        messagebox.showinfo(
+            "Moshu 2.0",
+            "请选择一个空文件夹作为小说数据目录。\n旧数据库内容会自动迁移到这个目录。",
+        )
+        while True:
+            selected = filedialog.askdirectory(title="选择 Moshu 小说数据目录")
+            if not selected:
+                root.destroy()
+                return None
+            path = Path(selected).expanduser().resolve()
+            path.mkdir(parents=True, exist_ok=True)
+            existing = [item for item in path.iterdir() if item.name not in {".DS_Store", "Thumbs.db"}]
+            if not existing:
+                root.destroy()
+                return path
+            messagebox.showwarning(
+                "Moshu 2.0",
+                "请选择空目录，避免和已有文件混在一起。\n\n可以新建一个空文件夹后再选择。",
+            )
+    except Exception as exc:
+        _log(f"content root picker skipped: {exc}")
+        return None
+
+
 def _find_free_port(start: int = DEFAULT_PORT, attempts: int = 50) -> int:
     for port in range(start, start + attempts):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -120,7 +178,15 @@ def _find_free_port(start: int = DEFAULT_PORT, attempts: int = 50) -> int:
 def _prepare_data_environment() -> Path:
     home = _app_home()
     home.mkdir(parents=True, exist_ok=True)
+    launcher_settings = _load_launcher_settings(home)
+    content_root = os.environ.get("MOSHU_CONTENT_ROOT") or launcher_settings.get("content_root")
+    if not content_root:
+        picked = _pick_content_root(home)
+        content_root = str(picked) if picked else str(home / "projects")
+        launcher_settings["content_root"] = content_root
+        _save_launcher_settings(home, launcher_settings)
     os.environ.setdefault("MOSHU_HOME", str(home))
+    os.environ.setdefault("MOSHU_CONTENT_ROOT", str(Path(content_root).expanduser().resolve()))
     os.environ.setdefault("MOSHU_KEY_FILE", str(home / ".crypto_key"))
     os.environ.setdefault("NOVEL_AGENT_HOME", str(home))
     os.environ.setdefault("NOVEL_AGENT_KEY_FILE", str(home / ".crypto_key"))

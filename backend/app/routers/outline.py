@@ -20,6 +20,7 @@ from ..services.outline_service import (
     outline_payload,
     replace_character_links,
 )
+from ..services.content_store import sync_outline_to_file
 
 router = APIRouter(tags=["outline"])
 
@@ -53,7 +54,7 @@ def _normalize_reorder_items(payload: OutlineReorderRequest) -> list[OutlineReor
 @router.get("/projects/{project_id}/outline")
 def get_outline(project_id: str, db: Session = Depends(get_db)):
     """Get the full outline tree for a project."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
     return ApiResponse.success(data=outline_payload(db, project_id))
 
 
@@ -64,7 +65,7 @@ def create_outline_node(
     db: Session = Depends(get_db),
 ):
     """Create an outline node."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
     _get_parent_or_404(db, project_id, payload.parent_id)
 
     node = OutlineNode(
@@ -82,6 +83,8 @@ def create_outline_node(
     replace_character_links(db, project_id, node, links or [])
     db.commit()
     db.refresh(node)
+    sync_outline_to_file(db, project)
+    db.commit()
     return ApiResponse.success(data=node_to_dict(node), message="大纲节点已创建")
 
 
@@ -92,7 +95,7 @@ def reorder_outline(
     db: Session = Depends(get_db),
 ):
     """Reorder outline nodes and optionally move them to a new parent."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
     items = _normalize_reorder_items(payload)
     if not items:
         raise ValidationError("未提供排序数据")
@@ -115,6 +118,8 @@ def reorder_outline(
         node.sort_order = item.sort_order
 
     db.commit()
+    sync_outline_to_file(db, project)
+    db.commit()
     return ApiResponse.success(data=outline_payload(db, project_id), message="大纲排序已更新")
 
 
@@ -126,7 +131,7 @@ def update_outline_node(
     db: Session = Depends(get_db),
 ):
     """Update an outline node and its linked characters."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
     node = _get_node_or_404(db, project_id, node_id)
     update_data = payload.model_dump(exclude_unset=True)
     if not update_data:
@@ -143,14 +148,18 @@ def update_outline_node(
 
     db.commit()
     db.refresh(node)
+    sync_outline_to_file(db, project)
+    db.commit()
     return ApiResponse.success(data=node_to_dict(node), message="大纲节点已更新")
 
 
 @router.delete("/projects/{project_id}/outline/{node_id}")
 def delete_outline_node(project_id: str, node_id: str, db: Session = Depends(get_db)):
     """Delete an outline node and its descendants."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
     node = _get_node_or_404(db, project_id, node_id)
     db.delete(node)
+    db.commit()
+    sync_outline_to_file(db, project)
     db.commit()
     return ApiResponse.success(message="大纲节点已删除")

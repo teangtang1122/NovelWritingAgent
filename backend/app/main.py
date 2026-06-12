@@ -17,6 +17,7 @@ from .database.backup import backup_sqlite_database
 from .database.session import Base, SessionLocal, engine
 from .database.migrations import ensure_runtime_schema
 from .routers import projects, config, worldbuilding, characters, outline, chapters, ai_writer, stats, export, deconstruct, importer, cataloging, agent, skill, scheduler, mcp, external_agent, external_agent_global, tools
+from .services.content_store import migrate_legacy_projects_to_files
 from .services.workspace.run_log import mark_interrupted_assistant_runs
 from .version import APP_VERSION
 
@@ -48,6 +49,7 @@ backup_sqlite_database(settings.database_url, reason=f"pre-{APP_VERSION}")
 Base.metadata.create_all(bind=engine)
 ensure_runtime_schema(engine)
 with SessionLocal() as db:
+    migrate_legacy_projects_to_files(db)
     mark_interrupted_assistant_runs(db)
 
 app = FastAPI(

@@ -6,7 +6,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ....database.models import CharacterRelationship
+from ....database.models import CharacterRelationship, Project
+from ....services.content_store import sync_relationships_to_file
 from ..utils import find_character_by_name_or_id
 
 
@@ -35,6 +36,10 @@ async def create_relationship(
     )
     db.add(rel)
     db.flush()
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project:
+        sync_relationships_to_file(db, project)
+        db.flush()
     return {
         "tool": "create_relationship",
         "status": "ok",
@@ -66,6 +71,10 @@ async def update_relationship(
         rel.relationship_type = str(args.get("relationship_type"))[:100]
     if "description" in args:
         rel.description = str(args.get("description") or "")[:4000]
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project:
+        sync_relationships_to_file(db, project)
+        db.flush()
     return {
         "tool": "update_relationship",
         "status": "ok",
@@ -94,6 +103,10 @@ async def delete_relationship(
     if not rel:
         return {"tool": "delete_relationship", "status": "skipped", "detail": "未找到关系"}
     db.delete(rel)
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project:
+        db.flush()
+        sync_relationships_to_file(db, project)
     db.flush()
     return {
         "tool": "delete_relationship",

@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ....database.models import CatalogingCandidate, CatalogingChapterRun, CatalogingFact, CatalogingJob
+from ....services.content_store import sync_project_to_files
 from ....services.cataloging.applier import apply_candidates_for_run
 from ....services.cataloging.candidate_io import candidate_to_dict
 from ....services.cataloging.fact_store import fact_to_dict, load_facts_for_run
@@ -159,6 +160,7 @@ async def apply_pending_cataloging(db: Session, project_id: str, args: dict[str,
     job.status = "running"
     job.blocked_chapter_id = None
     refresh_job_progress(db, job)
+    sync_project_to_files(db, job.project_id)
     db.flush()
     if job.execution_mode == "auto":
         asyncio.create_task(_consume_cataloging_stream(job.project_id, job.id))

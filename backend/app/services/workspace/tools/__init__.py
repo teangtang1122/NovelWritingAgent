@@ -33,6 +33,14 @@ from .worldbuilding import (
 )
 from .worldbuilding_writer import worldbuilding_writer
 from .projects import create_project, delete_project, get_project_info, list_projects, update_project_info
+from .project_files import (
+    get_project_files_info,
+    list_project_files,
+    read_project_file,
+    search_project_files,
+    sync_project_files,
+    write_project_file,
+)
 from .scheduler import (
     create_scheduled_task,
     delete_scheduled_task,
@@ -137,6 +145,12 @@ __all__ = [
     "create_project",
     "update_project_info",
     "delete_project",
+    "get_project_files_info",
+    "list_project_files",
+    "read_project_file",
+    "write_project_file",
+    "search_project_files",
+    "sync_project_files",
     "list_scheduled_tasks",
     "create_scheduled_task",
     "update_scheduled_task",

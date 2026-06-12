@@ -16,6 +16,7 @@ from ..schemas.worldbuilding import (
     WorldbuildingEntryResponse,
     WorldbuildingEntryUpdate,
 )
+from ..services.content_store import delete_project_file, refresh_project_from_files, sync_worldbuilding_to_file
 
 router = APIRouter(tags=["worldbuilding"])
 
@@ -74,6 +75,8 @@ def list_worldbuilding_entries(
 ):
     """Get worldbuilding entries grouped by dimension."""
     get_project_or_404(db, project_id)
+    refresh_project_from_files(db, project_id)
+    db.commit()
 
     query = db.query(WorldbuildingEntry).filter(WorldbuildingEntry.project_id == project_id)
     if dimension:
@@ -97,10 +100,13 @@ def create_worldbuilding_entry(
     db: Session = Depends(get_db),
 ):
     """Create a worldbuilding entry."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
 
     entry = WorldbuildingEntry(project_id=project_id, **payload.model_dump())
     db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    sync_worldbuilding_to_file(db, project, entry)
     db.commit()
     db.refresh(entry)
     return ApiResponse.success(data=_entry_to_dict(entry), message="世界观条目创建成功")
@@ -114,7 +120,7 @@ def update_worldbuilding_entry(
     db: Session = Depends(get_db),
 ):
     """Update a worldbuilding entry."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
     entry = _get_entry_or_404(db, project_id, entry_id)
 
     update_data = payload.model_dump(exclude_unset=True)
@@ -124,6 +130,9 @@ def update_worldbuilding_entry(
     for field, value in update_data.items():
         setattr(entry, field, value)
 
+    db.commit()
+    db.refresh(entry)
+    sync_worldbuilding_to_file(db, project, entry)
     db.commit()
     db.refresh(entry)
     return ApiResponse.success(data=_entry_to_dict(entry), message="世界观条目更新成功")
@@ -136,10 +145,12 @@ def delete_worldbuilding_entry(
     db: Session = Depends(get_db),
 ):
     """Delete a worldbuilding entry."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
     entry = _get_entry_or_404(db, project_id, entry_id)
+    content_file_path = entry.content_file_path
 
     db.delete(entry)
+    delete_project_file(project, content_file_path)
     db.commit()
     return ApiResponse.success(message="世界观条目已删除")
 

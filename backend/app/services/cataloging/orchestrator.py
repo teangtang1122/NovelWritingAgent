@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ...ai.gateway import LLMGateway
 from ...database.models import CatalogingCandidate, CatalogingChapterRun, CatalogingJob, Chapter
 from ...database.session import SessionLocal
+from ..content_store import sync_project_to_files
 from .applier import apply_candidates_for_run, candidate_to_dict
 from .candidate_store import try_create_candidate
 from .constants import (
@@ -470,6 +471,7 @@ async def _apply_run(db: Session, job: CatalogingJob, run: CatalogingChapterRun)
     job.blocked_chapter_id = None
     job.error = None
     refresh_job_progress(db, job)
+    sync_project_to_files(db, job.project_id)
     db.commit()
     yield sse_event({"type": "chapter_completed", "job": job_to_dict(job), "run": run_to_dict(run), "warnings": has_failed})
 

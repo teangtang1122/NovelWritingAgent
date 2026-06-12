@@ -36,6 +36,12 @@ from ..services.character_service import (
     snapshot_character,
     sync_character_aliases,
 )
+from ..services.content_store import (
+    delete_project_file,
+    refresh_project_from_files,
+    sync_character_to_file,
+    sync_relationships_to_file,
+)
 from ..services.character_merge_service import (
     build_character_merge_preview,
     find_duplicate_character_candidates,
@@ -49,6 +55,8 @@ router = APIRouter(tags=["characters"])
 def list_characters(project_id: str, q: Optional[str] = None, db: Session = Depends(get_db)):
     """Get project character list."""
     get_project_or_404(db, project_id)
+    refresh_project_from_files(db, project_id)
+    db.commit()
     query = (
         db.query(Character)
         .filter(Character.project_id == project_id)
@@ -80,7 +88,7 @@ def list_characters(project_id: str, q: Optional[str] = None, db: Session = Depe
 @router.post("/projects/{project_id}/characters")
 def create_character(project_id: str, payload: CharacterCreate, db: Session = Depends(get_db)):
     """Create a character."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
     character = Character(
         project_id=project_id,
         name=payload.name,
@@ -104,6 +112,9 @@ def create_character(project_id: str, payload: CharacterCreate, db: Session = De
     db.add(character)
     db.flush()
     sync_character_aliases(db, character, payload.aliases)
+    db.commit()
+    db.refresh(character)
+    sync_character_to_file(db, project, character)
     db.commit()
     db.refresh(character)
     return ApiResponse.success(data=character_to_dict(character), message="角色创建成功")
@@ -204,6 +215,8 @@ def merge_duplicate_characters(
 def get_character_detail(project_id: str, character_id: str, db: Session = Depends(get_db)):
     """Get character detail with current version and appearance records."""
     get_project_or_404(db, project_id)
+    refresh_project_from_files(db, project_id)
+    db.commit()
     character = get_character_or_404(db, project_id, character_id)
     data = character_to_dict(character)
     data["appearances"] = get_appearances(db, character.id)
@@ -218,7 +231,7 @@ def update_character(
     db: Session = Depends(get_db),
 ):
     """Update character fields and create a version snapshot."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
     character = get_character_or_404(db, project_id, character_id)
     update_data = payload.model_dump(exclude_unset=True)
     change_summary = update_data.pop("change_summary", None)
@@ -244,14 +257,18 @@ def update_character(
     db.add(snapshot)
     db.commit()
     db.refresh(character)
+    sync_character_to_file(db, project, character)
+    db.commit()
+    db.refresh(character)
     return ApiResponse.success(data=character_to_dict(character), message="角色更新成功")
 
 
 @router.delete("/projects/{project_id}/characters/{character_id}")
 def delete_character(project_id: str, character_id: str, db: Session = Depends(get_db)):
     """Delete a character and its relationships."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
     character = get_character_or_404(db, project_id, character_id)
+    content_file_path = character.content_file_path
     db.query(CharacterRelationship).filter(
         CharacterRelationship.project_id == project_id,
         or_(
@@ -260,6 +277,8 @@ def delete_character(project_id: str, character_id: str, db: Session = Depends(g
         ),
     ).delete(synchronize_session=False)
     db.delete(character)
+    delete_project_file(project, content_file_path)
+    sync_relationships_to_file(db, project)
     db.commit()
     return ApiResponse.success(message="角色已删除")
 

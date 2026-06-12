@@ -12,6 +12,7 @@ import os
 import shlex
 import shutil
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from typing import Optional
 
 from .base import BaseAdapter
@@ -42,6 +43,15 @@ DEFAULT_CLI_MODELS: dict[str, str] = {
     "opencode_cli": "opencode-cli",
     "custom_cli": "custom-cli",
 }
+
+STDIN_PROMPT_PROVIDERS = {"claude_cli", "codex_cli", "opencode_cli"}
+WINDOWS_SAFE_ARG_CHARS = 12000
+
+
+@dataclass(frozen=True)
+class CLILaunch:
+    args: list[str]
+    stdin_text: str | None = None
 
 
 def is_local_cli_provider(provider: str | None) -> bool:
@@ -104,6 +114,34 @@ def parse_cli_args(raw: str | None, provider: str, prompt: str, model: str) -> l
     return result
 
 
+def parse_cli_launch(raw: str | None, provider: str, prompt: str, model: str) -> CLILaunch:
+    """Build CLI launch arguments, moving long prompts to stdin when possible."""
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                parts = [str(item) for item in parsed]
+            else:
+                parts = shlex.split(str(raw), posix=False)
+        except Exception:
+            parts = shlex.split(str(raw), posix=False)
+    else:
+        parts = DEFAULT_CLI_ARGS.get(provider, ["{prompt}"])
+
+    can_use_stdin = provider in STDIN_PROMPT_PROVIDERS and "{prompt}" in parts
+    use_stdin = can_use_stdin and len(prompt) > WINDOWS_SAFE_ARG_CHARS
+    result: list[str] = []
+    for part in parts:
+        if use_stdin and part == "{prompt}":
+            continue
+        result.append(part.replace("{prompt}", prompt).replace("{model}", model))
+    if use_stdin:
+        return CLILaunch(args=result, stdin_text=prompt)
+    if not any("{prompt}" in part for part in parts) and prompt not in result:
+        result.append(prompt)
+    return CLILaunch(args=result)
+
+
 def _extract_text_from_json_event(data: dict) -> str:
     """Best-effort extraction across Claude/Codex/opencode JSONL variants."""
     candidates = [
@@ -162,20 +200,25 @@ class LocalCLIAdapter(BaseAdapter):
     def _args(self, prompt: str, model: str) -> list[str]:
         return parse_cli_args(self.cli_args, self._provider, prompt, model)
 
+    def _launch(self, prompt: str, model: str) -> CLILaunch:
+        return parse_cli_launch(self.cli_args, self._provider, prompt, model)
+
     async def _run(self, prompt: str, model: str) -> str:
         command = self._command()
-        args = self._args(prompt, model)
+        launch = self._launch(prompt, model)
         try:
             proc = await asyncio.create_subprocess_exec(
                 command,
-                *args,
+                *launch.args,
+                stdin=asyncio.subprocess.PIPE if launch.stdin_text is not None else None,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
         except OSError as exc:
             raise LLMError(f"启动本机 CLI 失败: {exc}")
 
-        stdout, stderr = await proc.communicate()
+        stdin_bytes = launch.stdin_text.encode("utf-8") if launch.stdin_text is not None else None
+        stdout, stderr = await proc.communicate(input=stdin_bytes)
         out_text = stdout.decode("utf-8", errors="replace").strip()
         err_text = stderr.decode("utf-8", errors="replace").strip()
         if proc.returncode != 0:

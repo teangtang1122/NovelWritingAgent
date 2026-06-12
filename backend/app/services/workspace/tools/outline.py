@@ -6,7 +6,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ....database.models import OutlineNode
+from ....database.models import OutlineNode, Project
+from ....services.content_store import sync_outline_to_file
 from ..utils import (
     find_outline_by_title_or_id,
     next_outline_sort_order,
@@ -63,6 +64,10 @@ async def create_outline_node(
     db.add(node)
     db.flush()
     replace_outline_links_by_names(db, project_id, node, args.get("character_names"))
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project:
+        sync_outline_to_file(db, project)
+        db.flush()
     return {
         "tool": "create_outline_node",
         "status": "ok",
@@ -109,6 +114,10 @@ async def update_outline_node(
     if "cataloging_status" in args:
         node.cataloging_status = str(args.get("cataloging_status") or "")[:30] or None
     node.updated_at = datetime.utcnow()
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project:
+        sync_outline_to_file(db, project)
+        db.flush()
     return {
         "tool": "update_outline_node",
         "status": "ok",
@@ -141,5 +150,9 @@ async def delete_outline_node(
     for child in children:
         db.delete(child)
     db.delete(node)
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project:
+        db.flush()
+        sync_outline_to_file(db, project)
     db.flush()
     return {"tool": "delete_outline_node", "status": "ok", "detail": f"已删除大纲：{title}"}

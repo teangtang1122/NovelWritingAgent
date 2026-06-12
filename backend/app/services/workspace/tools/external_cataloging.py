@@ -12,6 +12,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from ....services.content_store import refresh_project_from_files
+
 logger = logging.getLogger(__name__)
 
 
@@ -261,6 +263,8 @@ async def start_external_cataloging_job(
         }
 
     # Get chapters for this project
+    refresh_project_from_files(db, project_id)
+    db.flush()
     chapter_ids = args.get("chapter_ids", [])
     if chapter_ids:
         chapters = db.query(Chapter).filter(
@@ -372,6 +376,9 @@ async def get_next_external_cataloging_chapter(
             "detail": mismatch,
             "data": None,
         }
+
+    refresh_project_from_files(db, effective_project_id)
+    db.flush()
 
     if phase == "candidates":
         awaiting_run = db.query(CatalogingChapterRun).filter(
@@ -556,8 +563,9 @@ async def get_next_external_cataloging_chapter(
     for c in characters:
         if hasattr(c, 'aliases') and c.aliases:
             for alias in c.aliases:
-                if alias.alias_name:
-                    char_index[alias.alias_name] = c.id
+                alias_name = getattr(alias, "alias", None) or getattr(alias, "alias_name", None)
+                if alias_name:
+                    char_index[alias_name] = c.id
 
     wb_entries = db.query(WorldbuildingEntry).filter(
         WorldbuildingEntry.project_id == effective_project_id,

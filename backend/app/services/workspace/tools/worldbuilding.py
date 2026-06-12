@@ -6,7 +6,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ....database.models import WorldbuildingEntry
+from ....database.models import Project, WorldbuildingEntry
+from ....services.content_store import delete_project_file, sync_worldbuilding_to_file
 from ..utils import (
     WORLD_DIMENSIONS,
     find_worldbuilding_by_title_or_id,
@@ -63,6 +64,10 @@ async def create_worldbuilding_entry(
     )
     db.add(entry)
     db.flush()
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project:
+        sync_worldbuilding_to_file(db, project, entry)
+        db.flush()
     return {
         "tool": "create_worldbuilding_entry",
         "status": "ok",
@@ -96,6 +101,10 @@ async def update_worldbuilding_entry(
     if "last_updated_chapter_id" in args:
         entry.last_updated_chapter_id = str(args.get("last_updated_chapter_id") or "")[:36] or None
     entry.updated_at = datetime.utcnow()
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project:
+        sync_worldbuilding_to_file(db, project, entry)
+        db.flush()
     return {
         "tool": "update_worldbuilding_entry",
         "status": "ok",
@@ -113,6 +122,10 @@ async def delete_worldbuilding_entry(
     if not entry:
         return {"tool": "delete_worldbuilding_entry", "status": "skipped", "detail": "未找到世界观条目"}
     title = entry.title
+    project = db.query(Project).filter(Project.id == project_id).first()
+    content_file_path = entry.content_file_path
     db.delete(entry)
+    if project:
+        delete_project_file(project, content_file_path)
     db.flush()
     return {"tool": "delete_worldbuilding_entry", "status": "ok", "detail": f"已删除世界观：{title}"}

@@ -16,6 +16,7 @@ from ....database.models import (
     Character,
     Project,
 )
+from ....services.content_store import delete_project_file, sync_chapter_to_file
 from ....services.style_rules import _repair_forbidden_sentence_text
 from ..generated_drafts import resolve_chapter_draft_content
 from ..utils import find_outline_by_title_or_id
@@ -113,6 +114,9 @@ async def create_chapter(
         db, project_id, chapter.id, involved,
         f"由AI助手关联至章节「{title[:50]}」",
     )
+    if project:
+        sync_chapter_to_file(db, project, chapter)
+        db.flush()
 
     return {
         "tool": "create_chapter",
@@ -127,6 +131,7 @@ async def update_chapter(
     project_id: str,
     args: dict[str, Any],
 ) -> dict:
+    project = db.query(Project).filter(Project.id == project_id).first()
     chapter = None
     for ref in (args.get("id"), args.get("chapter_id")):
         text = str(ref or "").strip()
@@ -169,7 +174,6 @@ async def update_chapter(
             outline_node_id=str(args.get("outline_node_id") or "").strip() or None,
             db=db,
         )
-        project = db.query(Project).filter(Project.id == project_id).first()
         skip_style_repair = bool(args.get("skip_style_repair") or args.get("skip_forbidden_repair"))
         if project and new_content.strip() and not skip_style_repair:
             new_content, _violations, _remaining = await _repair_forbidden_sentence_text(
@@ -210,6 +214,9 @@ async def update_chapter(
             _character_names(args.get("involved_characters")),
             f"由AI助手更新章节「{chapter.title[:50]}」",
         )
+    if project:
+        sync_chapter_to_file(db, project, chapter)
+        db.flush()
 
     return {
         "tool": "update_chapter",
@@ -224,6 +231,7 @@ async def delete_chapter(
     project_id: str,
     args: dict[str, Any],
 ) -> dict:
+    project = db.query(Project).filter(Project.id == project_id).first()
     chapter = None
     for ref in (args.get("id"), args.get("chapter_id")):
         text = str(ref or "").strip()
@@ -243,6 +251,7 @@ async def delete_chapter(
         return {"tool": "delete_chapter", "status": "skipped", "detail": "未找到章节"}
 
     title = chapter.title
+    content_file_path = chapter.content_file_path
 
     # Revert character changes introduced in this chapter
     change_logs = db.query(CharacterChangeLog).filter(
@@ -264,6 +273,8 @@ async def delete_chapter(
     db.query(ChapterCharacter).filter(ChapterCharacter.chapter_id == chapter.id).delete()
     db.query(ChapterSummary).filter(ChapterSummary.chapter_id == chapter.id).delete()
     db.delete(chapter)
+    if project:
+        delete_project_file(project, content_file_path)
     db.flush()
 
     detail = f"已删除章节：{title}"

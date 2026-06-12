@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ....database.models import Project
 from ....schemas.importer import ImportSplitSuggestion
+from ....services.content_store import sync_project_to_files
 from ....services.import_service import build_split_preview, execute_import, parse_local_file
 
 
@@ -68,6 +69,7 @@ async def import_text_as_chapters(db: Session, project_id: str, args: dict[str, 
 
     splits, method, needs_review, failed_blocks = await _resolve_splits(text, args)
     chapters = execute_import(db, project_id, text, splits, _outline_node_id(args))
+    sync_project_to_files(db, project_id)
     db.flush()
     return {
         "tool": "import_text_as_chapters",
@@ -92,6 +94,7 @@ async def import_file_as_chapters(db: Session, project_id: str, args: dict[str, 
     text = parsed["text"]
     splits, method, needs_review, failed_blocks = await _resolve_splits(text, args)
     chapters = execute_import(db, project_id, text, splits, _outline_node_id(args))
+    sync_project_to_files(db, project_id)
     db.flush()
     return {
         "tool": "import_file_as_chapters",
@@ -140,6 +143,7 @@ async def import_file_as_project(db: Session, project_id: str, args: dict[str, A
     text = parsed["text"]
     splits, method, needs_review, failed_blocks = await _resolve_splits(text, args)
     chapters = execute_import(db, project.id, text, splits, None)
+    sync_project_to_files(db, project.id)
     db.flush()
     return {
         "tool": "import_file_as_project",

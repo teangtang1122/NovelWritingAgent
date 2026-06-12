@@ -7,7 +7,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ....database.models import Character, CharacterAIConfig, CharacterVersion
+from ....database.models import Character, CharacterAIConfig, CharacterVersion, Project
+from ....services.content_store import delete_project_file, sync_character_to_file
 from ..utils import character_payload, find_character_by_name_or_id
 
 
@@ -73,6 +74,11 @@ async def create_character(
             emotion_tendency=str(ai_config_data.get("emotion_tendency") or "neutral")[:100],
             custom_system_prompt=prompt or None,
         ))
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project:
+        db.flush()
+        sync_character_to_file(db, project, character)
+        db.flush()
     return {
         "tool": "create_character",
         "status": "ok",
@@ -143,6 +149,11 @@ async def update_character(
             snapshot_data=json.dumps(character_payload(character), ensure_ascii=False),
             change_summary="AI助手调整角色档案",
         ))
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if project:
+            db.flush()
+            sync_character_to_file(db, project, character)
+            db.flush()
     return {
         "tool": "update_character",
         "status": "ok",
@@ -160,6 +171,10 @@ async def delete_character(
     if not character:
         return {"tool": "delete_character", "status": "skipped", "detail": "未找到角色"}
     name = character.name
+    project = db.query(Project).filter(Project.id == project_id).first()
+    content_file_path = character.content_file_path
     db.delete(character)
+    if project:
+        delete_project_file(project, content_file_path)
     db.flush()
     return {"tool": "delete_character", "status": "ok", "detail": f"已删除角色：{name}"}

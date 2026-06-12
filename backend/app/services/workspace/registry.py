@@ -246,6 +246,7 @@ def _register_all() -> None:
         get_cataloging_job,
         get_deconstruct_report,
         get_export_word_count,
+        get_project_files_info,
         get_today_writing_stats,
         get_writing_stats_history,
         get_project_info,
@@ -263,6 +264,7 @@ def _register_all() -> None:
         list_duplicate_characters,
         list_memories,
         list_chapters,
+        list_project_files,
         list_projects,
         list_scheduled_tasks,
         list_skill_templates_tool,
@@ -282,6 +284,7 @@ def _register_all() -> None:
         rewrite_text,
         roleplay_character,
         run_scheduled_task_now,
+        search_project_files,
         merge_duplicate_characters,
         pause_cataloging_job,
         resume_cataloging_job,
@@ -302,6 +305,7 @@ def _register_all() -> None:
         update_scheduled_task,
         update_skill,
         update_worldbuilding_entry,
+        read_project_file,
         set_cataloging_mode,
         set_daily_word_goal,
         start_cataloging_job,
@@ -309,6 +313,8 @@ def _register_all() -> None:
         web_search,
         worldbuilding_writer,
         preview_writing_context,
+        sync_project_files,
+        write_project_file,
         reset_skill,
     )
     from .tools.rag_tools import search_context, preview_rag_context, explain_context_selection
@@ -339,6 +345,90 @@ def _register_all() -> None:
         tool_type="read",
         estimated_cost="free",
         handler=get_project_info,
+    ))
+
+    _r(ToolDef(
+        name="get_project_files_info",
+        description="读取作品的文件源目录信息。用于 Claude/Codex 了解章节、角色、大纲、世界观在本机项目目录中的位置。",
+        input_schema={
+            "project_id": {"type": "string", "description": "可选，作品ID。不传则使用当前作品"},
+        },
+        tool_type="read",
+        estimated_cost="free",
+        handler=get_project_files_info,
+    ))
+
+    _r(ToolDef(
+        name="list_project_files",
+        description="列出作品目录内的文件或子目录。只能访问该作品目录，不能读取 API Key 或系统设置。",
+        input_schema={
+            "project_id": {"type": "string", "description": "可选，作品ID。不传则使用当前作品"},
+            "path": {"type": "string", "description": "相对作品目录的子目录，如 chapters、characters、outline"},
+            "limit": {"type": "integer", "description": "返回数量上限，默认200"},
+        },
+        tool_type="read",
+        estimated_cost="free",
+        handler=list_project_files,
+    ))
+
+    _r(ToolDef(
+        name="read_project_file",
+        description="读取作品目录内的文本文件，如章节 Markdown、角色 JSON、世界观 JSON。大文件会按 max_chars 截断。",
+        input_schema={
+            "project_id": {"type": "string", "description": "可选，作品ID。不传则使用当前作品"},
+            "path": {"type": "string", "description": "作品目录内的相对文件路径"},
+            "max_chars": {"type": "integer", "description": "最多读取字符数，默认200000"},
+        },
+        required=["path"],
+        tool_type="read",
+        estimated_cost="free",
+        handler=read_project_file,
+    ))
+
+    _r(ToolDef(
+        name="search_project_files",
+        description="在作品目录内搜索文本。适合外部 Agent 快速定位章节正文、角色卡、大纲或世界观中的线索。",
+        input_schema={
+            "project_id": {"type": "string", "description": "可选，作品ID。不传则使用当前作品"},
+            "query": {"type": "string", "description": "要搜索的文本"},
+            "path": {"type": "string", "description": "可选，限定搜索子目录或文件"},
+            "limit": {"type": "integer", "description": "匹配数量上限，默认50"},
+            "context_chars": {"type": "integer", "description": "每个命中前后保留的字符数，默认120"},
+        },
+        required=["query"],
+        tool_type="read",
+        estimated_cost="free",
+        handler=search_project_files,
+    ))
+
+    _r(ToolDef(
+        name="write_project_file",
+        description="写入作品目录内的文本文件，并可自动刷新数据库索引。只能写入当前作品目录内的 md/json/txt/yml/yaml/csv 文件。",
+        input_schema={
+            "project_id": {"type": "string", "description": "可选，作品ID。不传则使用当前作品"},
+            "path": {"type": "string", "description": "作品目录内的相对文件路径"},
+            "content": {"type": "string", "description": "要写入的完整文本内容"},
+            "overwrite": {"type": "boolean", "description": "是否覆盖已有文件，默认true"},
+            "sync_after_write": {"type": "boolean", "description": "写入后是否刷新数据库索引，默认true"},
+        },
+        required=["path", "content"],
+        tool_type="write",
+        writes_project_data=True,
+        estimated_cost="free",
+        handler=write_project_file,
+    ))
+
+    _r(ToolDef(
+        name="sync_project_files",
+        description="手动同步作品文件目录与数据库索引。files_to_db 读取文件刷新索引，db_to_files 将数据库镜像导出到文件，both 双向执行。",
+        input_schema={
+            "project_id": {"type": "string", "description": "可选，作品ID。不传则使用当前作品"},
+            "direction": {"type": "string", "description": "files_to_db|db_to_files|both，默认 files_to_db"},
+        },
+        tool_type="write",
+        writes_project_data=True,
+        estimated_cost="free",
+        handler=sync_project_files,
     ))
 
     _r(ToolDef(
@@ -2236,6 +2326,7 @@ def _classify_all() -> None:
         "apply_novel_blueprint",
         "save_external_cataloging_facts",
         "save_external_cataloging_candidates",
+        "write_project_file", "sync_project_files",
     }
 
     _MANAGEMENT_TOOLS = {

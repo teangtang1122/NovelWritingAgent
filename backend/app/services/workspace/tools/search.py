@@ -13,6 +13,12 @@ from ....database.models import (
     OutlineNode,
     WorldbuildingEntry,
 )
+from ....services.content_store import refresh_project_from_files
+
+
+def _refresh(db: Session, project_id: str) -> None:
+    refresh_project_from_files(db, project_id)
+    db.flush()
 
 
 async def search_characters(
@@ -20,6 +26,7 @@ async def search_characters(
     project_id: str,
     args: dict[str, Any],
 ) -> dict:
+    _refresh(db, project_id)
     query = str(args.get("query") or "").strip()
     limit = max(1, min(int(args.get("limit") or 10), 30))
     base = (
@@ -76,6 +83,7 @@ async def search_chapters(
     project_id: str,
     args: dict[str, Any],
 ) -> dict:
+    _refresh(db, project_id)
     query = str(args.get("query") or "").strip()
     outline_node_id = str(args.get("outline_node_id") or "").strip() or None
     limit = max(1, min(int(args.get("limit") or 5), 20))
@@ -123,6 +131,7 @@ async def search_outline(
     project_id: str,
     args: dict[str, Any],
 ) -> dict:
+    _refresh(db, project_id)
     query = str(args.get("query") or "").strip()
     node_id = str(args.get("node_id") or "").strip() or None
     limit = max(1, min(int(args.get("limit") or 10), 60))
@@ -217,6 +226,7 @@ async def search_worldbuilding(
     project_id: str,
     args: dict[str, Any],
 ) -> dict:
+    _refresh(db, project_id)
     query = str(args.get("query") or "").strip()
     dimension = str(args.get("dimension") or "").strip() or None
     limit = max(1, min(int(args.get("limit") or 10), 30))
@@ -268,6 +278,7 @@ async def list_characters(
     args: dict[str, Any],
 ) -> dict:
     """Lightweight character catalog — names and IDs only, for quick overview."""
+    _refresh(db, project_id)
     characters = (
         db.query(Character)
         .filter(Character.project_id == project_id)
@@ -312,6 +323,7 @@ async def search_outline_tree(
     project_id: str,
     args: dict[str, Any],
 ) -> dict:
+    _refresh(db, project_id)
     root_id = str(args.get("root_id") or "").strip() or None
     all_nodes = (
         db.query(OutlineNode)
@@ -354,6 +366,7 @@ async def list_worldbuilding(
     args: dict[str, Any],
 ) -> dict:
     """Lightweight worldbuilding catalog — id, title, dimension only, for quick overview."""
+    _refresh(db, project_id)
     entries = (
         db.query(WorldbuildingEntry)
         .filter(WorldbuildingEntry.project_id == project_id)
@@ -381,6 +394,7 @@ async def list_chapters(
     args: dict[str, Any],
 ) -> dict:
     """Lightweight chapter catalog — id, title, outline_node_id only, for quick overview."""
+    _refresh(db, project_id)
     chapters = (
         db.query(Chapter)
         .filter(Chapter.project_id == project_id)
@@ -407,6 +421,7 @@ async def search_relationships(
     project_id: str,
     args: dict[str, Any],
 ) -> dict:
+    _refresh(db, project_id)
     character_id = str(args.get("character_id") or "").strip() or None
     character_name = str(args.get("character_name") or "").strip() or None
 

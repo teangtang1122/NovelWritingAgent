@@ -19,6 +19,11 @@ from ..services.chapter_service import (
     diff_snapshots,
     snapshot_to_item,
 )
+from ..services.content_store import (
+    delete_project_file,
+    refresh_project_from_files,
+    sync_chapter_to_file,
+)
 from ..services.outline_service import load_outline_nodes, outline_sort_context
 
 router = APIRouter(tags=["chapters"])
@@ -59,7 +64,9 @@ def _get_snapshot_or_404(
 @router.get("/projects/{project_id}/chapters")
 def list_chapters(project_id: str, db: Session = Depends(get_db)):
     """Get chapter list ordered by outline tree structure."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
+    refresh_project_from_files(db, project_id)
+    db.commit()
     outline_context = outline_sort_context(load_outline_nodes(db, project_id))
     chapters = db.query(Chapter).filter(Chapter.project_id == project_id).all()
 
@@ -77,7 +84,7 @@ def list_chapters(project_id: str, db: Session = Depends(get_db)):
 @router.post("/projects/{project_id}/chapters")
 def create_chapter(project_id: str, payload: ChapterCreate, db: Session = Depends(get_db)):
     """Create a chapter linked to an optional outline node."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
     get_outline_node_or_404(db, project_id, payload.outline_node_id)
     chapter = Chapter(
         project_id=project_id,
@@ -90,6 +97,9 @@ def create_chapter(project_id: str, payload: ChapterCreate, db: Session = Depend
     db.add(chapter)
     db.commit()
     db.refresh(chapter)
+    sync_chapter_to_file(db, project, chapter)
+    db.commit()
+    db.refresh(chapter)
     outline_context = outline_sort_context(load_outline_nodes(db, project_id))
     return ApiResponse.success(data=chapter_to_detail(chapter, outline_context), message="章节已创建")
 
@@ -98,6 +108,8 @@ def create_chapter(project_id: str, payload: ChapterCreate, db: Session = Depend
 def get_chapter_detail(project_id: str, chapter_id: str, db: Session = Depends(get_db)):
     """Get chapter detail with full content."""
     get_project_or_404(db, project_id)
+    refresh_project_from_files(db, project_id)
+    db.commit()
     chapter = _get_chapter_or_404(db, project_id, chapter_id)
     outline_context = outline_sort_context(load_outline_nodes(db, project_id))
     return ApiResponse.success(data=chapter_to_detail(chapter, outline_context))
@@ -111,7 +123,7 @@ def save_chapter(
     db: Session = Depends(get_db),
 ):
     """Save chapter fields and create a version snapshot in the same transaction."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
     chapter = _get_chapter_or_404(db, project_id, chapter_id)
     update_data = payload.model_dump(exclude_unset=True)
     trigger_type = update_data.pop("trigger_type", "manual_save")
@@ -131,6 +143,9 @@ def save_chapter(
     db.add(create_snapshot(chapter, trigger_type))
     db.commit()
     db.refresh(chapter)
+    sync_chapter_to_file(db, project, chapter)
+    db.commit()
+    db.refresh(chapter)
     outline_context = outline_sort_context(load_outline_nodes(db, project_id))
     return ApiResponse.success(data=chapter_to_detail(chapter, outline_context), message="章节已保存")
 
@@ -138,9 +153,11 @@ def save_chapter(
 @router.delete("/projects/{project_id}/chapters/{chapter_id}")
 def delete_chapter(project_id: str, chapter_id: str, db: Session = Depends(get_db)):
     """Delete a chapter and its snapshots."""
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
     chapter = _get_chapter_or_404(db, project_id, chapter_id)
+    content_file_path = chapter.content_file_path
     db.delete(chapter)
+    delete_project_file(project, content_file_path)
     db.commit()
     return ApiResponse.success(message="章节已删除")
 
@@ -206,6 +223,10 @@ def restore_chapter_snapshot(
     chapter.word_count = snapshot.word_count or count_words(snapshot.content or "")
     chapter.current_version = (chapter.current_version or 1) + 1
     db.add(create_snapshot(chapter, "restore"))
+    db.commit()
+    db.refresh(chapter)
+    project = get_project_or_404(db, project_id)
+    sync_chapter_to_file(db, project, chapter)
     db.commit()
     db.refresh(chapter)
     outline_context = outline_sort_context(load_outline_nodes(db, project_id))

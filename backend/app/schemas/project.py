@@ -50,6 +50,9 @@ class ProjectResponse(BaseModel):
     short_sentences: bool
     custom_style_prompt: Optional[str]
     daily_word_goal: int
+    storage_mode: Optional[str] = None
+    folder_path: Optional[str] = None
+    content_migrated_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -62,6 +65,8 @@ class ProjectListItem(BaseModel):
     title: str
     description: Optional[str]
     tags: Optional[str]
+    storage_mode: Optional[str] = None
+    folder_path: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

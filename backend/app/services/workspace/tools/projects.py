@@ -9,6 +9,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ....database.models import Project
+from ....services.content_store import delete_project_folder, ensure_project_folder, write_project_manifest
 
 
 def _project_payload(project: Project) -> dict:
@@ -24,6 +25,8 @@ def _project_payload(project: Project) -> dict:
         "short_sentences": bool(project.short_sentences),
         "custom_style_prompt": project.custom_style_prompt,
         "daily_word_goal": project.daily_word_goal,
+        "storage_mode": getattr(project, "storage_mode", None),
+        "folder_path": getattr(project, "folder_path", None),
         "created_at": project.created_at.isoformat() if project.created_at else None,
         "updated_at": project.updated_at.isoformat() if project.updated_at else None,
     }
@@ -100,6 +103,9 @@ async def create_project(db: Session, project_id: str, args: dict[str, Any]) -> 
     )
     db.add(project)
     db.flush()
+    ensure_project_folder(db, project)
+    write_project_manifest(db, project)
+    db.flush()
     return {
         "tool": "create_project",
         "status": "ok",
@@ -140,6 +146,7 @@ async def update_project_info(db: Session, project_id: str, args: dict[str, Any]
         changed = True
     if changed:
         project.updated_at = datetime.utcnow()
+        write_project_manifest(db, project)
         db.flush()
     return {
         "tool": "update_project_info",
@@ -157,6 +164,7 @@ async def delete_project(db: Session, project_id: str, args: dict[str, Any]) -> 
     if not project:
         return {"tool": "delete_project", "status": "skipped", "detail": "未找到作品"}
     title = project.title
+    delete_project_folder(project)
     db.delete(project)
     db.flush()
     return {"tool": "delete_project", "status": "ok", "detail": f"已删除作品：{title}", "data": {"id": target_id}}

@@ -55,6 +55,9 @@ async def get_moshu_usage_guide(
         "quickstart": {
             "title": "墨枢外部 Agent 快速入口",
             "rules": [
+                "Moshu 2.0 uses a project folder as the creative-content source of truth: chapters/*.md, characters/*.json, worldbuilding/**/*.json, outline/outline.json, relationships/relationships.json.",
+                "When you need long text or exact source material, use get_project_files_info -> list_project_files/read_project_file/search_project_files instead of asking Moshu to pass everything through chat.",
+                "If you edit project files directly, call sync_project_files(direction='files_to_db') before reporting that the data is visible in Moshu.",
                 "默认使用 API-free 外部流程：除非用户明确说“使用墨枢内部 API/内部模型/系统模型额度”，不要调用内部模型工具。",
                 "内部模型工具现在只通过 MCP permission pack: internal_llm 暴露；project_management 只用于 API-free 的项目创建、导入、写入、导出、技能和自动任务管理。",
                 "中文小说必须用中文保存角色名、别名、章节标题、摘要、大纲、事实和世界观；不要因为工具报错就改成英文或拼音。",
@@ -65,6 +68,10 @@ async def get_moshu_usage_guide(
             "first_tools": [
                 "get_mcp_permission_status",
                 "list_projects",
+                "get_project_files_info",
+                "list_project_files",
+                "read_project_file",
+                "search_project_files",
                 "get_project_archive_status",
                 "list_prompt_packs",
                 "get_prompt_pack",
