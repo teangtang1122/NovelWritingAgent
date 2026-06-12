@@ -347,6 +347,9 @@ class APIConfig(Base):
     default_model = Column(String(100), nullable=False)
     is_global_default = Column(Boolean, default=False)
     base_url_override = Column(String(500), nullable=True)
+    provider_type = Column(String(20), nullable=False, default="api")  # api/local_cli
+    cli_command = Column(String(500), nullable=True)
+    cli_args = Column(Text, nullable=True)  # JSON array or shell-like argument string
     max_output_tokens = Column(Integer, nullable=True)
     deconstruct_input_char_limit = Column(Integer, nullable=True)
     deconstruct_item_char_limit = Column(Integer, nullable=True)

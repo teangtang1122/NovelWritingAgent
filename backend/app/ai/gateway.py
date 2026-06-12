@@ -13,12 +13,14 @@ from .anthropic_adapter import AnthropicAdapter
 from .base import BaseAdapter
 from .capabilities import (
     normalize_retry_count,
+    provider_capabilities,
     request_meta,
     sanitize_tool_request,
     should_retry_without_tool_choice,
 )
 from .deepseek_adapter import DeepSeekAdapter
 from .gemini_adapter import GeminiAdapter
+from .local_cli_adapter import LocalCLIAdapter
 from .openai_adapter import OpenAIAdapter
 from .qwen_adapter import QwenAdapter
 
@@ -29,6 +31,10 @@ ADAPTER_MAP: dict[str, type[BaseAdapter]] = {
     "deepseek": DeepSeekAdapter,
     "qwen": QwenAdapter,
     "gemini": GeminiAdapter,
+    "claude_cli": LocalCLIAdapter,
+    "codex_cli": LocalCLIAdapter,
+    "opencode_cli": LocalCLIAdapter,
+    "custom_cli": LocalCLIAdapter,
 }
 
 DEFAULT_TIMEOUT = 120
@@ -69,7 +75,7 @@ class LLMGateway:
         try:
             config = db.query(APIConfig).filter(APIConfig.is_global_default == True).first()  # noqa: E712
             if not config:
-                raise NotFoundError("未配置全局默认模型，请先前往系统设置配置 API")
+                raise NotFoundError("未配置全局默认模型，请先前往系统设置配置模型")
             return config.provider, config.default_model
         finally:
             db.close()
@@ -103,6 +109,17 @@ class LLMGateway:
         # Unknown providers are user-defined OpenAI-compatible endpoints. The
         # config layer requires a custom base URL before they can be saved.
         return OpenAIAdapter
+
+    @classmethod
+    def provider_for_model(cls, model: Optional[str] = None) -> str:
+        provider, _ = cls._parse_model(model)
+        return provider
+
+    @classmethod
+    def supports_tool_calling(cls, model: Optional[str] = None) -> bool:
+        provider = cls.provider_for_model(model)
+        caps = provider_capabilities(provider)
+        return caps.supports_tools and caps.supports_streaming_tools
 
     @staticmethod
     def _load_config(provider: str) -> APIConfig:
@@ -156,7 +173,12 @@ class LLMGateway:
         provider, model_name = cls._parse_model(model)
         config = cls._load_config(provider)
         adapter_cls = cls._get_adapter(provider)
-        adapter = adapter_cls(api_key=decrypt(config.api_key_encrypted), base_url=config.base_url_override)
+        adapter = adapter_cls(
+            api_key=decrypt(config.api_key_encrypted),
+            base_url=config.provider if adapter_cls is LocalCLIAdapter else config.base_url_override,
+            cli_command=getattr(config, "cli_command", None),
+            cli_args=getattr(config, "cli_args", None),
+        )
         timeout_seconds = timeout or DEFAULT_TIMEOUT
         attempts = normalize_retry_count(retry)
         safe_tools, safe_tool_choice, notes = sanitize_tool_request(provider, tools, tool_choice)
@@ -215,7 +237,12 @@ class LLMGateway:
         provider, model_name = cls._parse_model(model)
         config = cls._load_config(provider)
         adapter_cls = cls._get_adapter(provider)
-        adapter = adapter_cls(api_key=decrypt(config.api_key_encrypted), base_url=config.base_url_override)
+        adapter = adapter_cls(
+            api_key=decrypt(config.api_key_encrypted),
+            base_url=config.provider if adapter_cls is LocalCLIAdapter else config.base_url_override,
+            cli_command=getattr(config, "cli_command", None),
+            cli_args=getattr(config, "cli_args", None),
+        )
         timeout_seconds = timeout or DEFAULT_TIMEOUT
         attempts = normalize_retry_count(retry)
         last_error: BaseException | None = None
@@ -269,7 +296,12 @@ class LLMGateway:
         provider, model_name = cls._parse_model(model)
         config = cls._load_config(provider)
         adapter_cls = cls._get_adapter(provider)
-        adapter = adapter_cls(api_key=decrypt(config.api_key_encrypted), base_url=config.base_url_override)
+        adapter = adapter_cls(
+            api_key=decrypt(config.api_key_encrypted),
+            base_url=config.provider if adapter_cls is LocalCLIAdapter else config.base_url_override,
+            cli_command=getattr(config, "cli_command", None),
+            cli_args=getattr(config, "cli_args", None),
+        )
         timeout_seconds = timeout or DEFAULT_TIMEOUT
         attempts = normalize_retry_count(retry)
         safe_tools, safe_tool_choice, notes = sanitize_tool_request(provider, tools, tool_choice)

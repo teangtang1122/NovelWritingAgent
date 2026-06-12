@@ -36,6 +36,9 @@ interface ModelConfig {
   default_model: string
   is_global_default: boolean
   base_url_override?: string
+  provider_type?: string
+  cli_command?: string
+  cli_args?: string
   max_output_tokens?: number | null
   effective_max_output_tokens?: number
   deconstruct_input_char_limit?: number | null
@@ -63,6 +66,10 @@ const PROVIDER_OPTIONS = [
   { value: 'deepseek', label: 'DeepSeek（v4-pro / v4-flash）' },
   { value: 'qwen', label: '通义千问' },
   { value: 'gemini', label: 'Google Gemini' },
+  { value: 'claude_cli', label: 'Claude Code CLI（本机）' },
+  { value: 'codex_cli', label: 'Codex CLI（本机）' },
+  { value: 'opencode_cli', label: 'opencode CLI（本机）' },
+  { value: 'custom_cli', label: '自定义本机 CLI' },
   { value: '__custom_openai_compatible__', label: '自定义 OpenAI 兼容' },
 ]
 
@@ -75,6 +82,10 @@ const PROVIDER_LABEL_MAP: Record<string, string> = {
   deepseek: 'DeepSeek',
   qwen: '通义千问',
   gemini: 'Google Gemini',
+  claude_cli: 'Claude Code CLI',
+  codex_cli: 'Codex CLI',
+  opencode_cli: 'opencode CLI',
+  custom_cli: '自定义本机 CLI',
 }
 
 const PROVIDER_COLOR_MAP: Record<string, string> = {
@@ -83,6 +94,10 @@ const PROVIDER_COLOR_MAP: Record<string, string> = {
   deepseek: 'blue',
   qwen: 'orange',
   gemini: 'cyan',
+  claude_cli: 'purple',
+  codex_cli: 'geekblue',
+  opencode_cli: 'magenta',
+  custom_cli: 'default',
 }
 
 const providerLabel = (provider?: string | null) => {
@@ -96,6 +111,8 @@ const providerColor = (provider?: string | null) => {
 }
 
 const isCustomProviderSelection = (provider?: string) => provider === CUSTOM_PROVIDER_VALUE
+const LOCAL_CLI_PROVIDERS = ['claude_cli', 'codex_cli', 'opencode_cli', 'custom_cli']
+const isLocalCliProvider = (provider?: string) => Boolean(provider && LOCAL_CLI_PROVIDERS.includes(provider))
 
 const resolveProviderForSubmit = (values: any) => (
   isCustomProviderSelection(values.provider)
@@ -116,6 +133,27 @@ const GEMINI_MODEL_OPTIONS: ModelOption[] = [
   { id: 'gemini-2.5-flash-lite', display_name: 'gemini-2.5-flash-lite' },
 ]
 
+const LOCAL_CLI_MODEL_OPTIONS: Record<string, ModelOption[]> = {
+  claude_cli: [{ id: 'claude-code', display_name: 'claude-code' }],
+  codex_cli: [{ id: 'codex-cli', display_name: 'codex-cli' }],
+  opencode_cli: [{ id: 'opencode-cli', display_name: 'opencode-cli' }],
+  custom_cli: [{ id: 'custom-cli', display_name: 'custom-cli' }],
+}
+
+const DEFAULT_CLI_COMMANDS: Record<string, string> = {
+  claude_cli: 'claude',
+  codex_cli: 'codex',
+  opencode_cli: 'opencode',
+  custom_cli: '',
+}
+
+const DEFAULT_CLI_ARGS: Record<string, string> = {
+  claude_cli: '["-p","{prompt}"]',
+  codex_cli: '["exec","{prompt}"]',
+  opencode_cli: '["run","{prompt}"]',
+  custom_cli: '["{prompt}"]',
+}
+
 const FALLBACK_OUTPUT_LIMIT = 16000
 const MODEL_OUTPUT_LIMITS: Record<string, number> = {
   'deepseek:deepseek-v4-pro': 384000,
@@ -134,6 +172,7 @@ const PROVIDER_OUTPUT_LIMITS: Record<string, number> = {
 const fallbackModelOptions = (provider?: string): ModelOption[] => {
   if (provider === 'deepseek') return DEEPSEEK_MODEL_OPTIONS
   if (provider === 'gemini') return GEMINI_MODEL_OPTIONS
+  if (provider && LOCAL_CLI_MODEL_OPTIONS[provider]) return LOCAL_CLI_MODEL_OPTIONS[provider]
   return []
 }
 
@@ -143,6 +182,9 @@ const normalizeDefaultModel = (provider: string, model: string) => {
   }
   if (provider === 'gemini' && model.startsWith('models/')) {
     return model.slice('models/'.length)
+  }
+  if (isLocalCliProvider(provider)) {
+    return model || LOCAL_CLI_MODEL_OPTIONS[provider]?.[0]?.id || `${provider}-default`
   }
   return model
 }
@@ -257,6 +299,9 @@ function SettingsPage({ embedded = false }: SettingsPageProps = {}) {
           custom_provider: isKnownProvider ? undefined : cfg.provider,
           default_model: defaultModel,
           base_url_override: cfg.base_url_override || '',
+          provider_type: cfg.provider_type || (isLocalCliProvider(cfg.provider) ? 'local_cli' : 'api'),
+          cli_command: cfg.cli_command || DEFAULT_CLI_COMMANDS[cfg.provider] || '',
+          cli_args: cfg.cli_args || DEFAULT_CLI_ARGS[cfg.provider] || '',
           api_key: '',
           max_output_tokens: cfg.max_output_tokens || cfg.effective_max_output_tokens || defaultOutputLimit(cfg.provider, defaultModel),
           deconstruct_input_char_limit: cfg.deconstruct_input_char_limit || cfg.effective_deconstruct_input_char_limit || defaultOutputLimit(cfg.provider, defaultModel),
@@ -282,8 +327,13 @@ function SettingsPage({ embedded = false }: SettingsPageProps = {}) {
         message.error('提供商标识只能包含字母、数字、下划线和短横线')
         return
       }
+      const isCli = isLocalCliProvider(provider)
       if (isCustomProviderSelection(values.provider) && !values.base_url_override) {
         message.error('自定义 OpenAI 兼容提供商必须填写 API 端点')
+        return
+      }
+      if (isCli && provider === 'custom_cli' && !values.cli_command) {
+        message.error('请填写本机 CLI 命令')
         return
       }
 
@@ -294,9 +344,12 @@ function SettingsPage({ embedded = false }: SettingsPageProps = {}) {
       }
       await apiClient.post('/config/models', {
         provider,
-        api_key: values.api_key,
+        api_key: isCli ? undefined : values.api_key,
         default_model: defaultModel,
-        base_url_override: values.base_url_override || null,
+        base_url_override: isCli ? null : values.base_url_override || null,
+        provider_type: isCli ? 'local_cli' : 'api',
+        cli_command: isCli ? values.cli_command || DEFAULT_CLI_COMMANDS[provider] || null : null,
+        cli_args: isCli ? values.cli_args || DEFAULT_CLI_ARGS[provider] || null : null,
         max_output_tokens: values.max_output_tokens || null,
         deconstruct_input_char_limit: values.deconstruct_input_char_limit || null,
         deconstruct_item_char_limit: values.deconstruct_item_char_limit || null,
@@ -333,6 +386,10 @@ function SettingsPage({ embedded = false }: SettingsPageProps = {}) {
     const provider = resolveProviderForSubmit(form.getFieldsValue())
     const apiKey = form.getFieldValue('api_key')
     if (!provider) return
+    if (isLocalCliProvider(provider)) {
+      setModelOptions(fallbackModelOptions(provider))
+      return
+    }
     const baseUrl = form.getFieldValue('base_url_override') || undefined
     if (!PROVIDER_LABEL_MAP[provider] && !baseUrl) {
       setModelOptions([])
@@ -361,13 +418,14 @@ function SettingsPage({ embedded = false }: SettingsPageProps = {}) {
   const testConnection = async () => {
     const values = form.getFieldsValue()
     const provider = resolveProviderForSubmit(values)
+    const isCli = isLocalCliProvider(provider)
     const apiKey = form.getFieldValue('api_key')
-    if (!provider || !apiKey) {
+    if (!provider || (!isCli && !apiKey)) {
       message.warning('请先选择提供商并输入 API Key')
       return
     }
     const baseUrl = form.getFieldValue('base_url_override') || undefined
-    if (!PROVIDER_LABEL_MAP[provider] && !baseUrl) {
+    if (!isCli && !PROVIDER_LABEL_MAP[provider] && !baseUrl) {
       message.warning('自定义 OpenAI 兼容提供商必须填写 API 端点')
       return
     }
@@ -377,10 +435,12 @@ function SettingsPage({ embedded = false }: SettingsPageProps = {}) {
     try {
       await apiClient.post('/config/models/test', {
         provider,
-        api_key: apiKey,
-        base_url_override: baseUrl,
+        api_key: isCli ? undefined : apiKey,
+        base_url_override: isCli ? undefined : baseUrl,
+        cli_command: isCli ? values.cli_command || DEFAULT_CLI_COMMANDS[provider] : undefined,
+        cli_args: isCli ? values.cli_args || DEFAULT_CLI_ARGS[provider] : undefined,
       })
-      setConnectionTestResult({ success: true, message: '连接成功，API Key 有效' })
+      setConnectionTestResult({ success: true, message: isCli ? '本机 CLI 可用' : '连接成功，API Key 有效' })
     } catch (err: any) {
       setConnectionTestResult({ success: false, message: err.message || '连接失败' })
     } finally {
@@ -600,8 +660,15 @@ function SettingsPage({ embedded = false }: SettingsPageProps = {}) {
                 setConnectionTestResult(null)
                 const nextModel = isCustomProviderSelection(provider) ? undefined : fallback[0]?.id
                 form.setFieldValue('default_model', nextModel)
-                form.setFieldsValue(defaultSafetyLimits(provider, nextModel))
-                if (form.getFieldValue('api_key')) {
+                form.setFieldsValue({
+                  ...defaultSafetyLimits(provider, nextModel),
+                  provider_type: isLocalCliProvider(provider) ? 'local_cli' : 'api',
+                  cli_command: isLocalCliProvider(provider) ? DEFAULT_CLI_COMMANDS[provider] || '' : undefined,
+                  cli_args: isLocalCliProvider(provider) ? DEFAULT_CLI_ARGS[provider] || '' : undefined,
+                  api_key: isLocalCliProvider(provider) ? undefined : form.getFieldValue('api_key'),
+                  base_url_override: isLocalCliProvider(provider) ? undefined : form.getFieldValue('base_url_override'),
+                })
+                if (isLocalCliProvider(provider) || form.getFieldValue('api_key')) {
                   fetchModels()
                 }
               }}
@@ -634,6 +701,7 @@ function SettingsPage({ embedded = false }: SettingsPageProps = {}) {
             </Form.Item>
           )}
 
+          {!isLocalCliProvider(modalProvider) && (
           <Form.Item
             name="api_key"
             label={
@@ -662,6 +730,37 @@ function SettingsPage({ embedded = false }: SettingsPageProps = {}) {
               }}
             />
           </Form.Item>
+          )}
+
+          {isLocalCliProvider(modalProvider) && (
+            <>
+              <Form.Item
+                name="cli_command"
+                label="本机 CLI 命令"
+                extra="例如 claude、codex、opencode，或完整可执行文件路径。"
+                rules={[{ required: modalProvider === 'custom_cli', message: '请填写本机 CLI 命令' }]}
+              >
+                <Input placeholder={DEFAULT_CLI_COMMANDS[modalProvider] || 'my-agent-cli'} />
+              </Form.Item>
+              <Form.Item
+                name="cli_args"
+                label="CLI 参数"
+                extra="JSON 数组或普通参数字符串。可使用 {prompt} 和 {model} 占位符。"
+              >
+                <Input.TextArea rows={3} placeholder={DEFAULT_CLI_ARGS[modalProvider] || '["{prompt}"]'} />
+              </Form.Item>
+              <Button
+                type="link"
+                size="small"
+                icon={<ReloadOutlined spin={testingConnection} />}
+                loading={testingConnection}
+                onClick={testConnection}
+                style={{ padding: 0, marginTop: -8, marginBottom: 12 }}
+              >
+                测试本机 CLI
+              </Button>
+            </>
+          )}
 
           {connectionTestResult && (
             <div style={{
@@ -751,6 +850,7 @@ function SettingsPage({ embedded = false }: SettingsPageProps = {}) {
             <InputNumber min={1} max={1000000} style={{ width: '100%' }} />
           </Form.Item>
 
+          {!isLocalCliProvider(modalProvider) && (
           <Form.Item
             name="base_url_override"
             label={isCustomProviderSelection(modalProvider) ? 'API 端点' : '自定义 API 端点（可选）'}
@@ -770,6 +870,7 @@ function SettingsPage({ embedded = false }: SettingsPageProps = {}) {
               }}
             />
           </Form.Item>
+          )}
         </Form>
       </Modal>
     </div>

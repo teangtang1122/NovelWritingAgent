@@ -301,6 +301,26 @@ class TestAPIConfigCreateAPI(unittest.TestCase):
         self.assertEqual(data["default_model"], "openai/gpt-4o-mini")
         self.assertEqual(data["base_url_override"], "https://openrouter.example.test/v1")
 
+    def test_create_local_cli_provider_without_api_key(self):
+        """POST /config/models accepts local CLI providers without API keys."""
+        response = self.client.post(
+            f"{API_PREFIX}/config/models",
+            json={
+                "provider": "claude_cli",
+                "default_model": "claude-code",
+                "provider_type": "local_cli",
+                "cli_command": "claude",
+                "cli_args": '["-p","{prompt}"]',
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["provider"], "claude_cli")
+        self.assertEqual(data["provider_type"], "local_cli")
+        self.assertEqual(data["default_model"], "claude-code")
+        self.assertEqual(data["cli_command"], "claude")
+        self.assertEqual(data["cli_args"], '["-p","{prompt}"]')
+
     # ------------------------------------------------------------------
     # TC-09: Create with missing required fields
     # ------------------------------------------------------------------
@@ -1011,8 +1031,29 @@ class TestLLMGatewayModelParsing(unittest.TestCase):
     # ------------------------------------------------------------------
     def test_adapter_map_coverage(self):
         """ADAPTER_MAP contains all supported providers."""
-        expected = {"openai", "anthropic", "deepseek", "qwen", "gemini"}
+        expected = {
+            "openai",
+            "anthropic",
+            "deepseek",
+            "qwen",
+            "gemini",
+            "claude_cli",
+            "codex_cli",
+            "opencode_cli",
+            "custom_cli",
+        }
         self.assertEqual(set(ADAPTER_MAP.keys()), expected)
+
+    def test_get_adapter_local_cli_provider(self):
+        """_get_adapter routes local CLI providers to LocalCLIAdapter."""
+        adapter_cls = LLMGateway._get_adapter("claude_cli")
+        self.assertEqual(adapter_cls.__name__, "LocalCLIAdapter")
+
+    def test_local_cli_provider_does_not_support_tool_calling(self):
+        """Local CLI providers must use text/plan orchestration instead of OpenAI tools."""
+        self.assertFalse(LLMGateway.supports_tool_calling("claude_cli:claude-code"))
+        self.assertFalse(LLMGateway.supports_tool_calling("codex_cli:codex-cli"))
+        self.assertFalse(LLMGateway.supports_tool_calling("opencode_cli:opencode-cli"))
 
 
 class TestLLMGatewayChatCompletion(unittest.TestCase):

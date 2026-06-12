@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ...database.models import AgentPlan, AgentPlanStep
 from ..workspace.executor import execute_workspace_action
+from ..workspace.registry import registry
 from ..workspace.run_recovery import check_idempotency, generate_idempotency_key
 from .plan_graph import PlanGraph, StepDef
 from .step_args import resolve_step_args
@@ -51,6 +52,29 @@ def _extract_output_refs(result: dict) -> dict:
             refs["chapter_id"] = str(data["id"])
 
     return refs
+
+
+def _inject_plan_runtime_args(tool: str, args: dict[str, Any], plan: AgentPlan) -> dict[str, Any]:
+    """Pass runtime settings from the plan into tools that accept them."""
+    updated = dict(args)
+    tool_def = registry.get(tool)
+    input_schema = tool_def.input_schema if tool_def else {}
+
+    accepts_model = (
+        "model" in input_schema
+        or bool(tool_def and "internal_llm" in tool_def.permission_tags)
+        or bool(tool_def and tool_def.tool_type == "generator")
+    )
+    if plan.model and accepts_model and not updated.get("model"):
+        updated["model"] = plan.model
+
+    if tool == "chapter_writer" and not updated.get("mode"):
+        if plan.name == "quality_chapter":
+            updated["mode"] = "quality"
+        elif plan.name == "fast_chapter":
+            updated["mode"] = "fast"
+
+    return updated
 
 
 def _serialize_step(step: AgentPlanStep) -> dict:
@@ -528,7 +552,7 @@ class PlanOrchestrator:
                 job = create_cataloging_job(
                     self.db, self.project_id,
                     execution_mode="auto",
-                    model=None,
+                    model=plan.model,
                     chapter_ids=chapter_ids if isinstance(chapter_ids, list) else None,
                 )
                 # Stream the cataloging job to completion
@@ -574,6 +598,7 @@ class PlanOrchestrator:
         # Resolve args
         raw_args = json.loads(step_row.args_json) if step_row.args_json else {}
         resolved_args = resolve_step_args(raw_args, collected_outputs)
+        resolved_args = _inject_plan_runtime_args(step_row.tool, resolved_args, plan)
 
         # Check idempotency
         idem_key = step_row.idempotency_key

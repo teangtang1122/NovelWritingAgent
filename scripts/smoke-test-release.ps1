@@ -94,7 +94,7 @@ Write-Host "  Moshu.exe started (PID: $($moshuProcess.Id))" -ForegroundColor Gre
 
 # Wait for server to start
 Write-Host "  Waiting for server to start..." -ForegroundColor Yellow
-$maxWait = 30
+$maxWait = 90
 $waited = 0
 $serverReady = $false
 while ($waited -lt $maxWait) {

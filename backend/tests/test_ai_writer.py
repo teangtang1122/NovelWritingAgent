@@ -242,6 +242,28 @@ class AIWriterIsolationTestCase(unittest.TestCase):
         self.assertIn("已读取当前大纲", response.text)
         self.assertNotIn("not bound to a Session", response.text)
 
+    @patch("app.routers.ai_writer.LLMGateway.supports_tool_calling", return_value=False)
+    @patch("app.routers.ai_writer.LLMGateway.stream_chat_completion")
+    def test_workspace_stream_local_cli_plain_text_does_not_require_json(self, mock_stream, mock_supports):
+        project_id = self.create_project("CLI Chat Project")
+        mock_stream.return_value = async_chunks("你好，我在。")
+
+        response = self.client.post(
+            f"{API_PREFIX}/projects/{project_id}/ai/workspace-assistant/stream",
+            json={
+                "scope": "project",
+                "message": "你好？",
+                "model": "claude_cli:claude-code",
+                "auto_apply": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("你好，我在。", response.text)
+        self.assertIn("local_cli_mode", response.text)
+        self.assertNotIn("json_repair", response.text)
+        self.assertNotIn("模型返回的工具格式不合法", response.text)
+
     @patch("app.routers.ai_writer.LLMGateway.chat_completion", new_callable=AsyncMock)
     @patch("app.routers.ai_writer.LLMGateway.stream_chat_completion")
     def test_workspace_stream_plan_executes_create_chapter(self, mock_stream, mock_chat):

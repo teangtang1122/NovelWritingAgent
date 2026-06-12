@@ -74,6 +74,7 @@ from ..services.workspace.tool_schemas import (
     SEARCH_TOOL_NAMES,
     WRITE_TOOL_NAMES,
 )
+from ..services.workspace.registry import registry
 from ..services.workspace import (
     _character_payload,
     _find_character_by_name_or_id,
@@ -678,11 +679,21 @@ async def _execute_workspace_action(
     project_id: str,
     action: dict,
     assistant_mode: str = "quality",
+    model: Optional[str] = None,
 ) -> dict:
     """Execute a workspace tool action, with pre-flight forbidden-pattern check for chapter creation."""
     action = inject_assistant_mode(action, assistant_mode)
     tool = str(action.get("tool") or "").strip()
     args = action.get("arguments") if isinstance(action.get("arguments"), dict) else {}
+    tool_def = registry.get(tool)
+    accepts_model = (
+        bool(tool_def and "model" in tool_def.input_schema)
+        or bool(tool_def and "internal_llm" in tool_def.permission_tags)
+        or bool(tool_def and tool_def.tool_type == "generator")
+    )
+    if model and accepts_model and not args.get("model"):
+        args = {**args, "model": model}
+        action = {**action, "arguments": args}
 
     if tool == "create_chapter" and args.get("content") and not (args.get("draft_id") or args.get("content_ref")):
         project = get_project_or_404(db, project_id)
@@ -1293,7 +1304,17 @@ async def workspace_assistant_stream(
 
             searched_queries: set[tuple] = set()
             parsed_fallback = {}
-            use_function_calling = True
+            try:
+                supports_function_calling = LLMGateway.supports_tool_calling(payload.model)
+            except Exception:
+                supports_function_calling = True
+            use_function_calling = supports_function_calling
+            if not supports_function_calling:
+                yield _sse_event({
+                    "type": "status",
+                    "message": "当前模型是本机 CLI，已切换为文本/计划编排模式。",
+                    "tool": "local_cli_mode",
+                })
 
             for iteration in range(1, MAX_ITERATIONS + 1):
                 yield _sse_event({
@@ -1382,6 +1403,17 @@ async def workspace_assistant_stream(
                         yield _sse_event({"type": "status", "message": f"流式输出中断，尝试用已接收内容继续：{stream_err}", "tool": "stream_error"})
                     raw_content = "".join(raw_buffer)
                     parsed = _parse_json_object(raw_content)
+                    if parsed is None and not supports_function_calling:
+                        final_reply = raw_content.strip() or "我在。"
+                        all_actions = []
+                        final_model = payload.model or ""
+                        final_usage = None
+                        yield _sse_event({
+                            "type": "iteration_end",
+                            "iteration": iteration,
+                            "message": "本机 CLI 已返回普通文本回复",
+                        })
+                        break
                     if parsed is None:
                         yield _sse_event({
                             "type": "status",
@@ -1495,8 +1527,8 @@ async def workspace_assistant_stream(
                                 "step_id": step.id if step else None,
                             })
                             try:
-                                action_result = await execute_workspace_action(
-                                    db, project_id, inject_assistant_mode(action, payload.assistant_mode)
+                                action_result = await _execute_workspace_action(
+                                    db, project_id, action, assistant_mode=payload.assistant_mode, model=payload.model
                                 )
                             except Exception as exc:
                                 action_result = {"tool": tool_name, "status": "error", "detail": str(exc), "data": []}
@@ -1660,8 +1692,8 @@ async def workspace_assistant_stream(
                         "step_id": step.id if step else None,
                     })
                     try:
-                        action_result = await execute_workspace_action(
-                            db, project_id, inject_assistant_mode(action, payload.assistant_mode)
+                        action_result = await _execute_workspace_action(
+                            db, project_id, action, assistant_mode=payload.assistant_mode, model=payload.model
                         )
                     except Exception as exc:
                         action_result = {"tool": tool_name, "status": "error", "detail": str(exc), "data": []}
@@ -1760,7 +1792,7 @@ async def workspace_assistant_stream(
                     yield _sse_event({"type": "status", "message": f"正在执行工具：{tool}", "tool": tool, "step_id": step.id if step else None})
                     try:
                         action_result = await _execute_workspace_action(
-                            db, project_id, action, assistant_mode=payload.assistant_mode
+                            db, project_id, action, assistant_mode=payload.assistant_mode, model=payload.model
                         )
                     except Exception as exc:
                         action_result = {"tool": tool, "status": "error", "detail": str(exc)}
@@ -1812,9 +1844,11 @@ async def workspace_assistant_stream(
                         detail="写入后刷新轻量上下文",
                     )
                     try:
-                        rt_result = await execute_workspace_action(
+                        rt_result = await _execute_workspace_action(
                             db, project_id,
-                            inject_assistant_mode({"tool": rt, "arguments": json.loads(rt_args)}, payload.assistant_mode)
+                            {"tool": rt, "arguments": json.loads(rt_args)},
+                            assistant_mode=payload.assistant_mode,
+                            model=payload.model,
                         )
                         finish_run_step(db, step, status=str(rt_result.get("status") or "ok"), result=rt_result, detail=str(rt_result.get("detail") or ""))
                         compressed = _compress_search_result(rt_result)
@@ -1872,7 +1906,11 @@ async def workspace_assistant_stream(
             mark_assistant_run(db, assistant_run, status="completed", phase="completed", final_reply=final_reply_for_save)
 
             # --- Auto-extract memories from conversation (fire-and-forget) ---
-            if final_reply and payload.message:
+            try:
+                should_auto_extract_memory = LLMGateway.supports_tool_calling(payload.model)
+            except Exception:
+                should_auto_extract_memory = True
+            if final_reply and payload.message and should_auto_extract_memory:
                 _pid, _umsg, _areply = project_id, payload.message, final_reply_for_save
 
                 async def _extract_and_save_memories():
@@ -1941,7 +1979,7 @@ async def workspace_assistant_stream(
                     tool = str(action.get("tool") or "tool")
                     try:
                         action_result = await _execute_workspace_action(
-                            db, project_id, action, assistant_mode=payload.assistant_mode
+                            db, project_id, action, assistant_mode=payload.assistant_mode, model=payload.model
                         )
                     except Exception:
                         action_result = {"tool": tool, "status": "error", "detail": "后台执行失败"}

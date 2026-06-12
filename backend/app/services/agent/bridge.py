@@ -229,6 +229,15 @@ def _schedule_memory_extraction(project_id: str, user_message: str, assistant_re
     """Best-effort memory extraction after a plan completes."""
     if not user_message.strip() or not assistant_reply.strip():
         return
+    try:
+        from ...ai.gateway import LLMGateway
+
+        if not LLMGateway.supports_tool_calling(model):
+            return
+    except Exception:
+        # Keep memory extraction best-effort: missing model config should not
+        # block the assistant, and the extraction task already handles it.
+        pass
 
     async def _extract_and_save_memories() -> None:
         import logging

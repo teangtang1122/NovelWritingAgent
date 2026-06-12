@@ -37,6 +37,10 @@ const PROVIDER_LABEL_MAP: Record<string, string> = {
   deepseek: 'DeepSeek',
   qwen: '通义千问',
   gemini: 'Google Gemini',
+  claude_cli: 'Claude Code CLI',
+  codex_cli: 'Codex CLI',
+  opencode_cli: 'opencode CLI',
+  custom_cli: '自定义本机 CLI',
 }
 
 const modelValue = (provider: string, model: string) => (

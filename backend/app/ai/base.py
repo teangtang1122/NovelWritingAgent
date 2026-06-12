@@ -6,9 +6,17 @@ from typing import AsyncGenerator, Optional
 class BaseAdapter(ABC):
     """Abstract base class for LLM provider adapters."""
 
-    def __init__(self, api_key: str, base_url: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: Optional[str] = None,
+        cli_command: Optional[str] = None,
+        cli_args: Optional[str] = None,
+    ):
         self.api_key = api_key
         self.base_url = base_url
+        self.cli_command = cli_command
+        self.cli_args = cli_args
 
     @abstractmethod
     async def chat_completion(

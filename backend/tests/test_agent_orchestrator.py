@@ -415,6 +415,29 @@ class OrchestratorExecutionTestCase(unittest.TestCase):
         self.assertLess(call_order.index("tool_a"), call_order.index("tool_c"))
 
     @patch("app.services.agent.orchestrator.execute_workspace_action")
+    def test_plan_injects_model_and_chapter_mode(self, mock_execute):
+        """Runtime plan model is passed to generator tools that accept model."""
+        captured_actions = []
+
+        async def capture_execute(db, project_id, action):
+            captured_actions.append(action)
+            return {"tool": action["tool"], "status": "ok", "detail": "done", "data": {}}
+
+        mock_execute.side_effect = capture_execute
+
+        graph = PlanGraph(name="fast_chapter", steps={
+            "write": StepDef(tool="chapter_writer", args={"outline_node_id": "node-1"}, depends_on=[]),
+        })
+        orchestrator = PlanOrchestrator(self.db, "proj-2")
+        plan = orchestrator.create_plan(graph, model="claude_cli:claude-code")
+
+        _run_async(_collect_events(orchestrator.execute_plan(plan.id)))
+
+        self.assertEqual(len(captured_actions), 1)
+        self.assertEqual(captured_actions[0]["arguments"]["model"], "claude_cli:claude-code")
+        self.assertEqual(captured_actions[0]["arguments"]["mode"], "fast")
+
+    @patch("app.services.agent.orchestrator.execute_workspace_action")
     def test_failure_blocks_downstream(self, mock_execute):
         """Failed step causes downstream steps to become blocked."""
         async def fail_on_b(db, project_id, action):
