@@ -7,37 +7,41 @@ from typing import Any
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ....database.models import Chapter, Project, WritingLog
-
-
-def _today_words(db: Session, project_id: str) -> int:
-    log = db.query(WritingLog).filter(WritingLog.project_id == project_id, WritingLog.date == date.today()).first()
-    return log.total_words if log else 0
+from ....database.models import Chapter, Project
 
 
 async def get_today_writing_stats(db: Session, project_id: str, args: dict[str, Any]) -> dict:
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         return {"tool": "get_today_writing_stats", "status": "skipped", "detail": "作品不存在"}
-    today_words = _today_words(db, project_id)
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    chapters_count = (
-        db.query(func.count(Chapter.id))
-        .filter(Chapter.project_id == project_id, Chapter.updated_at >= today_start)
-        .scalar()
-    ) or 0
+    today = date.today()
+    today_start = datetime.combine(today, datetime.min.time())
+    today_end = today_start + timedelta(days=1)
+    row = (
+        db.query(
+            func.coalesce(func.sum(Chapter.word_count), 0).label("total_words"),
+            func.count(Chapter.id).label("chapters_count"),
+        )
+        .filter(
+            Chapter.project_id == project_id,
+            Chapter.created_at >= today_start,
+            Chapter.created_at < today_end,
+        )
+        .one()
+    )
+    today_words = int(row.total_words)
     goal = project.daily_word_goal or 6000
     progress = round((today_words / goal) * 100, 1) if goal > 0 else 0
     return {
         "tool": "get_today_writing_stats",
         "status": "ok",
-        "detail": f"今日净增 {today_words} 字，目标 {goal} 字",
+        "detail": f"今日写作 {today_words} 字，目标 {goal} 字",
         "data": {
-            "date": date.today().isoformat(),
+            "date": today.isoformat(),
             "total_words": today_words,
             "daily_goal": goal,
             "progress_percent": min(progress, 100.0),
-            "chapters_written": chapters_count,
+            "chapters_written": int(row.chapters_count),
         },
     }
 
@@ -48,27 +52,33 @@ async def get_writing_stats_history(db: Session, project_id: str, args: dict[str
     if not project:
         return {"tool": "get_writing_stats_history", "status": "skipped", "detail": "作品不存在"}
     start_date = date.today() - timedelta(days=days - 1)
-    logs = (
-        db.query(WritingLog)
-        .filter(WritingLog.project_id == project_id, WritingLog.date >= start_date)
-        .order_by(WritingLog.date.asc())
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    rows = (
+        db.query(
+            func.date(Chapter.created_at).label("day"),
+            func.coalesce(func.sum(Chapter.word_count), 0).label("total_words"),
+        )
+        .filter(
+            Chapter.project_id == project_id,
+            Chapter.created_at >= start_dt,
+        )
+        .group_by(func.date(Chapter.created_at))
         .all()
     )
-    log_by_date = {log_entry.date: log_entry for log_entry in logs}
+    words_by_date = {str(r.day): int(r.total_words) for r in rows}
     goal = project.daily_word_goal or 6000
     items = []
     total_words = 0
     current = start_date
     while current <= date.today():
-        log_entry = log_by_date.get(current)
-        words = log_entry.total_words if log_entry else 0
+        words = words_by_date.get(current.isoformat(), 0)
         total_words += words
         items.append({"date": current.isoformat(), "total_words": words, "daily_goal": goal})
         current += timedelta(days=1)
     return {
         "tool": "get_writing_stats_history",
         "status": "ok",
-        "detail": f"近 {days} 天共净增 {total_words} 字",
+        "detail": f"近 {days} 天共写作 {total_words} 字",
         "data": {
             "items": items,
             "total_days": len(items),

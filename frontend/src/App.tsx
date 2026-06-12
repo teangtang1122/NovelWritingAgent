@@ -11,6 +11,47 @@ const GuiPage = lazy(() => import('./pages/GuiPage'))
 
 const { Content } = Layout
 
+/** Branded loading spinner */
+function LoadingScreen() {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        gap: 16,
+        background: 'var(--ant-color-bg-layout, #f6f2ea)',
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "'Noto Serif SC', 'LXGW WenKai', serif",
+          fontSize: 28,
+          fontWeight: 700,
+          letterSpacing: '0.1em',
+          color: 'var(--ant-color-text, #2c2417)',
+          opacity: 0.8,
+          marginBottom: 4,
+        }}
+      >
+        墨枢
+      </div>
+      <Spin size="default" />
+      <div
+        style={{
+          fontSize: 13,
+          color: 'var(--ant-color-text-tertiary, #a89c88)',
+          letterSpacing: '0.05em',
+        }}
+      >
+        正在加载...
+      </div>
+    </div>
+  )
+}
+
 /** Keep project metadata fresh on non-dashboard routes. */
 function ProjectPreloader() {
   const location = useLocation()
@@ -52,11 +93,7 @@ function RouteGuard() {
   }, [checked, projects, location.pathname, navigate])
 
   if (!checked) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <Spin size="large" tip="加载中..." />
-      </div>
-    )
+    return <LoadingScreen />
   }
 
   return <DashboardPage />
@@ -77,13 +114,7 @@ function App() {
     <Layout style={{ minHeight: '100vh' }} className="moshu-grain">
       <Content style={{ padding: 0 }}>
         <ProjectPreloader />
-        <Suspense
-          fallback={
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-              <Spin size="large" tip="加载中..." />
-            </div>
-          }
-        >
+        <Suspense fallback={<LoadingScreen />}>
           <Routes>
             <Route path="/" element={<RouteGuard />} />
             <Route path="/dashboard" element={<DashboardPage />} />

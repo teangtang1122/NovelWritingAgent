@@ -16,7 +16,7 @@ interface PageWrapperProps {
  * Shared page layout wrapper providing consistent padding and max-width
  * across all pages. Centers content horizontally.
  */
-function PageWrapper({ children, maxWidth = 1200, padding = 24, className, style }: PageWrapperProps) {
+function PageWrapper({ children, maxWidth = 1200, padding = 28, className, style }: PageWrapperProps) {
   return (
     <div
       className={className}
@@ -25,6 +25,7 @@ function PageWrapper({ children, maxWidth = 1200, padding = 24, className, style
         maxWidth,
         margin: '0 auto',
         width: '100%',
+        position: 'relative',
         ...style,
       }}
     >

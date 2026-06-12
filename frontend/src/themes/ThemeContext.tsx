@@ -59,12 +59,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         '--ant-color-error': token.colorError || '',
         '--ant-color-bg-layout': token.colorBgLayout || '',
         '--ant-color-bg-container': token.colorBgContainer || '',
+        '--ant-color-bg-elevated': token.colorBgElevated || '',
         '--ant-color-text': token.colorText || '',
         '--ant-color-text-secondary': token.colorTextSecondary || '',
         '--ant-color-text-tertiary': token.colorTextTertiary || '',
         '--ant-color-text-quaternary': token.colorTextQuaternary || '',
         '--ant-color-border': token.colorBorder || '',
         '--ant-color-border-secondary': token.colorBorderSecondary || '',
+        '--moshu-accent': currentTheme.accent,
+        '--moshu-grain-opacity': String(currentTheme.grainOpacity),
       }
       // Also set component-specific overrides from components config
       const comps = currentTheme.config.components

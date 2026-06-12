@@ -13,6 +13,8 @@ from docx import Document as DocxDocument
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
+from ..core.utils import count_words
+
 from ..ai.gateway import LLMGateway
 from ..core.exceptions import ValidationError
 from ..core.utils import count_words
@@ -65,7 +67,7 @@ def _parse_raw_file(filename: str, raw: bytes) -> dict:
         "filename": filename,
         "format": ext,
         "text": text,
-        "word_count": len(text),
+        "word_count": count_words(text),
         "preview": text[:500],
     }
 

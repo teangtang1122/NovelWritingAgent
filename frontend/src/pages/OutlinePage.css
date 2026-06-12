@@ -1,3 +1,7 @@
+/* ═══════════════════════════════════════════════════════════
+   Outline Page — 大纲规划
+   ═══════════════════════════════════════════════════════════ */
+
 .outline-page {
   height: 100%;
 }
@@ -12,10 +16,11 @@
 .outline-tree-panel,
 .outline-editor {
   border: 1px solid var(--ant-color-border-secondary);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--ant-color-bg-container);
 }
 
+/* ── Tree Panel ── */
 .outline-tree-panel {
   min-width: 0;
   max-height: calc(100vh - 80px);
@@ -25,20 +30,11 @@
   top: 12px;
 }
 
-.outline-editor {
-  min-width: 0;
-  padding: 16px;
-}
-
-.outline-panel-head,
-.outline-editor-head {
+.outline-panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-
-.outline-panel-head {
   background: var(--ant-color-bg-container);
   border-bottom: 1px solid var(--ant-color-border-secondary);
   margin-bottom: 12px;
@@ -48,24 +44,38 @@
   z-index: 2;
 }
 
-.outline-editor-head {
-  margin-bottom: 16px;
+/* ── Force Ant Design tree nodes to full width ── */
+.outline-tree-panel .ant-tree .ant-tree-node-content-wrapper {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
+.outline-tree-panel .ant-tree .ant-tree-title {
+  width: 100%;
+}
+
+/* ── Tree title row ── */
 .outline-tree-title {
   display: flex;
   min-height: 32px;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   overflow: hidden;
+  transition: background-color 0.2s ease;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
 }
 
+.outline-tree-title:hover {
+  background: var(--ant-color-bg-text-hover);
+}
+
+/* Title text — fills remaining space, truncates */
 .outline-tree-main {
   display: inline-flex;
-  flex: 1 1 60%;
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: calc(100% - 120px);
   align-items: center;
   gap: 6px;
   overflow: hidden;
@@ -77,9 +87,11 @@
   white-space: nowrap;
 }
 
+/* Tags — fixed width so every node aligns the same */
 .outline-tree-tags {
   display: inline-flex;
-  flex: 0 0 auto;
+  flex: 0 0 104px;
+  justify-content: flex-end;
   align-items: center;
   gap: 4px;
   white-space: nowrap;
@@ -87,14 +99,33 @@
 
 .outline-tree-tags .ant-tag {
   margin-inline-end: 0;
+  font-size: 11px;
+  padding: 0 5px;
+  line-height: 18px;
 }
 
+/* ── Editor ── */
+.outline-editor {
+  min-width: 0;
+  padding: 20px;
+}
+
+.outline-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* Info grid */
 .outline-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
 
+/* ── Responsive ── */
 @media (max-width: 1180px) {
   .outline-shell {
     grid-template-columns: 1fr;

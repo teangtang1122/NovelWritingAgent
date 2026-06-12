@@ -1,7 +1,9 @@
 """API config CRUD, global default model, model listing, and connection test endpoints."""
 import asyncio
 import json
+import os
 import webbrowser
+from pathlib import Path
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from openai import (
@@ -45,6 +47,47 @@ def open_home_in_default_browser(request: Request):
     home_url = str(request.base_url).rstrip("/") + "/"
     webbrowser.open(home_url)
     return ApiResponse.success(data={"url": home_url}, message="已在默认浏览器打开墨枢首页")
+
+
+@router.get("/system/logs")
+def get_system_logs(lines: int = 200):
+    """Read the last N lines of the launcher log file."""
+    # Find the log file
+    app_home = os.environ.get("MOSHU_HOME") or os.environ.get("NOVEL_AGENT_HOME") or ""
+    if not app_home:
+        local_app_data = os.environ.get("LOCALAPPDATA", "")
+        if local_app_data:
+            app_home = str(Path(local_app_data) / "Moshu")
+        else:
+            app_home = str(Path.home() / "Moshu")
+
+    log_path = Path(app_home) / "logs" / "launcher.log"
+    if not log_path.exists():
+        # Try legacy location
+        legacy_home = os.environ.get("NOVEL_AGENT_HOME") or ""
+        if legacy_home:
+            log_path = Path(legacy_home) / "logs" / "launcher.log"
+        if not log_path.exists():
+            local_app_data = os.environ.get("LOCALAPPDATA", "")
+            if local_app_data:
+                log_path = Path(local_app_data) / "NovelWritingAgent" / "logs" / "launcher.log"
+
+    if not log_path.exists():
+        return ApiResponse.success(data={"path": str(log_path), "content": "(日志文件不存在)", "lines": 0})
+
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as f:
+            all_lines = f.readlines()
+        tail = all_lines[-lines:] if len(all_lines) > lines else all_lines
+        content = "".join(tail)
+        return ApiResponse.success(data={
+            "path": str(log_path),
+            "content": content,
+            "lines": len(tail),
+            "total": len(all_lines),
+        })
+    except Exception as exc:
+        return ApiResponse.success(data={"path": str(log_path), "content": f"(读取失败: {exc})", "lines": 0})
 
 PROVIDER_DEFAULT_BASE_URLS: dict[str, str] = {
     "openai": "https://api.openai.com/v1",

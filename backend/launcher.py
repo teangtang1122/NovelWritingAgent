@@ -29,7 +29,6 @@ def _launcher_log_path() -> Path:
 
 def _log(message: str) -> None:
     from datetime import datetime
-
     try:
         path = _launcher_log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -44,7 +43,6 @@ def _show_error(title: str, message: str) -> None:
     try:
         import tkinter
         from tkinter import messagebox
-
         root = tkinter.Tk()
         root.withdraw()
         messagebox.showerror(title, message)
@@ -65,12 +63,6 @@ def _safe_print(message: str, *, error: bool = False) -> None:
 
 
 def _redirect_missing_stdio_to_log() -> None:
-    """Windowed executables may have sys.stdout/stderr set to None.
-
-    Uvicorn's logging setup expects stderr to exist and have isatty(), so route
-    missing streams to the launcher log in GUI mode. MCP stdio mode must not call
-    this because stdout/stdin are the protocol transport.
-    """
     path = _launcher_log_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     if sys.stdout is None:
@@ -84,7 +76,6 @@ def _redirect_missing_stdio_to_log() -> None:
 
 
 def _configure_stdio_utf8() -> None:
-    """Prefer UTF-8 stdio for MCP mode on Windows hosts."""
     for stream in (sys.stdin, sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if callable(reconfigure):
@@ -106,7 +97,6 @@ def _app_home() -> Path:
     current = base / APP_NAME
     legacy = base / LEGACY_APP_NAME
     legacy_dot = Path.home() / f".{LEGACY_APP_NAME}"
-    # If legacy has a real DB but current is empty/missing, keep using legacy
     for legacy_dir in (legacy, legacy_dot):
         if not legacy_dir.exists():
             continue
@@ -147,38 +137,123 @@ def _prepare_environment(port: int) -> Path:
     return home
 
 
+# ─── Splash HTML (pure local, zero network) ───
+
+SPLASH_HTML = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>墨枢</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #f6f2ea;
+    display: flex; align-items: center; justify-content: center;
+    height: 100vh;
+    font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+    overflow: hidden; -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  .splash { text-align: center; animation: fadeIn 0.5s ease both; }
+  .splash-icon {
+    width: 80px; height: 80px; margin: 0 auto 24px;
+    animation: floatIn 0.7s cubic-bezier(0.22,1,0.36,1) 0.1s both;
+  }
+  .splash-icon svg { width: 100%; height: 100%; filter: drop-shadow(0 4px 12px rgba(44,36,23,0.1)); }
+  .splash-title {
+    font-family: 'SimSun', serif;
+    font-size: 42px; font-weight: 700; letter-spacing: 0.12em;
+    color: #2c2417; margin-bottom: 8px;
+    animation: inkReveal 0.6s cubic-bezier(0.22,1,0.36,1) 0.15s both;
+  }
+  .splash-sub {
+    font-size: 15px; color: #a89c88; letter-spacing: 0.15em;
+    font-weight: 300; margin-bottom: 48px;
+    animation: fadeIn 0.4s ease 0.35s both;
+  }
+  .splash-divider {
+    width: 64px; height: 2px; margin: 0 auto 40px;
+    background: linear-gradient(90deg, transparent, #7c5e2a 20%, #7c5e2a 60%, transparent);
+    opacity: 0.4; animation: brushReveal 0.7s cubic-bezier(0.22,1,0.36,1) 0.4s both;
+  }
+  .splash-status {
+    font-size: 14px; color: #a89c88; letter-spacing: 0.04em;
+    min-height: 22px; transition: opacity 0.3s ease;
+  }
+  .splash-dots {
+    display: inline-flex; gap: 6px; margin-top: 20px;
+    animation: fadeIn 0.3s ease 0.5s both;
+  }
+  .splash-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #7c5e2a; opacity: 0.3;
+    animation: dotPulse 1.4s ease-in-out infinite;
+  }
+  .splash-dot:nth-child(2) { animation-delay: 0.2s; }
+  .splash-dot:nth-child(3) { animation-delay: 0.4s; }
+  body::before {
+    content: ''; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    opacity: 0.018; pointer-events: none; z-index: 9999;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-repeat: repeat; background-size: 256px 256px; mix-blend-mode: multiply;
+  }
+  .splash-glow {
+    position: fixed; width: 400px; height: 400px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(124,94,42,0.04) 0%, transparent 70%);
+    pointer-events: none; animation: floatGlow 6s ease-in-out infinite;
+  }
+  .splash-glow-1 { top: 10%; left: 15%; }
+  .splash-glow-2 { bottom: 10%; right: 15%; animation-delay: 3s; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes floatIn { from { opacity: 0; transform: translateY(16px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes inkReveal { 0% { opacity: 0; transform: scale(0.92); filter: blur(4px); } 60% { opacity: 1; filter: blur(0); } 100% { opacity: 1; transform: scale(1); filter: blur(0); } }
+  @keyframes brushReveal { from { clip-path: inset(0 100% 0 0); opacity: 0.2; } to { clip-path: inset(0 0 0 0); opacity: 0.4; } }
+  @keyframes dotPulse { 0%, 100% { opacity: 0.2; transform: scale(0.8); } 50% { opacity: 0.8; transform: scale(1.2); } }
+  @keyframes floatGlow { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(10px, -10px); } }
+</style>
+</head>
+<body>
+  <div class="splash-glow splash-glow-1"></div>
+  <div class="splash-glow splash-glow-2"></div>
+  <div class="splash">
+    <div class="splash-icon">
+      <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+        <defs><linearGradient id="ink" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#2c2417"/><stop offset="50%" stop-color="#4a3c28"/><stop offset="100%" stop-color="#7c5e2a"/></linearGradient></defs>
+        <rect width="64" height="64" rx="14" fill="#f6f2ea" stroke="#e4ddd0" stroke-width="1"/>
+        <path d="M18 14 Q20 12 22 14 L22 50 Q20 52 18 50 Z" fill="url(#ink)" opacity="0.9"/>
+        <path d="M26 20 Q28 18 44 20 Q46 22 44 24 L28 24 Q26 22 26 20 Z" fill="url(#ink)" opacity="0.8"/>
+        <path d="M26 30 Q28 28 40 30 Q42 32 40 34 L28 34 Q26 32 26 30 Z" fill="url(#ink)" opacity="0.7"/>
+        <path d="M26 40 Q28 38 36 40 Q38 42 36 44 L28 44 Q26 42 26 40 Z" fill="url(#ink)" opacity="0.6"/>
+        <circle cx="48" cy="48" r="4" fill="#7c5e2a" opacity="0.25"/>
+      </svg>
+    </div>
+    <div class="splash-title">墨枢</div>
+    <div class="splash-sub">笔下生花，万象归枢</div>
+    <div class="splash-divider"></div>
+    <div class="splash-status" id="status">正在启动</div>
+    <div class="splash-dots" id="dots"><div class="splash-dot"></div><div class="splash-dot"></div><div class="splash-dot"></div></div>
+  </div>
+</body>
+</html>"""
+
+
 def _run_mcp_server() -> None:
     """Run the MCP server over stdio."""
     import argparse
     parser = argparse.ArgumentParser(prog="mcp-server")
     parser.add_argument("--mcp-server", action="store_true", help="Run MCP server over stdio")
-    parser.add_argument(
-        "--project-id",
-        default="",
-        help="Optional default project ID. Omit it to allow global project browsing.",
-    )
+    parser.add_argument("--project-id", default="", help="Optional default project ID.")
     parser.add_argument(
         "--permission-pack",
         default=os.environ.get("MOSHU_MCP_PERMISSION_PACK", "auto"),
-        choices=[
-            "auto",
-            "readonly_collaboration",
-            "draft_generation",
-            "project_writing",
-            "project_management",
-            "internal_llm",
-            "trusted_local_maintenance",
-        ],
-        help="MCP permission pack to expose. 'auto' resolves from global/project settings.",
+        choices=["auto", "readonly_collaboration", "draft_generation", "project_writing",
+                 "project_management", "internal_llm", "trusted_local_maintenance"],
     )
     args, _ = parser.parse_known_args()
     _configure_stdio_utf8()
-
     _prepare_data_environment()
-
     from app.database.session import SessionLocal
     from app.mcp.server import serve_stdio
-
     db = SessionLocal()
     try:
         serve_stdio(db=db, project_id=args.project_id, permission_pack=args.permission_pack)
@@ -186,23 +261,8 @@ def _run_mcp_server() -> None:
         db.close()
 
 
-def _run_server_in_background(app, host: str, port: int) -> None:
-    """Run uvicorn in a background thread so the GUI event loop can run on the main thread."""
-    try:
-        uvicorn.run(
-            app,
-            host=host,
-            port=port,
-            log_level="info",
-            access_log=False,
-        )
-    except Exception:
-        _log("Server thread crashed:\n" + traceback.format_exc())
-        raise
-
-
 def _wait_for_server(host: str, port: int, timeout: float = 30.0) -> bool:
-    """Poll until the server is accepting connections, or timeout."""
+    """Poll until the server accepts TCP connections."""
     import time
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -216,102 +276,110 @@ def _wait_for_server(host: str, port: int, timeout: float = 30.0) -> bool:
 
 def main() -> None:
     _log(f"{APP_NAME} launcher entered with argv={sys.argv!r}")
-    # Check for MCP server mode
     if "--mcp-server" in sys.argv:
-        _log("Starting MCP stdio server")
         _run_mcp_server()
         return
 
     _redirect_missing_stdio_to_log()
 
-    # Check for --browser flag to use old browser-based launch
     use_browser = "--browser" in sys.argv
     if use_browser:
         sys.argv.remove("--browser")
 
+    # ── Absolute minimum before window: just find a port and set env vars ──
     port = _find_free_port()
-    home = _prepare_environment(port)
-    from app.updater import apply_update_if_available
+    _prepare_environment(port)
 
-    try:
-        if apply_update_if_available(home):
-            _log("Update was scheduled; exiting current process.")
-            return
-    except Exception as exc:
-        _log("Update check failed:\n" + traceback.format_exc())
-        _safe_print(f"Update check failed: {exc}")
-
-    url = f"http://127.0.0.1:{port}"
-    gui_url = f"{url}/gui"
-    _safe_print(f"{APP_NAME} starting...")
-    _safe_print(f"Data directory: {home}")
-    _safe_print(f"Open: {url}")
-    _log(f"Data directory: {home}")
-    _log(f"HTTP URL: {url}; GUI URL: {gui_url}")
-
-    from app.main import app
-
-    # Start the server in a background thread
-    server_thread = threading.Thread(
-        target=_run_server_in_background,
-        args=(app, "127.0.0.1", port),
-        daemon=True,
-    )
-    server_thread.start()
-
-    # Wait for the server to be ready before opening any window
-    _safe_print("Waiting for server to start...")
-    if not _wait_for_server("127.0.0.1", port, timeout=30):
-        log_path = _launcher_log_path()
-        message = (
-            f"后端服务没有在 30 秒内启动。\n\n"
-            f"端口：{port}\n"
-            f"日志：{log_path}\n\n"
-            "可以稍后重试，或用命令行添加 --browser 以浏览器模式启动。"
-        )
-        _safe_print(f"Server did not start within 30 seconds on port {port}.")
-        _show_error(f"{APP_NAME} 启动失败", message)
-        return
-    _safe_print(f"Server ready on port {port}.")
-    _log(f"Server ready on port {port}")
+    gui_url = f"http://127.0.0.1:{port}/gui"
+    _log(f"Port: {port}; Data: {_app_home()}")
 
     if use_browser:
-        # Legacy browser mode
+        # Browser mode: need server first
+        from app.main import app
+        threading.Thread(target=lambda: uvicorn.run(app, host="127.0.0.1", port=port, log_level="info", access_log=False), daemon=True).start()
+        if not _wait_for_server("127.0.0.1", port, timeout=30):
+            _show_error(f"{APP_NAME} 启动失败", f"后端超时。\n日志：{_launcher_log_path()}")
+            return
         import webbrowser
-        webbrowser.open(url)
-        server_thread.join()
-    else:
-        # Native GUI mode with pywebview
+        webbrowser.open(f"http://127.0.0.1:{port}")
+        threading.Event().wait()  # block forever
+        return
+
+    # ── Native GUI: window opens NOW, everything else in background ──
+    try:
+        import webview
+    except Exception:
+        _log("pywebview not available:\n" + traceback.format_exc())
+        _show_error(f"{APP_NAME} 启动失败", f"pywebview 不可用。\n日志：{_launcher_log_path()}")
+        return
+
+    # Create window — this returns immediately, window is visible
+    window = webview.create_window(
+        title=f"{APP_NAME}",
+        html=SPLASH_HTML,
+        width=1100,
+        height=750,
+        min_size=(800, 600),
+        text_select=True,
+    )
+
+    def _boot():
+        """Run in background: update check → import app → start server → navigate."""
         try:
-            import webview
-            webview.create_window(
-                title=f"{APP_NAME} — 控制面板",
-                url=gui_url,
-                width=1100,
-                height=750,
-                min_size=(800, 600),
-                text_select=True,
-            )
-            _log("Starting pywebview GUI")
-            webview.start()
-            _log("pywebview GUI closed")
+            # 1. Check for updates (non-blocking for the user)
+            try:
+                from app.updater import apply_update_if_available
+                if apply_update_if_available(_app_home()):
+                    _log("Update scheduled; exiting")
+                    os._exit(0)
+            except Exception as exc:
+                _log(f"Update check failed (non-fatal): {exc}")
+
+            # 2. Import FastAPI app (DB init, migrations — the heavy part)
+            _log("Importing app.main...")
+            from app.main import app
+            _log("app.main imported")
+
+            # 3. Start uvicorn
+            threading.Thread(
+                target=lambda: uvicorn.run(app, host="127.0.0.1", port=port, log_level="info", access_log=False),
+                daemon=True,
+            ).start()
+
+            # 4. Wait for TCP ready
+            if _wait_for_server("127.0.0.1", port, timeout=30):
+                _log(f"Server ready → {gui_url}")
+                import time; time.sleep(0.3)
+                window.load_url(gui_url)
+            else:
+                _log("Server timeout (30s)")
+                window.evaluate_js(
+                    "document.getElementById('status').textContent='启动超时，请检查日志后重试';"
+                    "document.getElementById('status').style.color='#b84233';"
+                    "document.getElementById('dots').style.display='none';"
+                )
         except Exception:
-            # Fallback to browser if pywebview is unavailable or the WebView runtime fails.
-            import webbrowser
-            _log("pywebview failed; falling back to browser:\n" + traceback.format_exc())
-            _show_error(
-                f"{APP_NAME} 图形窗口启动失败",
-                f"桌面窗口启动失败，已尝试改用浏览器打开。\n\n日志：{_launcher_log_path()}",
-            )
-            webbrowser.open(gui_url)
-            server_thread.join()
+            _log("Boot failed:\n" + traceback.format_exc())
+            try:
+                window.evaluate_js(
+                    "document.getElementById('status').textContent='启动失败';"
+                    "document.getElementById('status').style.color='#b84233';"
+                    "document.getElementById('dots').style.display='none';"
+                )
+            except Exception:
+                pass
+
+    threading.Thread(target=_boot, daemon=True).start()
+    _log("Window visible, boot thread started")
+    webview.start()
+    _log("pywebview closed")
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        _log("Fatal startup failure:\n" + traceback.format_exc())
+        _log("Fatal:\n" + traceback.format_exc())
         if "--mcp-server" not in sys.argv:
             _show_error(f"{APP_NAME} 启动失败", f"{exc}\n\n日志：{_launcher_log_path()}")
         _safe_print(f"Startup failed: {exc}", error=True)

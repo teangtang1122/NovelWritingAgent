@@ -11,6 +11,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from ....core.utils import count_words
+
 
 async def prepare_external_writing_context(
     db: Session,
@@ -326,12 +328,12 @@ async def save_external_chapter_draft(
     return {
         "tool": "save_external_chapter_draft",
         "status": "ok",
-        "detail": f"Draft saved: {len(content)} chars",
+        "detail": f"Draft saved: {count_words(content)} words",
         "data": {
             "draft_id": draft_id,
             "content_ref": draft_id,
             "title": title,
-            "word_count": len(content),
+            "word_count": count_words(content),
             "source_agent": source_agent,
         },
     }
@@ -372,11 +374,11 @@ async def get_external_chapter_draft(
     return {
         "tool": "get_external_chapter_draft",
         "status": "ok",
-        "detail": f"Draft retrieved: {len(content)} chars",
+        "detail": f"Draft retrieved: {count_words(content)} words",
         "data": {
             "draft_id": draft_id,
             "content": content,
-            "word_count": len(content),
+            "word_count": count_words(content),
         },
     }
 

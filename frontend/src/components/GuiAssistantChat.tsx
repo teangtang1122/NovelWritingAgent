@@ -21,7 +21,6 @@ import {
 } from 'antd'
 import {
   DeleteOutlined,
-  ExportOutlined,
   FolderOpenOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -219,15 +218,6 @@ function GuiAssistantChat() {
       message.success('对话已删除')
     } catch (err: any) {
       message.error(err.message || '删除对话失败')
-    }
-  }
-
-  const openHomeInBrowser = async () => {
-    try {
-      const res = await apiClient.post<ApiResponse<{ url: string }>>('/system/open-home')
-      message.success(`已在默认浏览器打开：${res.data.data.url}`)
-    } catch (err: any) {
-      message.error(err.message || '打开默认浏览器失败')
     }
   }
 
@@ -538,9 +528,6 @@ function GuiAssistantChat() {
             </Text>
           </div>
           <Space>
-            <Button icon={<ExportOutlined />} onClick={openHomeInBrowser}>
-              浏览器打开首页
-            </Button>
             <Popover trigger="click" title="助手设置" content={settingsContent}>
               <Button icon={<SettingOutlined />}>助手设置</Button>
             </Popover>
@@ -558,11 +545,8 @@ function GuiAssistantChat() {
                 先创建一个作品
               </Title>
               <Paragraph type="secondary" style={{ fontSize: 15, maxWidth: 460, textAlign: 'center' }}>
-                AI 助手需要作品上下文，才能读取章节、大纲、角色、世界观，也才能把生成结果写回正确的作品。
+                AI 助手需要作品上下文，才能读取章节、大纲、角色、世界观。请先在墨枢首页创建一个作品。
               </Paragraph>
-              <Button type="primary" icon={<ExportOutlined />} size="large" onClick={openHomeInBrowser}>
-                打开墨枢首页
-              </Button>
             </div>
           ) : !activeConvId && messages.length === 0 ? (
             <div className="gui-chat-welcome">

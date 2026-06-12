@@ -3,29 +3,14 @@ from __future__ import annotations
 
 import difflib
 import json
-from datetime import date, datetime
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from ..core.utils import count_words
-from ..database.models import Chapter, ChapterSnapshot, WritingLog
+from ..database.models import Chapter, ChapterSnapshot
 from ..schemas.chapter import ChapterDetail, ChapterListItem, ChapterSnapshotItem
-
-
-def apply_today_word_delta(db: Session, project_id: str, delta: int) -> None:
-    if delta == 0:
-        return
-    today = date.today()
-    log = (
-        db.query(WritingLog)
-        .filter(WritingLog.project_id == project_id, WritingLog.date == today)
-        .first()
-    )
-    if not log:
-        log = WritingLog(project_id=project_id, date=today, total_words=0)
-        db.add(log)
-    log.total_words = max(0, (log.total_words or 0) + delta)
 
 
 def chapter_to_list_item(chapter: Chapter, outline_context: dict) -> dict:

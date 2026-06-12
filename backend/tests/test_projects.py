@@ -36,7 +36,6 @@ from app.database.models import (
     Character,
     OutlineNode,
     Chapter,
-    WritingLog,
     DeconstructionReport,
 )
 
@@ -636,15 +635,6 @@ class TestProjectDeleteAPI(unittest.TestCase):
             )
             db.add(chapter)
 
-            # Add a writing log
-            import datetime as dt
-            log_ = WritingLog(
-                project_id=project_id,
-                date=dt.date(2025, 1, 15),
-                total_words=500,
-            )
-            db.add(log_)
-
             # Add a deconstruction report
             report = DeconstructionReport(
                 project_id=project_id,
@@ -676,9 +666,6 @@ class TestProjectDeleteAPI(unittest.TestCase):
             ).count(), 0)
             self.assertEqual(db.query(Chapter).filter(
                 Chapter.project_id == project_id
-            ).count(), 0)
-            self.assertEqual(db.query(WritingLog).filter(
-                WritingLog.project_id == project_id
             ).count(), 0)
             self.assertEqual(db.query(DeconstructionReport).filter(
                 DeconstructionReport.project_id == project_id

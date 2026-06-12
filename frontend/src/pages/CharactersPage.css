@@ -1,3 +1,7 @@
+/* ═══════════════════════════════════════════════════════════
+   Characters Page — 角色管理
+   ═══════════════════════════════════════════════════════════ */
+
 .characters-page {
   height: 100%;
 }
@@ -12,10 +16,11 @@
 .characters-sidebar,
 .characters-editor {
   border: 1px solid var(--ant-color-border-secondary);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--ant-color-bg-container);
 }
 
+/* ── Sidebar ── */
 .characters-sidebar {
   display: flex;
   flex-direction: column;
@@ -24,11 +29,6 @@
   padding: 14px;
   position: sticky;
   top: 12px;
-}
-
-.characters-editor {
-  min-width: 0;
-  padding: 16px;
 }
 
 .characters-sidebar-toolbar,
@@ -60,10 +60,13 @@
   padding-right: 2px;
 }
 
+/* Character list items — consistent with writer */
 .characters-list-item {
   border-radius: 6px;
   cursor: pointer;
   padding: 10px !important;
+  transition: background-color 0.2s ease, transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+  border-left: 3px solid transparent;
 }
 
 .characters-list-item .ant-list-item-meta,
@@ -88,10 +91,18 @@
 
 .characters-list-item:hover {
   background: var(--ant-color-bg-text-hover);
+  transform: translateX(2px);
 }
 
 .characters-list-item-active {
   background: var(--ant-color-primary-bg);
+  border-left-color: var(--moshu-accent, var(--ant-color-primary));
+}
+
+/* ── Editor ── */
+.characters-editor {
+  min-width: 0;
+  padding: 20px;
 }
 
 .characters-editor-head {
@@ -108,8 +119,8 @@
 
 .characters-section {
   border-top: 1px solid var(--ant-color-border-secondary);
-  margin-top: 16px;
-  padding-top: 16px;
+  margin-top: 18px;
+  padding-top: 18px;
 }
 
 .characters-two-col {
@@ -127,13 +138,16 @@
 .characters-ai-result {
   background: var(--ant-color-bg-layout);
   border: 1px solid var(--ant-color-border-secondary);
-  border-radius: 6px;
+  border-radius: 8px;
   max-height: 220px;
   overflow: auto;
-  padding: 10px;
+  padding: 12px;
   white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.7;
 }
 
+/* ── Responsive ── */
 @media (max-width: 1080px) {
   .characters-shell,
   .characters-two-col,

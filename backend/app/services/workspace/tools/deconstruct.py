@@ -13,6 +13,7 @@ from ....services.deconstruct.model_selection import map_concurrency_from_payloa
 from ....services.deconstruct.orchestrator import run_deconstruct_job, stream_rerun_failed_chunks
 from ....services.deconstruct.pipeline import build_golden_three_source, build_source_from_payload, chapter_aware_chunks, split_text
 from ....services.deconstruct.report_store import create_deconstruct_report, get_report_or_404, report_payload
+from ....core.utils import count_words
 
 
 async def _consume_rerun_stream(project_id: str, report_id: str, request: DeconstructRequest) -> None:
@@ -106,7 +107,7 @@ async def start_deconstruct_job(db: Session, project_id: str, args: dict[str, An
         project_id=project_id,
         title=title,
         chunks=chunks,
-        total_words=len(text),
+        total_words=count_words(text),
         selected_chapter_ids=selected_chapter_ids,
         map_model=map_model,
         reduce_model=reduce_model,

@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    Column, String, Text, Integer, DateTime, Boolean, ForeignKey, Date, Float,
+    Column, String, Text, Integer, DateTime, Boolean, ForeignKey, Float,
     Index, JSON,
 )
 from sqlalchemy.orm import relationship
@@ -40,7 +40,6 @@ class Project(Base):
     character_relationships = relationship("CharacterRelationship", cascade="all, delete-orphan")
     outline_nodes = relationship("OutlineNode", back_populates="project", cascade="all, delete-orphan")
     chapters = relationship("Chapter", back_populates="project", cascade="all, delete-orphan")
-    writing_logs = relationship("WritingLog", back_populates="project", cascade="all, delete-orphan")
     deconstruction_reports = relationship("DeconstructionReport", back_populates="project", cascade="all, delete-orphan")
     assistant_conversations = relationship("AssistantConversation", back_populates="project", cascade="all, delete-orphan")
     assistant_runs = relationship("AssistantRun", back_populates="project", cascade="all, delete-orphan")
@@ -337,22 +336,7 @@ class ChapterSummary(Base):
 
 
 # ---------------------------------------------------------------------------
-# 13. writing_logs — 写作日志表
-# ---------------------------------------------------------------------------
-class WritingLog(Base):
-    __tablename__ = "writing_logs"
-
-    id = Column(String(36), primary_key=True, default=generate_uuid)
-    project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    date = Column(Date, nullable=False)
-    total_words = Column(Integer, default=0)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-
-    project = relationship("Project", back_populates="writing_logs")
-
-
-# ---------------------------------------------------------------------------
-# 14. api_configs — API配置表
+# 13. api_configs — API配置表
 # ---------------------------------------------------------------------------
 class APIConfig(Base):
     __tablename__ = "api_configs"

@@ -9,6 +9,7 @@ os.environ["DATABASE_URL"] = "sqlite:///./test_novel_agent.db"
 
 from fastapi.testclient import TestClient
 
+from app.core.utils import count_words
 from app.database.models import Chapter
 from app.database.session import Base, SessionLocal, engine
 from app.main import app
@@ -71,14 +72,15 @@ class ImporterTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         chapters = response.json()["data"]["chapters"]
-        self.assertEqual([c["word_count"] for c in chapters], [2, 3])
+        expected_counts = [count_words(first), count_words(second)]
+        self.assertEqual([c["word_count"] for c in chapters], expected_counts)
         self.assertTrue(all(c["id"] for c in chapters))
 
         db = SessionLocal()
         try:
             stored = db.query(Chapter).filter(Chapter.project_id == project_id).order_by(Chapter.title.asc()).all()
             self.assertEqual(len(stored), 2)
-            self.assertEqual([chapter.word_count for chapter in stored], [2, 3])
+            self.assertEqual([chapter.word_count for chapter in stored], expected_counts)
             self.assertTrue(all(chapter.outline_node_id == outline_id for chapter in stored))
         finally:
             db.close()

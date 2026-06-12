@@ -15,7 +15,7 @@ os.environ["DATABASE_URL"] = "sqlite:///./test_novel_agent.db"
 
 from fastapi.testclient import TestClient
 
-from app.database.models import Chapter, ChapterSnapshot, OutlineNode, Project, WritingLog
+from app.database.models import Chapter, ChapterSnapshot, OutlineNode, Project
 from app.database.session import Base, SessionLocal, engine
 from app.main import app
 
@@ -43,7 +43,6 @@ class ChapterTestCase(unittest.TestCase):
         try:
             db.query(ChapterSnapshot).delete()
             db.query(Chapter).delete()
-            db.query(WritingLog).delete()
             db.query(OutlineNode).delete()
             db.query(Project).delete()
             db.commit()
@@ -106,7 +105,7 @@ class TestChapterCRUD(ChapterTestCase):
 
         self.assertEqual(chapter["title"], "Opening Chapter")
         self.assertEqual(chapter["outline_title"], "Opening Outline")
-        self.assertEqual(chapter["word_count"], 6)
+        self.assertEqual(chapter["word_count"], 7)  # 6 CJK + 1 punctuation
         self.assertEqual(chapter["current_version"], 1)
         self.assertEqual(chapter["snapshot_count"], 0)
 
@@ -196,29 +195,24 @@ class TestChapterSnapshots(ChapterTestCase):
         )
         self.assertEqual(detail_resp.json()["data"]["content"], "新内容\n第二行")
 
-    def test_save_chapter_updates_today_writing_log_by_delta(self):
+    def test_today_stats_based_on_chapter_creation_date(self):
         project_id = self.create_project()
-        chapter = self.create_chapter(project_id, content="one two")
+        chapter = self.create_chapter(project_id, content="一二三四")  # 4 chars
 
-        response = self.client.put(
-            f"{API_PREFIX}/projects/{project_id}/chapters/{chapter['id']}",
-            json={"content": "one two three four"},
-        )
-        self.assertEqual(response.status_code, 200)
-
+        # Chapter created today counts its word_count
         stats_resp = self.client.get(f"{API_PREFIX}/projects/{project_id}/stats/today")
         self.assertEqual(stats_resp.status_code, 200)
-        self.assertEqual(stats_resp.json()["data"]["total_words"], 2)
+        self.assertEqual(stats_resp.json()["data"]["total_words"], 4)
+        self.assertEqual(stats_resp.json()["data"]["chapters_written"], 1)
 
-        response = self.client.put(
+        # Editing the chapter updates today's total (still based on created_at today)
+        self.client.put(
             f"{API_PREFIX}/projects/{project_id}/chapters/{chapter['id']}",
-            json={"content": "one two three"},
+            json={"content": "一二三四五六七八"},  # 8 chars
         )
-        self.assertEqual(response.status_code, 200)
-
         stats_resp = self.client.get(f"{API_PREFIX}/projects/{project_id}/stats/today")
         self.assertEqual(stats_resp.status_code, 200)
-        self.assertEqual(stats_resp.json()["data"]["total_words"], 1)
+        self.assertEqual(stats_resp.json()["data"]["total_words"], 8)
 
     def test_restore_snapshot_creates_restore_snapshot(self):
         project_id = self.create_project()

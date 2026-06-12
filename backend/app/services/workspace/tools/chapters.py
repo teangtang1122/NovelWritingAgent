@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from ....core.utils import count_words
 from ....database.models import (
     Chapter,
     ChapterCharacter,
@@ -93,7 +94,7 @@ async def create_chapter(
         outline_node_id=outline_node.id if outline_node else None,
         title=title[:200],
         content=content,
-        word_count=len(content),
+        word_count=count_words(content),
         current_version=1,
     )
     db.add(chapter)
@@ -116,8 +117,8 @@ async def create_chapter(
     return {
         "tool": "create_chapter",
         "status": "ok",
-        "detail": f"已创建章节：{chapter.title}（{len(content)} 字）",
-        "data": {"id": chapter.id, "title": chapter.title, "word_count": len(content)},
+        "detail": f"已创建章节：{chapter.title}（{count_words(content)} 字）",
+        "data": {"id": chapter.id, "title": chapter.title, "word_count": count_words(content)},
     }
 
 
@@ -175,7 +176,7 @@ async def update_chapter(
                 new_content, project, str(args.get("model") or "") or None
             )
         chapter.content = new_content
-        chapter.word_count = len(chapter.content)
+        chapter.word_count = count_words(chapter.content)
 
     outline_node = None
     for ref in (args.get("outline_node_id"), args.get("outline_node_title"), args.get("outline_title")):
@@ -213,8 +214,8 @@ async def update_chapter(
     return {
         "tool": "update_chapter",
         "status": "ok",
-        "detail": f"已更新章节：{chapter.title}（{len(chapter.content or '')} 字）",
-        "data": {"id": chapter.id, "title": chapter.title, "word_count": len(chapter.content or "")},
+        "detail": f"已更新章节：{chapter.title}（{count_words(chapter.content or '')} 字）",
+        "data": {"id": chapter.id, "title": chapter.title, "word_count": count_words(chapter.content or "")},
     }
 
 

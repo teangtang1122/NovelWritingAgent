@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ....ai.gateway import LLMGateway
+from ....core.utils import count_words
 from ....database.models import (
     Character,
     CharacterRelationship,
@@ -193,12 +194,12 @@ async def chapter_writer(
     return {
         "tool": "chapter_writer",
         "status": "ok",
-        "detail": f"已生成章节正文（{len(content)} 字）",
+        "detail": f"已生成章节正文（{count_words(content)} 字）",
         "data": {
             "draft_id": draft_id,
             "content_ref": draft_id,
             "content": content,
-            "word_count": len(content),
+            "word_count": count_words(content),
             "model": result.get("model", ""),
             "context_snapshot": context_snapshot,
         },

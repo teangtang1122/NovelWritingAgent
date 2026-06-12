@@ -1,3 +1,7 @@
+/* ═══════════════════════════════════════════════════════════
+   Writer Page — 沉浸式写作环境
+   ═══════════════════════════════════════════════════════════ */
+
 .writer-page {
   height: 100%;
 }
@@ -5,17 +9,19 @@
 .writer-shell {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  gap: 12px;
+  gap: 14px;
   align-items: start;
 }
 
 .writer-chapter-panel,
 .writer-editor {
   border: 1px solid var(--ant-color-border-secondary);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--ant-color-bg-container);
+  transition: box-shadow 0.25s ease;
 }
 
+/* ── Left: Chapter List Panel ── */
 .writer-chapter-panel {
   min-width: 0;
   padding: 12px;
@@ -25,21 +31,11 @@
   top: 12px;
 }
 
-.writer-editor {
-  min-width: 0;
-  padding: 16px;
-}
-
-.writer-panel-head,
-.writer-editor-head,
-.writer-history-head {
+.writer-panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-
-.writer-panel-head {
   margin-bottom: 12px;
   background: var(--ant-color-bg-container);
   border-bottom: 1px solid var(--ant-color-border-secondary);
@@ -49,14 +45,25 @@
   z-index: 2;
 }
 
+.writer-editor-head,
+.writer-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .writer-editor-head {
   margin-bottom: 16px;
 }
 
+/* Chapter list items */
 .writer-chapter-item {
   border-radius: 6px;
   cursor: pointer;
   padding: 10px !important;
+  transition: background-color 0.2s ease, transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+  border-left: 3px solid transparent;
 }
 
 .writer-chapter-item .ant-list-item-meta {
@@ -70,36 +77,54 @@
 
 .writer-chapter-item:hover {
   background: var(--ant-color-bg-text-hover);
+  transform: translateX(2px);
 }
 
 .writer-chapter-item-active {
   background: var(--ant-color-primary-bg);
+  border-left-color: var(--moshu-accent, var(--ant-color-primary));
 }
 
+/* ── Center: Editor ── */
+.writer-editor {
+  min-width: 0;
+  padding: 20px;
+}
+
+/* Editor form layout */
 .writer-form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(230px, 0.7fr);
-  gap: 12px;
+  gap: 14px;
 }
 
+/* Content textarea — the sacred writing space */
 .writer-content-input {
-  font-size: 15px;
-  line-height: 1.9;
+  font-size: 15.5px;
+  line-height: 2;
+  letter-spacing: 0.01em;
+  padding: 16px 18px !important;
+  border-radius: 8px !important;
+  transition: box-shadow 0.25s ease, border-color 0.2s ease;
 }
 
-/* History */
+.writer-content-input:focus {
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.03);
+}
+
+/* ── Version History ── */
 .writer-history-section {
   border-top: 1px solid var(--ant-color-border-secondary);
-  margin-top: 18px;
-  padding-top: 16px;
+  margin-top: 20px;
+  padding-top: 18px;
 }
 
 .writer-history-head {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .writer-snapshot-timeline {
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 .writer-snapshot-row {
@@ -109,12 +134,13 @@
   gap: 12px;
 }
 
-/* Diff */
+/* ── Diff Panel ── */
 .writer-diff-panel {
   border: 1px solid var(--ant-color-border-secondary);
-  border-radius: 6px;
-  margin-top: 14px;
-  padding: 12px;
+  border-radius: 8px;
+  margin-top: 16px;
+  padding: 14px;
+  background: var(--ant-color-bg-container);
 }
 
 .writer-diff-summary {
@@ -122,12 +148,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .writer-diff-change {
   border-top: 1px solid var(--ant-color-border-secondary);
-  padding: 10px 0;
+  padding: 12px 0;
 }
 
 .writer-diff-change:first-of-type {
@@ -137,7 +163,7 @@
 .writer-diff-columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px;
+  gap: 12px;
   margin-top: 8px;
 }
 
@@ -146,8 +172,10 @@
   margin: 0;
   min-height: 42px;
   overflow: auto;
-  padding: 10px;
+  padding: 10px 12px;
   white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 .writer-diff-old {
@@ -160,6 +188,7 @@
   border: 1px solid var(--ant-color-success-border);
 }
 
+/* ── Responsive ── */
 @media (max-width: 1480px) {
   .writer-shell {
     grid-template-columns: 240px minmax(0, 1fr);

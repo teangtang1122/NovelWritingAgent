@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="ink" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2c2417"/>
+      <stop offset="50%" stop-color="#4a3c28"/>
+      <stop offset="100%" stop-color="#7c5e2a"/>
+    </linearGradient>
+  </defs>
+  <!-- Paper background -->
+  <rect width="64" height="64" rx="12" fill="#f8f5ef"/>
+  <!-- Ink brush stroke — the "墨" character simplified -->
+  <path d="M18 14 Q20 12 22 14 L22 50 Q20 52 18 50 Z" fill="url(#ink)" opacity="0.9"/>
+  <path d="M26 20 Q28 18 44 20 Q46 22 44 24 L28 24 Q26 22 26 20 Z" fill="url(#ink)" opacity="0.8"/>
+  <path d="M26 30 Q28 28 40 30 Q42 32 40 34 L28 34 Q26 32 26 30 Z" fill="url(#ink)" opacity="0.7"/>
+  <path d="M26 40 Q28 38 36 40 Q38 42 36 44 L28 44 Q26 42 26 40 Z" fill="url(#ink)" opacity="0.6"/>
+  <!-- Subtle accent dot -->
+  <circle cx="48" cy="48" r="4" fill="#7c5e2a" opacity="0.3"/>
+</svg>

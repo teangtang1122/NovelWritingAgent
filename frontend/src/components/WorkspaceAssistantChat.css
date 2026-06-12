@@ -1,3 +1,7 @@
+/* ═══════════════════════════════════════════════════════════
+   Workspace Assistant Chat — 项目助手对话
+   ═══════════════════════════════════════════════════════════ */
+
 .workspace-assistant-chat {
   display: flex;
   flex-direction: column;
@@ -17,10 +21,11 @@
   flex-shrink: 0;
 }
 
+/* ── Conversation history ── */
 .workspace-assistant-history {
   display: grid;
   flex-shrink: 0;
-  gap: 6px;
+  gap: 5px;
   max-height: 104px;
   overflow-y: auto;
 }
@@ -38,6 +43,11 @@
   min-width: 0;
   padding: 6px 6px 6px 10px;
   text-align: left;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.workspace-assistant-history-item:hover {
+  background: var(--ant-color-bg-text-hover);
 }
 
 .workspace-assistant-history-item span {
@@ -53,10 +63,11 @@
   border-color: var(--ant-color-primary-border);
 }
 
+/* ── Run log ── */
 .workspace-assistant-run-log {
   background: var(--ant-color-bg-container);
   border: 1px solid var(--ant-color-primary-bg);
-  border-radius: 6px;
+  border-radius: 8px;
   flex-shrink: 0;
   max-height: 130px;
   overflow-y: auto;
@@ -77,6 +88,7 @@
   cursor: pointer;
   font-size: 12px;
   padding: 0;
+  transition: color 0.15s ease;
 }
 
 .workspace-assistant-run-log-toggle:hover {
@@ -99,10 +111,11 @@
   white-space: nowrap;
 }
 
+/* ── Messages area ── */
 .workspace-assistant-messages {
   background: var(--ant-color-bg-layout);
   border: 1px solid var(--ant-color-border-secondary);
-  border-radius: 6px;
+  border-radius: 8px;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -113,16 +126,18 @@
 .workspace-assistant-message {
   background: var(--ant-color-bg-container);
   border: 1px solid var(--ant-color-border-secondary);
-  border-left: 3px solid var(--ant-color-primary);
+  border-left: 3px solid var(--moshu-accent, var(--ant-color-primary));
   border-radius: 6px;
   margin-bottom: 10px;
-  padding: 10px;
+  padding: 10px 12px;
+  transition: border-color 0.2s ease;
 }
 
 .workspace-assistant-user {
   border-left-color: var(--ant-color-text-tertiary);
 }
 
+/* ── Composer ── */
 .workspace-assistant-composer {
   background: var(--ant-color-bg-container);
   border-top: 1px solid var(--ant-color-border-secondary);
@@ -132,12 +147,13 @@
   padding-top: 10px;
 }
 
+/* ── Scroll to bottom button ── */
 .workspace-assistant-scroll-bottom {
   background: var(--ant-color-bg-container);
   border: 1px solid var(--ant-color-border);
   border-radius: 50%;
   bottom: 8px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -148,9 +164,11 @@
   right: 12px;
   width: 32px;
   z-index: 10;
+  transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .workspace-assistant-scroll-bottom:hover {
   border-color: var(--ant-color-primary);
   color: var(--ant-color-primary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }

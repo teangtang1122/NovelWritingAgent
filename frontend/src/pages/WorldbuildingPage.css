@@ -1,3 +1,7 @@
+/* ═══════════════════════════════════════════════════════════
+   Worldbuilding Page — 世界观
+   ═══════════════════════════════════════════════════════════ */
+
 .worldbuilding-page {
   height: 100%;
 }
@@ -11,7 +15,7 @@
 
 .worldbuilding-main {
   border: 1px solid var(--ant-color-border-secondary);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--ant-color-bg-container);
   min-width: 0;
 }

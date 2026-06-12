@@ -8,59 +8,36 @@ from sqlalchemy.orm import Session
 
 from ..core.db_helpers import get_project_or_404
 from ..core.response import ApiResponse
-from ..database.models import Chapter, Project, WritingLog
+from ..database.models import Chapter, Project
 from ..database.session import get_db
 from ..schemas.stats import GoalUpdate
 
 router = APIRouter(tags=["stats"])
 
 
-def _get_or_create_today_log(db: Session, project_id: str) -> WritingLog:
-    today = date.today()
-    log = (
-        db.query(WritingLog)
-        .filter(WritingLog.project_id == project_id, WritingLog.date == today)
-        .first()
-    )
-    if not log:
-        log = WritingLog(project_id=project_id, date=today, total_words=0)
-        db.add(log)
-        db.commit()
-        db.refresh(log)
-    return log
-
-
-def _compute_today_words(db: Session, project_id: str) -> int:
-    """Read today's accumulated net writing delta from writing_logs."""
-    log = (
-        db.query(WritingLog)
-        .filter(WritingLog.project_id == project_id, WritingLog.date == date.today())
-        .first()
-    )
-    return log.total_words if log else 0
-
-
 @router.get("/projects/{project_id}/stats/today")
 def get_today_stats(project_id: str, db: Session = Depends(get_db)):
-    """Get today's writing statistics."""
+    """Get today's writing statistics based on chapter creation date."""
     project = get_project_or_404(db, project_id)
     today = date.today()
-    today_words = _compute_today_words(db, project_id)
+    today_start = datetime.combine(today, datetime.min.time())
+    today_end = today_start + timedelta(days=1)
 
-    _get_or_create_today_log(db, project_id)
-
-    # Count chapters updated today
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    chapters_count = (
-        db.query(func.count(Chapter.id))
+    row = (
+        db.query(
+            func.coalesce(func.sum(Chapter.word_count), 0).label("total_words"),
+            func.count(Chapter.id).label("chapters_count"),
+        )
         .filter(
             Chapter.project_id == project_id,
-            Chapter.updated_at >= today_start,
+            Chapter.created_at >= today_start,
+            Chapter.created_at < today_end,
         )
-        .scalar()
-    ) or 0
+        .one()
+    )
 
     goal = project.daily_word_goal or 6000
+    today_words = int(row.total_words)
     progress = round((today_words / goal) * 100, 1) if goal > 0 else 0
 
     return ApiResponse.success(data={
@@ -68,7 +45,7 @@ def get_today_stats(project_id: str, db: Session = Depends(get_db)):
         "total_words": today_words,
         "daily_goal": goal,
         "progress_percent": min(progress, 100.0),
-        "chapters_written": chapters_count,
+        "chapters_written": int(row.chapters_count),
     })
 
 
@@ -78,28 +55,32 @@ def get_stats_history(
     days: int = Query(7, ge=1, le=365, description="Number of days to look back"),
     db: Session = Depends(get_db),
 ):
-    """Get historical daily writing statistics."""
+    """Get historical daily writing statistics based on chapter creation dates."""
     project = get_project_or_404(db, project_id)
     start_date = date.today() - timedelta(days=days - 1)
+    start_dt = datetime.combine(start_date, datetime.min.time())
 
-    logs = (
-        db.query(WritingLog)
-        .filter(
-            WritingLog.project_id == project_id,
-            WritingLog.date >= start_date,
+    rows = (
+        db.query(
+            func.date(Chapter.created_at).label("day"),
+            func.coalesce(func.sum(Chapter.word_count), 0).label("total_words"),
+            func.count(Chapter.id).label("chapters_count"),
         )
-        .order_by(WritingLog.date.asc())
+        .filter(
+            Chapter.project_id == project_id,
+            Chapter.created_at >= start_dt,
+        )
+        .group_by(func.date(Chapter.created_at))
         .all()
     )
 
-    log_by_date = {log_entry.date: log_entry for log_entry in logs}
+    words_by_date = {str(r.day): int(r.total_words) for r in rows}
     goal = project.daily_word_goal or 6000
     items = []
     total_words = 0
     current = start_date
     while current <= date.today():
-        log_entry = log_by_date.get(current)
-        words = log_entry.total_words if log_entry else 0
+        words = words_by_date.get(current.isoformat(), 0)
         total_words += words
         items.append({
             "date": current.isoformat(),

@@ -13,7 +13,6 @@ from ..database.models import Chapter, ChapterSnapshot
 from ..database.session import get_db
 from ..schemas.chapter import ChapterCreate, ChapterUpdate
 from ..services.chapter_service import (
-    apply_today_word_delta,
     chapter_to_detail,
     chapter_to_list_item,
     create_snapshot,
@@ -119,8 +118,6 @@ def save_chapter(
     if not update_data:
         raise ValidationError("未提供任何更新字段")
 
-    old_word_count = chapter.word_count or count_words(chapter.content or "")
-
     if "outline_node_id" in update_data:
         get_outline_node_or_404(db, project_id, update_data["outline_node_id"])
         chapter.outline_node_id = update_data["outline_node_id"]
@@ -130,7 +127,6 @@ def save_chapter(
         chapter.content = update_data["content"] or ""
 
     chapter.word_count = count_words(chapter.content or "")
-    apply_today_word_delta(db, project_id, chapter.word_count - old_word_count)
     chapter.current_version = (chapter.current_version or 1) + 1
     db.add(create_snapshot(chapter, trigger_type))
     db.commit()
@@ -206,11 +202,8 @@ def restore_chapter_snapshot(
     get_project_or_404(db, project_id)
     chapter = _get_chapter_or_404(db, project_id, chapter_id)
     snapshot = _get_snapshot_or_404(db, project_id, chapter_id, snapshot_id)
-    old_word_count = chapter.word_count or count_words(chapter.content or "")
-
     chapter.content = snapshot.content
     chapter.word_count = snapshot.word_count or count_words(snapshot.content or "")
-    apply_today_word_delta(db, project_id, chapter.word_count - old_word_count)
     chapter.current_version = (chapter.current_version or 1) + 1
     db.add(create_snapshot(chapter, "restore"))
     db.commit()

@@ -81,9 +81,10 @@ $Separator = ":"
 $FrontendDist = Join-Path $FrontendDir "dist"
 
 Write-Step "Creating Windows executable..."
+$IconPath = Join-Path $BackendDir "Moshu.ico"
 Push-Location $Root
 try {
-  Invoke-Native $VenvPython @(
+  $PyInstallerArgs = [System.Collections.ArrayList]@(
     "-m", "PyInstaller",
     "--noconfirm",
     "--clean",
@@ -106,6 +107,14 @@ try {
     "--hidden-import", "pythonnet",
     (Join-Path $BackendDir "launcher.py")
   )
+  if (Test-Path -LiteralPath $IconPath) {
+    Write-Step "Using icon: $IconPath"
+    # Insert before the last element (the entry-point .py script)
+    $lastIndex = $PyInstallerArgs.Count - 1
+    $PyInstallerArgs.Insert($lastIndex, "--icon")
+    $PyInstallerArgs.Insert($lastIndex + 1, $IconPath)
+  }
+  Invoke-Native $VenvPython $PyInstallerArgs
 } finally {
   Pop-Location
 }

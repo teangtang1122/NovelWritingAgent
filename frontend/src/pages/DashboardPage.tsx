@@ -142,12 +142,13 @@ function DashboardPage() {
 
   return (
     <PageWrapper>
+      <div className="dashboard-bg-pattern" />
       <SystemNav current="dashboard" />
 
       {/* Hero */}
-      <div className="dashboard-hero moshu-animate-in">
+      <div className="dashboard-hero">
         <h1 className="dashboard-hero-title">
-          <BookOutlined style={{ marginRight: 12, fontSize: 32 }} />
+          <BookOutlined style={{ marginRight: 14, fontSize: 34, opacity: 0.75 }} />
           墨枢
         </h1>
         <p className="dashboard-hero-sub">笔下生花，万象归枢</p>

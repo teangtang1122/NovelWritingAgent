@@ -19,7 +19,6 @@ import {
   RobotOutlined,
   BulbOutlined,
   ClockCircleOutlined,
-  RightOutlined,
 } from '@ant-design/icons'
 import WorldbuildingPage from './WorldbuildingPage'
 import CharactersPage from './CharactersPage'
@@ -34,6 +33,7 @@ import CatalogingPage from './CatalogingPage'
 import SkillsPage from './SkillsPage'
 import { ScheduledTasksPage } from './ScheduledTasksPage'
 import AiSidePanel from '../components/AiSidePanel'
+import TabCache from '../components/TabCache'
 import WorkspaceAssistantChat from '../components/WorkspaceAssistantChat'
 import { AiPanelProvider, useAiPanelContext } from '../contexts/AiPanelContext'
 import { useModelOptions } from '../hooks/useModelOptions'
@@ -157,38 +157,41 @@ function ProjectWorkspace() {
     },
   ]
 
-  const renderContent = () => {
-    if (!projectId) return null
-    switch (activeKey) {
-      case 'world': return <WorldbuildingPage projectId={projectId} />
-      case 'characters': return <CharactersPage projectId={projectId} />
-      case 'outline': return <OutlinePage projectId={projectId} />
-      case 'writer': return <WriterPage projectId={projectId} />
-      case 'stats': return <StatsPage projectId={projectId} />
-      case 'export': return <ExportPage projectId={projectId} />
-      case 'deconstruct': return <DeconstructPage projectId={projectId} />
-      case 'cataloging': return <CatalogingPage projectId={projectId} />
-      case 'visualization': return <VisualizationPage projectId={projectId} />
-      case 'import': return <ImportPage projectId={projectId} />
-      case 'skills': return <SkillsPage projectId={projectId} />
-      case 'scheduler': return <ScheduledTasksPage projectId={projectId} />
-      default: return <WriterPage projectId={projectId} />
-    }
-  }
+  /** Tab renderers — wrapped in closures for TabCache lazy evaluation */
+  const tabRenderers = projectId
+    ? {
+        writer: () => <WriterPage projectId={projectId} />,
+        outline: () => <OutlinePage projectId={projectId} />,
+        characters: () => <CharactersPage projectId={projectId} />,
+        world: () => <WorldbuildingPage projectId={projectId} />,
+        stats: () => <StatsPage projectId={projectId} />,
+        deconstruct: () => <DeconstructPage projectId={projectId} />,
+        cataloging: () => <CatalogingPage projectId={projectId} />,
+        visualization: () => <VisualizationPage projectId={projectId} />,
+        skills: () => <SkillsPage projectId={projectId} />,
+        scheduler: () => <ScheduledTasksPage projectId={projectId} />,
+        import: () => <ImportPage projectId={projectId} />,
+        export: () => <ExportPage projectId={projectId} />,
+      }
+    : null
 
   return (
     <AiPanelProvider>
       <Layout style={{ minHeight: '100vh' }}>
         <Sider
-          width={180}
-          collapsedWidth={48}
+          width={188}
+          collapsedWidth={52}
           collapsible
           collapsed={sidebarCollapsed}
           onCollapse={setSidebarCollapsed}
           trigger={null}
           theme="light"
-          style={{ borderRight: '1px solid var(--ant-color-border-secondary)' }}
+          style={{
+            borderRight: '1px solid var(--ant-color-border-secondary)',
+            transition: 'width 0.25s cubic-bezier(0.22, 1, 0.36, 1)',
+          }}
         >
+          {/* Sidebar header — project title area */}
           <div
             style={{
               alignItems: 'center',
@@ -198,11 +201,21 @@ function ProjectWorkspace() {
               gap: 8,
               justifyContent: sidebarCollapsed ? 'center' : 'space-between',
               minHeight: 56,
-              padding: sidebarCollapsed ? 8 : 16,
+              padding: sidebarCollapsed ? '8px 0' : '12px 16px',
+              background: 'linear-gradient(180deg, rgba(0,0,0,0.015) 0%, transparent 100%)',
             }}
           >
             {!sidebarCollapsed && (
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14, fontFamily: "'Noto Serif SC', 'LXGW WenKai', serif" }}>
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontSize: 14,
+                  fontFamily: "'Noto Serif SC', 'LXGW WenKai', serif",
+                  letterSpacing: '0.02em',
+                }}
+              >
                 {projectTitle || (projectId ? projectId.slice(0, 8) + '...' : '')}
               </span>
             )}
@@ -211,6 +224,7 @@ function ProjectWorkspace() {
               size="small"
               icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               onClick={() => setSidebarCollapsed((value) => !value)}
+              style={{ opacity: 0.65 }}
             />
           </div>
           <Menu
@@ -219,7 +233,7 @@ function ProjectWorkspace() {
             selectedKeys={[activeKey]}
             onClick={({ key }) => setActiveKey(key as MenuKey)}
             items={menuItems}
-            style={{ borderRight: 0 }}
+            style={{ borderRight: 0, paddingTop: 8 }}
           />
         </Sider>
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
@@ -232,25 +246,36 @@ function ProjectWorkspace() {
               height: 48,
               padding: '0 24px',
               borderBottom: '1px solid var(--ant-color-border-secondary)',
-              background: 'var(--ant-color-bg-layout)',
+              background: 'var(--ant-color-bg-container)',
               flexShrink: 0,
+              backdropFilter: 'blur(8px)',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
               <Button
                 type="link"
                 icon={<HomeOutlined />}
                 onClick={() => navigate('/dashboard')}
-                style={{ padding: 0, fontSize: 14 }}
+                style={{ padding: 0, fontSize: 13, opacity: 0.7 }}
               >
                 作品管理
               </Button>
-              <RightOutlined style={{ fontSize: 10, color: 'var(--ant-color-text-quaternary)' }} />
-              <span style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 10, color: 'var(--ant-color-text-quaternary)', margin: '0 2px' }}>›</span>
+              <span
+                style={{
+                  fontWeight: 600,
+                  fontSize: 13,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontFamily: "'Noto Serif SC', 'LXGW WenKai', serif",
+                  letterSpacing: '0.01em',
+                }}
+              >
                 {projectTitle || '未命名作品'}
               </span>
-              <RightOutlined style={{ fontSize: 10, color: 'var(--ant-color-text-quaternary)' }} />
-              <span style={{ color: 'var(--ant-color-text-secondary)', fontSize: 14 }}>{PAGE_TITLES[activeKey]}</span>
+              <span style={{ fontSize: 10, color: 'var(--ant-color-text-quaternary)', margin: '0 2px' }}>›</span>
+              <span style={{ color: 'var(--ant-color-text-secondary)', fontSize: 13 }}>{PAGE_TITLES[activeKey]}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <ThemeSwitcher />
@@ -260,6 +285,10 @@ function ProjectWorkspace() {
                   size="small"
                   icon={<RobotOutlined />}
                   onClick={() => setAiCollapsed(!aiCollapsed)}
+                  style={{
+                    borderRadius: 6,
+                    transition: 'all 0.2s ease',
+                  }}
                 >
                   AI 助手
                 </Button>
@@ -269,9 +298,9 @@ function ProjectWorkspace() {
           {/* Main content */}
           <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
             <Content style={{ padding: 24, background: 'var(--ant-color-bg-container)', flex: 1, minWidth: 0 }}>
-              <div key={activeKey} className="moshu-content-enter">
-                {renderContent()}
-              </div>
+              {tabRenderers && (
+                <TabCache activeKey={activeKey} tabs={tabRenderers} />
+              )}
             </Content>
             <AiPanelColumn aiCollapsed={aiCollapsed} setAiCollapsed={setAiCollapsed} />
           </div>

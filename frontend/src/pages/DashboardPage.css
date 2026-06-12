@@ -1,36 +1,57 @@
+/* ═══════════════════════════════════════════════════════════
+   Dashboard — 墨枢 Landing
+   ═══════════════════════════════════════════════════════════ */
+
 /* ─── Hero header ─── */
 .dashboard-hero {
-  padding: 48px 0 32px;
+  padding: 56px 0 36px;
   text-align: center;
   position: relative;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
+/* Decorative brush-stroke underline */
 .dashboard-hero::after {
   content: '';
   display: block;
-  width: 64px;
+  width: 80px;
   height: 2px;
-  background: var(--ant-color-primary);
-  margin: 24px auto 0;
+  margin: 28px auto 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--moshu-accent, var(--ant-color-primary)) 20%,
+    var(--moshu-accent, var(--ant-color-primary)) 60%,
+    transparent
+  );
   opacity: 0.5;
+  border-radius: 1px;
+  animation: moshu-brush-reveal 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.3s both;
 }
 
 .dashboard-hero-title {
   font-family: 'Noto Serif SC', 'LXGW WenKai', serif;
-  font-size: 36px;
+  font-size: 40px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: var(--ant-color-text);
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   line-height: 1.3;
+  animation: moshu-ink-spread 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dashboard-hero-title .anticon {
+  opacity: 0.75;
+  margin-right: 14px;
 }
 
 .dashboard-hero-sub {
   font-size: 15px;
   color: var(--ant-color-text-tertiary);
   margin: 0;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.12em;
+  font-weight: 300;
+  animation: moshu-fade-in 0.5s ease 0.2s both;
 }
 
 /* ─── Actions bar ─── */
@@ -39,8 +60,17 @@
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
   flex-wrap: wrap;
+}
+
+.dashboard-actions .ant-input-search {
+  max-width: 400px;
+}
+
+.dashboard-actions .ant-input-search .ant-input-wrapper {
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 /* ─── Project grid ─── */
@@ -55,14 +85,35 @@
   cursor: pointer;
   border-radius: 8px !important;
   overflow: hidden;
-  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-              box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-              border-color 0.2s ease;
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.25s ease;
+  position: relative;
+}
+
+/* Left accent border on hover */
+.dashboard-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--moshu-accent, var(--ant-color-primary));
+  transform: scaleY(0);
+  transform-origin: bottom;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 1;
+  border-radius: 8px 0 0 8px;
 }
 
 .dashboard-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.07), 0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+.dashboard-card:hover::before {
+  transform: scaleY(1);
 }
 
 .dashboard-card .ant-card-head {
@@ -83,14 +134,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color 0.2s ease;
+}
+
+.dashboard-card:hover .dashboard-card-title {
+  color: var(--moshu-accent, var(--ant-color-primary));
 }
 
 .dashboard-card-desc {
   color: var(--ant-color-text-secondary);
   font-size: 14px;
-  line-height: 1.6;
-  min-height: 44px;
-  margin-bottom: 10px;
+  line-height: 1.7;
+  min-height: 46px;
+  margin-bottom: 12px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -103,7 +159,7 @@
   align-items: center;
   font-size: 12px;
   color: var(--ant-color-text-tertiary);
-  padding-top: 10px;
+  padding-top: 12px;
   border-top: 1px solid var(--ant-color-border-secondary);
 }
 
@@ -115,18 +171,33 @@
 
 /* ─── Stagger animation for cards ─── */
 .dashboard-card-wrap {
-  animation: moshu-slide-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: moshu-slide-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.dashboard-card-wrap:nth-child(1) { animation-delay: 0.05s; }
-.dashboard-card-wrap:nth-child(2) { animation-delay: 0.10s; }
-.dashboard-card-wrap:nth-child(3) { animation-delay: 0.15s; }
-.dashboard-card-wrap:nth-child(4) { animation-delay: 0.20s; }
-.dashboard-card-wrap:nth-child(5) { animation-delay: 0.25s; }
-.dashboard-card-wrap:nth-child(6) { animation-delay: 0.30s; }
-.dashboard-card-wrap:nth-child(7) { animation-delay: 0.35s; }
-.dashboard-card-wrap:nth-child(8) { animation-delay: 0.40s; }
-.dashboard-card-wrap:nth-child(9) { animation-delay: 0.45s; }
-.dashboard-card-wrap:nth-child(10) { animation-delay: 0.50s; }
-.dashboard-card-wrap:nth-child(11) { animation-delay: 0.55s; }
-.dashboard-card-wrap:nth-child(12) { animation-delay: 0.60s; }
+.dashboard-card-wrap:nth-child(1) { animation-delay: 0.06s; }
+.dashboard-card-wrap:nth-child(2) { animation-delay: 0.12s; }
+.dashboard-card-wrap:nth-child(3) { animation-delay: 0.18s; }
+.dashboard-card-wrap:nth-child(4) { animation-delay: 0.24s; }
+.dashboard-card-wrap:nth-child(5) { animation-delay: 0.30s; }
+.dashboard-card-wrap:nth-child(6) { animation-delay: 0.36s; }
+.dashboard-card-wrap:nth-child(7) { animation-delay: 0.42s; }
+.dashboard-card-wrap:nth-child(8) { animation-delay: 0.48s; }
+.dashboard-card-wrap:nth-child(9) { animation-delay: 0.54s; }
+.dashboard-card-wrap:nth-child(10) { animation-delay: 0.60s; }
+.dashboard-card-wrap:nth-child(11) { animation-delay: 0.66s; }
+.dashboard-card-wrap:nth-child(12) { animation-delay: 0.72s; }
+
+/* ─── Decorative background pattern ─── */
+.dashboard-bg-pattern {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.02;
+  background-image:
+    radial-gradient(circle at 20% 30%, var(--moshu-accent, var(--ant-color-primary)) 0%, transparent 50%),
+    radial-gradient(circle at 80% 70%, var(--moshu-accent, var(--ant-color-primary)) 0%, transparent 50%);
+}

@@ -23,17 +23,37 @@ function SystemNav({ current }: SystemNavProps) {
   })()
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20,
+        paddingBottom: 14,
+        borderBottom: '1px solid var(--ant-color-border-secondary)',
+      }}
+    >
       <Space size={8}>
-      <Button
-        type={active === 'dashboard' ? 'primary' : 'default'}
-        icon={<HomeOutlined />}
-        onClick={() => navigate('/dashboard')}
-      >
-        作品管理
-      </Button>
-    </Space>
-    <ThemeSwitcher />
+        <Button
+          type={active === 'dashboard' ? 'primary' : 'default'}
+          icon={<HomeOutlined />}
+          onClick={() => navigate('/dashboard')}
+          style={{ borderRadius: 6 }}
+        >
+          作品管理
+        </Button>
+      </Space>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span
+          style={{
+            width: 1,
+            height: 20,
+            background: 'var(--ant-color-border-secondary)',
+            display: 'inline-block',
+          }}
+        />
+        <ThemeSwitcher />
+      </div>
     </div>
   )
 }
