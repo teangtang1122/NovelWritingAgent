@@ -452,10 +452,13 @@ async def execute_tool(
         arguments.pop("run_id", None)  # Strip if passed explicitly
 
     # Check confirmation token for legacy write tiers and explicitly sensitive tools.
-    # Permission packs allow non-destructive write tools directly, but destructive tools
-    # still require a confirmation token when exposed by the trusted pack.
+    # Trusted local mode is intentionally frictionless: it can execute Moshu MCP
+    # project tools without an extra frontend confirmation prompt. Secret/internal
+    # model tools remain excluded by the permission-pack registry boundary.
     from app.mcp.permissions import get_tier, validate_confirmation_token
-    if (get_tier(td) == "write_confirmed" and not permission_pack) or td.requires_confirmation:
+    trusted_local = permission_pack == "trusted_local_maintenance"
+    requires_token = (get_tier(td) == "write_confirmed" and not permission_pack) or td.requires_confirmation
+    if requires_token and not trusted_local:
         token_str = arguments.pop("confirmation_token", "")
         is_valid, reason = validate_confirmation_token(token_str, tool_name)
         if not is_valid:

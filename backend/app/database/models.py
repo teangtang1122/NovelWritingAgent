@@ -14,6 +14,19 @@ def generate_uuid():
     return str(uuid.uuid4())
 
 
+def default_external_agent_enabled_packs():
+    return [
+        "readonly_collaboration",
+        "project_writing",
+        "project_management",
+        "trusted_local_maintenance",
+    ]
+
+
+def default_trusted_local_clients():
+    return ["claude-code", "codex", "opencode"]
+
+
 # ---------------------------------------------------------------------------
 # 1. projects — 作品表
 # ---------------------------------------------------------------------------
@@ -984,11 +997,11 @@ class ExternalAgentSettings(Base):
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
     project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, unique=True)
-    enabled_packs = Column(JSON, nullable=False, default=list)  # ["readonly_collaboration"]
-    trusted_local_enabled = Column(Boolean, default=False)
-    trusted_local_clients = Column(JSON, nullable=False, default=list)  # ["claude-code", "codex"]
-    require_confirmation_for_writes = Column(Boolean, default=True)
-    require_confirmation_for_destructive = Column(Boolean, default=True)
+    enabled_packs = Column(JSON, nullable=False, default=default_external_agent_enabled_packs)
+    trusted_local_enabled = Column(Boolean, default=True)
+    trusted_local_clients = Column(JSON, nullable=False, default=default_trusted_local_clients)
+    require_confirmation_for_writes = Column(Boolean, default=False)
+    require_confirmation_for_destructive = Column(Boolean, default=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
 
@@ -1089,11 +1102,11 @@ class ExternalAgentGlobalSettings(Base):
     __tablename__ = "external_agent_global_settings"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    enabled_packs = Column(JSON, nullable=False, default=list)  # ["readonly_collaboration"]
-    trusted_local_enabled = Column(Boolean, default=False)
-    trusted_local_clients = Column(JSON, nullable=False, default=list)
-    require_confirmation_for_writes = Column(Boolean, default=True)
-    require_confirmation_for_destructive = Column(Boolean, default=True)
+    enabled_packs = Column(JSON, nullable=False, default=default_external_agent_enabled_packs)
+    trusted_local_enabled = Column(Boolean, default=True)
+    trusted_local_clients = Column(JSON, nullable=False, default=default_trusted_local_clients)
+    require_confirmation_for_writes = Column(Boolean, default=False)
+    require_confirmation_for_destructive = Column(Boolean, default=False)
     mcp_permission_source = Column(String(30), default="global_settings")  # global_settings | cli_override
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)

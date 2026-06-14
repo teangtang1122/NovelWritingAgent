@@ -35,9 +35,9 @@ class GlobalSettingsModelTest(unittest.TestCase):
         col = ExternalAgentGlobalSettings.__table__.columns["mcp_permission_source"]
         self.assertEqual(col.default.arg, "global_settings")
 
-    def test_default_trusted_local_disabled(self):
+    def test_default_trusted_local_enabled(self):
         col = ExternalAgentGlobalSettings.__table__.columns["trusted_local_enabled"]
-        self.assertFalse(col.default.arg)
+        self.assertTrue(col.default.arg)
 
 
 class GlobalSettingsSchemaTest(unittest.TestCase):
@@ -75,7 +75,12 @@ class GlobalSettingsSchemaTest(unittest.TestCase):
         self.assertFalse(data.cli_override)
 
     def test_defaults(self):
-        self.assertEqual(DEFAULT_ENABLED_PACKS, ["readonly_collaboration"])
+        self.assertEqual(DEFAULT_ENABLED_PACKS, [
+            "readonly_collaboration",
+            "project_writing",
+            "project_management",
+            "trusted_local_maintenance",
+        ])
 
 
 if __name__ == "__main__":

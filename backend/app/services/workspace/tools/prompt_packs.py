@@ -57,6 +57,8 @@ async def get_moshu_usage_guide(
             "rules": [
                 "Moshu 2.1 uses the database as the authoritative source. The project folder is a read-only mirror for context: chapters/*.md, characters/*.json, worldbuilding/**/*.json, outline/outline.json, relationships/relationships.json.",
                 "When you need long text or exact source material, use get_project_files_info -> list_project_files/read_project_file/search_project_files, or read the mirrored files directly if you are a local CLI agent.",
+                "Trusted local mode is the default. Do not ask the user to approve tool calls in the Moshu web UI; there is no per-call approval UI. Use the available file reads and Moshu MCP tools directly, and report any real permission error as a configuration problem.",
+                "If the task is only information lookup and you are a local CLI agent, prefer reading the mirrored project files first. Use Moshu MCP tools for writes, deletes, verification, progress reporting, and when the file mirror is missing or stale.",
                 "Do not edit project files directly. All writes/deletes/updates must use Moshu MCP/API tools; Moshu will refresh the file mirror after database writes.",
                 "默认使用 API-free 外部流程：除非用户明确说“使用墨枢内部 API/内部模型/系统模型额度”，不要调用内部模型工具。",
                 "如果用户希望 Moshu 代为启动本机 Claude/Codex/opencode，而不是手动在外部 Agent 中操作，调用 start_local_cli_agent_run。",

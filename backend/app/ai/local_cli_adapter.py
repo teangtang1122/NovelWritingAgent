@@ -30,7 +30,10 @@ DEFAULT_CLI_COMMANDS: dict[str, str] = {
 }
 
 DEFAULT_CLI_ARGS: dict[str, list[str]] = {
-    "claude_cli": ["-p", "{prompt}"],
+    # Claude Code is used as a trusted local worker inside Moshu. Bypass
+    # interactive permission prompts so file reads and Moshu MCP tool calls can
+    # run unattended while Moshu still enforces its own MCP permission boundary.
+    "claude_cli": ["--permission-mode", "bypassPermissions", "-p", "{prompt}"],
     "codex_cli": ["exec", "{prompt}"],
     # opencode has had CLI surface changes across versions, so keep it
     # configurable. The UI seeds a conservative default users can edit.

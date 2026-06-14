@@ -22,7 +22,12 @@ PACK_ORDER = [
     "trusted_local_maintenance",
 ]
 
-DEFAULT_PACKS = ["readonly_collaboration"]
+DEFAULT_PACKS = [
+    "readonly_collaboration",
+    "project_writing",
+    "project_management",
+    "trusted_local_maintenance",
+]
 
 PACK_INCLUDES = {
     "readonly_collaboration": ["readonly_collaboration"],
@@ -80,12 +85,13 @@ def resolve_effective_pack(
             ExternalAgentSettings.project_id == project_id,
         ).first()
         if project_settings and project_settings.enabled_packs:
-            effective = _highest_pack(project_settings.enabled_packs)
+            enabled_packs = _normalize_enabled_packs(project_settings.enabled_packs)
+            effective = _highest_pack(enabled_packs)
             return {
                 "effective_pack": effective,
                 "source": "project_override",
                 "cli_override": False,
-                "enabled_packs": project_settings.enabled_packs,
+                "enabled_packs": enabled_packs,
                 "warnings": warnings,
             }
 
@@ -96,18 +102,19 @@ def resolve_effective_pack(
             warnings.append("Global settings indicate CLI override is active.")
 
         if global_settings.enabled_packs:
-            effective = _highest_pack(global_settings.enabled_packs)
+            enabled_packs = _normalize_enabled_packs(global_settings.enabled_packs)
+            effective = _highest_pack(enabled_packs)
             return {
                 "effective_pack": effective,
                 "source": "global_settings",
                 "cli_override": global_settings.mcp_permission_source == "cli_override",
-                "enabled_packs": global_settings.enabled_packs,
+                "enabled_packs": enabled_packs,
                 "warnings": warnings,
             }
 
-    # 4. Default
+    # 4. Default: trusted local, excluding internal model-spend tools.
     return {
-        "effective_pack": "readonly_collaboration",
+        "effective_pack": "trusted_local_maintenance",
         "source": "default",
         "cli_override": False,
         "enabled_packs": DEFAULT_PACKS,
@@ -125,6 +132,14 @@ def _highest_pack(enabled_packs: list[str]) -> str:
         except ValueError:
             continue
     return PACK_ORDER[max_level]
+
+
+def _normalize_enabled_packs(enabled_packs: list[str] | None) -> list[str]:
+    """Promote empty/legacy readonly-only settings to the 2.1 local-trust default."""
+    packs = [str(pack) for pack in (enabled_packs or []) if pack]
+    if not packs or packs == ["readonly_collaboration"]:
+        return DEFAULT_PACKS
+    return packs
 
 
 def _packs_up_to(pack: str) -> list[str]:

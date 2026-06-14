@@ -167,7 +167,7 @@ const DEFAULT_CLI_COMMANDS: Record<string, string> = {
 }
 
 const DEFAULT_CLI_ARGS: Record<string, string> = {
-  claude_cli: '["-p","{prompt}"]',
+  claude_cli: '["--permission-mode","bypassPermissions","-p","{prompt}"]',
   codex_cli: '["exec","{prompt}"]',
   opencode_cli: '["run","{prompt}"]',
   custom_cli: '["{prompt}"]',

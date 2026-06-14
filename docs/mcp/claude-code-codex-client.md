@@ -350,7 +350,7 @@ chapter summaries, character cards, outline nodes, worldbuilding, and links.
 
 ## Permission Packs
 
-By default, Claude Code / Codex only has **readonly** access to your project. You can grant broader permissions through the Moshu UI.
+By default, trusted local Claude Code / Codex clients get API-free project read/write/management access through `--permission-pack auto`. Moshu still blocks API keys, model secrets, and internal model-spend tools unless the user explicitly selects the `internal_llm` pack.
 
 ### Available Packs
 
@@ -385,7 +385,7 @@ Moshu has two levels of permission settings:
 **Global settings** (system-wide):
 - Configured in the Moshu web UI under "External Agent / MCP"
 - Apply to all projects unless overridden
-- Default: `readonly_collaboration`
+- Default: `trusted_local_maintenance` without `internal_llm`
 
 **Project settings** (per-project):
 - Configured in each project's settings
@@ -417,17 +417,17 @@ Returns:
 
 ### Trusted Local Mode
 
-Trusted local mode allows Claude Code / Codex to skip write confirmations for project content. **Only enable this on machines you control.**
+Trusted local mode allows Claude Code / Codex to skip write confirmations for project content. Moshu enables it by default for local desktop clients; disable it if you are connecting an untrusted client.
 
 Requirements:
-- You must explicitly enable it in project settings
+- It is enabled by default for local desktop clients, and can be disabled in global/project settings
 - The MCP client must connect via stdio or localhost
 - The client name must be in your trusted client list
 
 When enabled:
 - Project write tools work without confirmation tokens
 - Project management tools become available
-- Destructive tools still require confirmation
+- Destructive tools work without a second confirmation prompt in trusted local mode
 - All writes are audited
 
 ### Why Is a Tool Not Listed?

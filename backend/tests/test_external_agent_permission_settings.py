@@ -33,9 +33,9 @@ class ExternalAgentSettingsModelTest(unittest.TestCase):
         missing = required - columns
         self.assertEqual(missing, set(), f"Missing columns: {missing}")
 
-    def test_default_trusted_local_disabled(self):
+    def test_default_trusted_local_enabled(self):
         col = ExternalAgentSettings.__table__.columns["trusted_local_enabled"]
-        self.assertFalse(col.default.arg)
+        self.assertTrue(col.default.arg)
 
 
 class ExternalAgentSettingsSchemaTest(unittest.TestCase):
@@ -61,11 +61,16 @@ class ExternalAgentSettingsSchemaTest(unittest.TestCase):
         self.assertIsNone(data.trusted_local_enabled)
 
     def test_defaults(self):
-        self.assertEqual(DEFAULT_ENABLED_PACKS, ["readonly_collaboration"])
-        self.assertFalse(DEFAULT_TRUSTED_LOCAL_ENABLED)
-        self.assertEqual(DEFAULT_TRUSTED_LOCAL_CLIENTS, [])
-        self.assertTrue(DEFAULT_REQUIRE_CONFIRMATION_FOR_WRITES)
-        self.assertTrue(DEFAULT_REQUIRE_CONFIRMATION_FOR_DESTRUCTIVE)
+        self.assertEqual(DEFAULT_ENABLED_PACKS, [
+            "readonly_collaboration",
+            "project_writing",
+            "project_management",
+            "trusted_local_maintenance",
+        ])
+        self.assertTrue(DEFAULT_TRUSTED_LOCAL_ENABLED)
+        self.assertEqual(DEFAULT_TRUSTED_LOCAL_CLIENTS, ["claude-code", "codex", "opencode"])
+        self.assertFalse(DEFAULT_REQUIRE_CONFIRMATION_FOR_WRITES)
+        self.assertFalse(DEFAULT_REQUIRE_CONFIRMATION_FOR_DESTRUCTIVE)
 
 
 class ExternalAgentSettingsRouterTest(unittest.TestCase):

@@ -34,6 +34,20 @@ $projectRoot = Split-Path -Parent $scriptDir
 Write-Host "=== Moshu Release Smoke Test ===" -ForegroundColor Cyan
 Write-Host ""
 
+function Invoke-LocalJsonGet {
+    param(
+        [Parameter(Mandatory=$true)][string]$Url,
+        [int]$TimeoutMs = 3000
+    )
+    $client = New-Object System.Net.WebClient
+    try {
+        $client.Encoding = [System.Text.Encoding]::UTF8
+        return $client.DownloadString($Url)
+    } finally {
+        $client.Dispose()
+    }
+}
+
 # Step 1: Build package
 if (-not $SkipBuild) {
     Write-Host "[1/6] Building package..." -ForegroundColor Yellow
@@ -97,34 +111,43 @@ Write-Host "  Waiting for server to start..." -ForegroundColor Yellow
 $maxWait = 90
 $waited = 0
 $serverReady = $false
+$serverBaseUrl = $null
 while ($waited -lt $maxWait) {
     Start-Sleep -Seconds 1
     $waited++
-    try {
-        $response = Invoke-WebRequest -Uri "http://localhost:8765/api/v1/projects" -Method GET -TimeoutSec 2 -ErrorAction SilentlyContinue
-        if ($response.StatusCode -eq 200) {
-            $serverReady = $true
-            break
+    foreach ($port in 8765..8815) {
+        try {
+            $baseUrl = "http://127.0.0.1:$port"
+            $projectsJson = Invoke-LocalJsonGet -Url "$baseUrl/api/v1/projects" -TimeoutMs 1000
+            if ($projectsJson) {
+                $serverReady = $true
+                $serverBaseUrl = $baseUrl
+                break
+            }
+        } catch {
+            # Server not ready on this port yet
         }
-    } catch {
-        # Server not ready yet
+    }
+    if ($serverReady) {
+        break
     }
 }
 
 if (-not $serverReady) {
     Write-Host "  ERROR: Server did not start within $maxWait seconds" -ForegroundColor Red
-    $moshuProcess | Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-Process Moshu,NovelWritingAgent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     exit 1
 }
-Write-Host "  Server is ready (waited $waited seconds)" -ForegroundColor Green
+Write-Host "  Server is ready at $serverBaseUrl (waited $waited seconds)" -ForegroundColor Green
 
 # Step 5: Verify API endpoints
 Write-Host "[5/6] Verifying API endpoints..." -ForegroundColor Yellow
 
 try {
     # Test projects API
-    $projectsResponse = Invoke-WebRequest -Uri "http://localhost:8765/api/v1/projects" -Method GET -TimeoutSec 5
-    $projects = ($projectsResponse.Content | ConvertFrom-Json).data
+    $projectsResponse = Invoke-LocalJsonGet -Url "$serverBaseUrl/api/v1/projects" -TimeoutMs 5000
+    $projectsPayload = $projectsResponse | ConvertFrom-Json
+    $projects = if ($null -ne $projectsPayload.data) { $projectsPayload.data } else { $projectsPayload }
     Write-Host "  Projects API: OK ($($projects.Count) projects)" -ForegroundColor Green
 } catch {
     Write-Host "  ERROR: Projects API failed: $_" -ForegroundColor Red
@@ -132,7 +155,7 @@ try {
 
 try {
     # Test external agent settings API
-    $settingsResponse = Invoke-WebRequest -Uri "http://localhost:8765/api/v1/external-agent/settings" -Method GET -TimeoutSec 5
+    $settingsResponse = Invoke-LocalJsonGet -Url "$serverBaseUrl/api/v1/external-agent/settings" -TimeoutMs 5000
     Write-Host "  External Agent Settings API: OK" -ForegroundColor Green
 } catch {
     Write-Host "  WARNING: External Agent Settings API not available" -ForegroundColor Yellow
@@ -140,8 +163,8 @@ try {
 
 try {
     # Test prompt packs API (should return cataloging_external_no_api pack)
-    $packsResponse = Invoke-WebRequest -Uri "http://localhost:8765/api/v1/prompt-packs?scope=cataloging" -Method GET -TimeoutSec 5
-    $packs = ($packsResponse.Content | ConvertFrom-Json).data
+    $packsResponse = Invoke-LocalJsonGet -Url "$serverBaseUrl/api/v1/prompt-packs?scope=cataloging" -TimeoutMs 5000
+    $packs = ($packsResponse | ConvertFrom-Json).data
     $hasExternalPack = $packs | Where-Object { $_.pack_id -match "external_no_api" }
     if ($hasExternalPack) {
         Write-Host "  Prompt Packs API: OK (external_no_api pack found)" -ForegroundColor Green
@@ -154,7 +177,7 @@ try {
 
 # Step 6: Cleanup
 Write-Host "[6/6] Cleanup..." -ForegroundColor Yellow
-$moshuProcess | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process Moshu,NovelWritingAgent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Write-Host "  Moshu.exe stopped" -ForegroundColor Green
 
 Write-Host ""

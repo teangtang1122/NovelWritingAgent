@@ -40,6 +40,13 @@ class LocalCLIAdapterHelperTestCase(unittest.TestCase):
         self.assertEqual(launch.args, ["-p", "hello"])
         self.assertIsNone(launch.stdin_text)
 
+    def test_claude_default_args_bypass_permissions(self):
+        launch = parse_cli_launch(None, "claude_cli", "hello", "claude-code")
+        self.assertEqual(
+            launch.args,
+            ["--permission-mode", "bypassPermissions", "-p", "hello"],
+        )
+
     def test_normalize_jsonl_output_extracts_text(self):
         adapter = LocalCLIAdapter(api_key="", base_url="codex_cli", cli_command="codex")
         text = adapter._normalize_output('{"type":"message","content":"hello"}\n{"delta":" world"}\n')

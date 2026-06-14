@@ -145,8 +145,31 @@ class ResolveEffectivePackTest(unittest.TestCase):
         query_mock.first.return_value = None
         db.query.return_value = query_mock
         result = resolve_effective_pack(db)
-        self.assertEqual(result["effective_pack"], "readonly_collaboration")
+        self.assertEqual(result["effective_pack"], "trusted_local_maintenance")
         self.assertEqual(result["source"], "default")
+
+    def test_legacy_readonly_only_settings_promoted_to_trusted_default(self):
+        db = MagicMock()
+        global_settings = MagicMock()
+        global_settings.enabled_packs = ["readonly_collaboration"]
+        global_settings.mcp_permission_source = "global_settings"
+
+        def query_side_effect(model):
+            q = MagicMock()
+            q.filter.return_value = q
+            model_name = model.__name__ if hasattr(model, "__name__") else str(model)
+            q.first.return_value = global_settings if "ExternalAgentGlobalSettings" in model_name else None
+            return q
+
+        db.query.side_effect = query_side_effect
+        result = resolve_effective_pack(db)
+        self.assertEqual(result["effective_pack"], "trusted_local_maintenance")
+        self.assertEqual(result["enabled_packs"], [
+            "readonly_collaboration",
+            "project_writing",
+            "project_management",
+            "trusted_local_maintenance",
+        ])
 
 
 class McpPermissionStatusToolTest(unittest.TestCase):

@@ -68,9 +68,18 @@ class EffectivePermissions(BaseModel):
     warnings: list[str] = []
 
 
-# Default settings for new projects
-DEFAULT_ENABLED_PACKS = ["readonly_collaboration"]
-DEFAULT_TRUSTED_LOCAL_ENABLED = False
-DEFAULT_TRUSTED_LOCAL_CLIENTS: list[str] = []
-DEFAULT_REQUIRE_CONFIRMATION_FOR_WRITES = True
-DEFAULT_REQUIRE_CONFIRMATION_FOR_DESTRUCTIVE = True
+# Default settings for new projects.
+#
+# Moshu is a local-first desktop app. The default should favor "it just works"
+# for local Claude/Codex/opencode clients while still keeping internal model
+# spend and secret-management tools out of MCP.
+DEFAULT_ENABLED_PACKS = [
+    "readonly_collaboration",
+    "project_writing",
+    "project_management",
+    "trusted_local_maintenance",
+]
+DEFAULT_TRUSTED_LOCAL_ENABLED = True
+DEFAULT_TRUSTED_LOCAL_CLIENTS: list[str] = ["claude-code", "codex", "opencode"]
+DEFAULT_REQUIRE_CONFIRMATION_FOR_WRITES = False
+DEFAULT_REQUIRE_CONFIRMATION_FOR_DESTRUCTIVE = False

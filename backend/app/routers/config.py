@@ -36,6 +36,7 @@ from ..database.models import APIConfig
 from ..database.session import get_db
 from ..schemas.config import APIConfigCreate, ConnectionTestRequest, GlobalModelSetting, ModelListRequest
 from ..services.content_store import content_root as resolve_content_root, migrate_projects_to_content_root
+from ..services.external_agent.mcp_auto_config import auto_configure_mcp_for_provider
 
 router = APIRouter(tags=["config"])
 
@@ -358,6 +359,17 @@ def _config_payload(cfg: APIConfig, include_masked_key: bool = False) -> dict:
     return data
 
 
+def _config_payload_with_mcp_setup(cfg: APIConfig, *, is_cli: bool) -> dict:
+    data = _config_payload(cfg)
+    if is_cli:
+        data["mcp_auto_setup"] = auto_configure_mcp_for_provider(
+            cfg.provider,
+            cli_command=getattr(cfg, "cli_command", None),
+            permission_pack="auto",
+        )
+    return data
+
+
 def _validate_cli_command(command: str | None) -> str:
     command = (command or "").strip()
     if not command:
@@ -417,7 +429,10 @@ def create_or_update_model_config(payload: APIConfigCreate, db: Session = Depend
         existing.deconstruct_item_char_limit = payload.deconstruct_item_char_limit
         db.commit()
         db.refresh(existing)
-        return ApiResponse.success(data=_config_payload(existing), message=f"{payload.provider} 配置已更新")
+        return ApiResponse.success(
+            data=_config_payload_with_mcp_setup(existing, is_cli=is_cli),
+            message=f"{payload.provider} 配置已更新",
+        )
 
     config = APIConfig(
         provider=payload.provider,
@@ -434,7 +449,10 @@ def create_or_update_model_config(payload: APIConfigCreate, db: Session = Depend
     db.add(config)
     db.commit()
     db.refresh(config)
-    return ApiResponse.success(data=_config_payload(config), message=f"{payload.provider} 配置已添加")
+    return ApiResponse.success(
+        data=_config_payload_with_mcp_setup(config, is_cli=is_cli),
+        message=f"{payload.provider} 配置已添加",
+    )
 
 
 @router.get("/config/models/{provider}")

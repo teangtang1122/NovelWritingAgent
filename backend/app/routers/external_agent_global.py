@@ -11,6 +11,10 @@ from ..database.session import get_db
 from ..schemas.external_agent_settings import (
     ExternalAgentGlobalSettingsUpdate,
     DEFAULT_ENABLED_PACKS,
+    DEFAULT_TRUSTED_LOCAL_ENABLED,
+    DEFAULT_TRUSTED_LOCAL_CLIENTS,
+    DEFAULT_REQUIRE_CONFIRMATION_FOR_WRITES,
+    DEFAULT_REQUIRE_CONFIRMATION_FOR_DESTRUCTIVE,
 )
 
 router = APIRouter(prefix="/external-agent", tags=["external-agent-global"])
@@ -25,20 +29,20 @@ def get_global_settings(db: Session = Depends(get_db)):
     if not settings:
         return ApiResponse.success(data={
             "enabled_packs": DEFAULT_ENABLED_PACKS,
-            "trusted_local_enabled": False,
-            "trusted_local_clients": [],
-            "require_confirmation_for_writes": True,
-            "require_confirmation_for_destructive": True,
+            "trusted_local_enabled": DEFAULT_TRUSTED_LOCAL_ENABLED,
+            "trusted_local_clients": DEFAULT_TRUSTED_LOCAL_CLIENTS,
+            "require_confirmation_for_writes": DEFAULT_REQUIRE_CONFIRMATION_FOR_WRITES,
+            "require_confirmation_for_destructive": DEFAULT_REQUIRE_CONFIRMATION_FOR_DESTRUCTIVE,
             "mcp_permission_source": "global_settings",
         })
 
     return ApiResponse.success(data={
         "id": settings.id,
         "enabled_packs": settings.enabled_packs or DEFAULT_ENABLED_PACKS,
-        "trusted_local_enabled": settings.trusted_local_enabled or False,
-        "trusted_local_clients": settings.trusted_local_clients or [],
-        "require_confirmation_for_writes": settings.require_confirmation_for_writes if settings.require_confirmation_for_writes is not None else True,
-        "require_confirmation_for_destructive": settings.require_confirmation_for_destructive if settings.require_confirmation_for_destructive is not None else True,
+        "trusted_local_enabled": settings.trusted_local_enabled if settings.trusted_local_enabled is not None else DEFAULT_TRUSTED_LOCAL_ENABLED,
+        "trusted_local_clients": settings.trusted_local_clients or DEFAULT_TRUSTED_LOCAL_CLIENTS,
+        "require_confirmation_for_writes": settings.require_confirmation_for_writes if settings.require_confirmation_for_writes is not None else DEFAULT_REQUIRE_CONFIRMATION_FOR_WRITES,
+        "require_confirmation_for_destructive": settings.require_confirmation_for_destructive if settings.require_confirmation_for_destructive is not None else DEFAULT_REQUIRE_CONFIRMATION_FOR_DESTRUCTIVE,
         "mcp_permission_source": settings.mcp_permission_source or "global_settings",
     })
 
@@ -74,10 +78,10 @@ def update_global_settings(
     return ApiResponse.success(data={
         "id": settings.id,
         "enabled_packs": settings.enabled_packs or DEFAULT_ENABLED_PACKS,
-        "trusted_local_enabled": settings.trusted_local_enabled or False,
-        "trusted_local_clients": settings.trusted_local_clients or [],
-        "require_confirmation_for_writes": settings.require_confirmation_for_writes if settings.require_confirmation_for_writes is not None else True,
-        "require_confirmation_for_destructive": settings.require_confirmation_for_destructive if settings.require_confirmation_for_destructive is not None else True,
+        "trusted_local_enabled": settings.trusted_local_enabled if settings.trusted_local_enabled is not None else DEFAULT_TRUSTED_LOCAL_ENABLED,
+        "trusted_local_clients": settings.trusted_local_clients or DEFAULT_TRUSTED_LOCAL_CLIENTS,
+        "require_confirmation_for_writes": settings.require_confirmation_for_writes if settings.require_confirmation_for_writes is not None else DEFAULT_REQUIRE_CONFIRMATION_FOR_WRITES,
+        "require_confirmation_for_destructive": settings.require_confirmation_for_destructive if settings.require_confirmation_for_destructive is not None else DEFAULT_REQUIRE_CONFIRMATION_FOR_DESTRUCTIVE,
         "mcp_permission_source": settings.mcp_permission_source or "global_settings",
     }, message="Global settings updated")
 

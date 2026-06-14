@@ -237,17 +237,22 @@ class ExecuteToolConfirmationTest(unittest.TestCase):
         self.assertIn("project_id", parsed["detail"])
         mock_exec.assert_not_called()
 
-    def test_trusted_pack_destructive_tool_still_requires_token(self):
+    @patch("app.services.workspace.executor.execute_workspace_action", new_callable=AsyncMock)
+    def test_trusted_pack_destructive_tool_executes_without_token(self, mock_exec):
+        mock_exec.return_value = {
+            "tool": "delete_project",
+            "status": "ok",
+            "detail": "Deleted",
+            "data": {"id": "p2"},
+        }
         mock_db = MagicMock()
         result = asyncio.run(execute_tool(
             mock_db, "", "delete_project",
             {"id": "p2"},
             permission_pack="trusted_local_maintenance",
         ))
-        self.assertTrue(result.is_error)
-        parsed = json.loads(result.content[0]["text"])
-        self.assertEqual(parsed["status"], "denied")
-        self.assertEqual(parsed["reason"], "confirmation_required")
+        self.assertFalse(result.is_error)
+        mock_exec.assert_called_once()
 
 
 if __name__ == "__main__":

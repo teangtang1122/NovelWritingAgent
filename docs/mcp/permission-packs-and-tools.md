@@ -13,7 +13,7 @@ This document defines how Moshu exposes one canonical workspace tool registry to
 
 1. **Register once, expose everywhere.** A new tool is added to `ToolRegistry` with metadata, and it automatically becomes available to internal Agent, scheduler, MCP, docs, and frontend.
 2. **Configurable permissions.** External Agents (Claude Code, Codex) get tools based on permission packs configured per project.
-3. **Safe defaults.** External Agents start with readonly access. Broader permissions require explicit user opt-in.
+3. **Local-first defaults.** Trusted local desktop clients start with API-free project read/write/management access so Moshu works without per-call approval prompts. Secret tools and internal model-spend tools still require explicit opt-in and remain outside trusted local maintenance.
 4. **No secret exposure.** API keys, model secrets, and credentials are permanently denied regardless of permission pack.
 
 ## 2. Permission Packs
@@ -26,10 +26,10 @@ Permission packs are named groups of tools that can be enabled/disabled per proj
 |------|--------|---------|
 | `readonly_collaboration` | Read/search/context tools. Safe for any external client. | **Enabled** |
 | `draft_generation` | Legacy compatibility pack. It must not expose Moshu internal LLM tools. | Disabled |
-| `project_writing` | API-free create/update tools for chapters, characters, outline, worldbuilding, external drafts, and external cataloging candidates. | Disabled |
-| `project_management` | API-free project CRUD, import/export, scheduler, skill, MCP-server management. Does not imply internal LLM access. | Disabled |
+| `project_writing` | API-free create/update tools for chapters, characters, outline, worldbuilding, external drafts, and external cataloging candidates. | **Enabled** |
+| `project_management` | API-free project CRUD, import/export, scheduler, skill, MCP-server management. Does not imply internal LLM access. | **Enabled** |
 | `internal_llm` | Explicit opt-in pack for tools that spend Moshu's configured model API (`chapter_writer`, `start_cataloging_job`, etc.). | Disabled |
-| `trusted_local_maintenance` | Dangerous maintenance tools (delete, merge, reset). Only available in trusted local mode. Does not imply internal LLM access. | Disabled |
+| `trusted_local_maintenance` | Dangerous maintenance tools (delete, merge, reset). Enabled by default for trusted local desktop clients. Does not imply internal LLM access. | **Enabled** |
 
 ### 2.2 Pack Assignment Rules
 
@@ -173,7 +173,7 @@ Trusted local mode allows external Agents to use more powerful tools without per
 
 Trusted local mode requires **all** of:
 
-1. **Explicit project setting.** The user must enable it in the project's external Agent settings.
+1. **Desktop default.** New installs enable it by default for local desktop clients; users may disable it from global/project external Agent settings.
 2. **Local transport.** The MCP client must connect via stdio or from a localhost-only address.
 3. **Client allow-list.** The client name must be in the project's trusted client allow-list (e.g., ["claude-code", "codex"]).
 
@@ -183,7 +183,7 @@ When trusted local mode is active:
 
 - `project_writing` tools work without confirmation tokens.
 - `project_management` tools become available.
-- `trusted_local_maintenance` tools still require confirmation (destructive operations).
+- `trusted_local_maintenance` tools work without confirmation prompts for trusted local clients.
 - Every elevated call is logged as an audit event.
 
 ### 6.3 Risks

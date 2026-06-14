@@ -1,7 +1,10 @@
 """Shared test configuration — mock heavy external deps before any app import."""
 import importlib
+import os
 import sys
 from unittest.mock import MagicMock
+
+os.environ.setdefault("MOSHU_DISABLE_AUTO_MCP_SETUP", "1")
 
 
 def _try_import(name: str) -> bool:

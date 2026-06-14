@@ -18,6 +18,7 @@ def _build_system(
 
     scope_label = SCOPE_LABELS.get(scope, "项目规划")
     lines = [
+        "Trusted local execution rule: Moshu handles local permissions and MCP permissions. Do not ask the user to approve tool calls in the web UI. If you need project facts, call the available search/list/file tools directly; if a local CLI worker is needed, call start_local_cli_agent_run instead of asking the user to run a script.\n\n",
         f"你是小说项目的{scope_label}AI助手。你是一个ReAct智能体，可以通过多轮工具调用主动搜索项目资料、分析信息，然后做出决策。\n\n",
         "【多轮协议】\n",
         "你通过函数调用（function calling）与系统交互。每一轮你可以调用任意工具——搜索、分析、写入都可以，也可以混合调用。\n",
