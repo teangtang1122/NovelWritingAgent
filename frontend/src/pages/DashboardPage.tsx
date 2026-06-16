@@ -441,6 +441,7 @@ function DashboardPage() {
         session_id: sessionId,
         execution_mode: 'template',
         user_brief: values.user_brief,
+        enhance_with_llm: false,
       })
       setBlueprints(draftRes.data.data.blueprints || [])
       setAssistantRecommendation(draftRes.data.data.recommendation || '')
@@ -461,7 +462,7 @@ function DashboardPage() {
 
   const handleReviseBlueprints = async (revisionMode: 'refine' | 'regenerate') => {
     const feedback = assistantDraftText.trim()
-    if (!feedback) {
+    if (revisionMode === 'refine' && !feedback) {
       message.warning('先写下你想调整的方向')
       return
     }
@@ -470,12 +471,12 @@ function DashboardPage() {
     setAssistantBusy(true)
     setAssistantMessages((items) => [
       ...items,
-      { role: 'user', content: feedback },
+      ...(feedback ? [{ role: 'user' as const, content: feedback }] : []),
       {
         role: 'assistant',
         content: revisionMode === 'refine'
           ? '我会保留当前核心方向，按你的反馈调整卖点、前三章、角色关系和卷纲。'
-          : '我会把这次反馈当作新的方向，重新生成三套方案。',
+          : '我会基于你的原始需求，重新生成三套不同的方案。',
       },
     ])
     try {
@@ -494,6 +495,7 @@ function DashboardPage() {
         user_brief: values.user_brief || '',
         feedback,
         revision_mode: revisionMode,
+        enhance_with_llm: false,
       })
       setBlueprints(draftRes.data.data.blueprints || [])
       setAssistantRecommendation(draftRes.data.data.recommendation || '')
@@ -667,128 +669,90 @@ function DashboardPage() {
         title="新书立项助手"
         open={assistantOpen}
         onClose={() => setAssistantOpen(false)}
-        width={720}
+        width={blueprints.length > 0 ? 960 : 600}
+        styles={{ body: { padding: blueprints.length > 0 ? '16px 20px' : '24px 28px' } }}
       >
-        <Space direction="vertical" size={18} style={{ width: '100%' }}>
-          <Alert
-            type="info"
-            showIcon
-            message="从一个想法创建完整小说项目"
-            description="助手会使用墨枢内置的新小说创建流程，生成多个方案。选择后会自动创建作品、主角、配角、世界观和第一批大纲节点。"
-          />
+        {/* ── Phase 1: Input — no blueprints yet ── */}
+        {blueprints.length === 0 && (
+          <div className="assistant-input-phase">
+            <Alert
+              type="info"
+              showIcon
+              message="从一个想法创建完整小说项目"
+              description="助手会生成多个方案供你挑选和调整。选择后自动创建作品、角色、世界观和大纲。"
+            />
 
-          {assistantMessages.length > 0 && (
-            <Card size="small" title="助手对话">
-              <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {assistantMessages.map((item, index) => (
-                    <div
-                      key={`${item.role}-${index}`}
-                      style={{
-                        alignSelf: item.role === 'user' ? 'flex-end' : 'flex-start',
-                        maxWidth: '86%',
-                        padding: '8px 10px',
-                        borderRadius: 8,
-                        background: item.role === 'user' ? 'var(--ant-color-primary-bg)' : 'var(--ant-color-fill-quaternary)',
-                        color: 'var(--ant-color-text)',
-                        whiteSpace: 'pre-wrap',
-                        lineHeight: 1.6,
-                      }}
-                    >
-                      {item.content}
-                    </div>
-                  ))}
-                </div>
-                <TextArea
-                  value={assistantDraftText}
-                  onChange={(event) => setAssistantDraftText(event.target.value)}
-                  placeholder="继续告诉助手：比如更暗黑一点、主角别太被动、把病毒线提前、重新换一个开局..."
-                  autoSize={{ minRows: 2, maxRows: 5 }}
-                  maxLength={800}
-                  showCount
-                />
-                <Space wrap>
-                  <Button
-                    icon={<RobotOutlined />}
-                    loading={assistantBusy}
-                    disabled={!blueprints.length}
-                    onClick={() => handleReviseBlueprints('refine')}
-                  >
-                    在当前方案基础上调整
-                  </Button>
-                  <Button
-                    danger
-                    loading={assistantBusy}
-                    onClick={() => handleReviseBlueprints('regenerate')}
-                  >
-                    全部重新生成
-                  </Button>
-                </Space>
+            <Card size="small" title="告诉墨枢你想写什么">
+              <Form
+                form={assistantForm}
+                layout="vertical"
+                onFinish={handleGenerateBlueprints}
+                initialValues={{ genre: 'xianxia', target_audience: 'all', platform: 'qidian' }}
+              >
+                <Form.Item name="genre" label="类型">
+                  <Select options={GENRE_OPTIONS} />
+                </Form.Item>
+                <Form.Item name="target_audience" label="目标读者">
+                  <Select options={AUDIENCE_OPTIONS} />
+                </Form.Item>
+                <Form.Item name="platform" label="发布平台">
+                  <Select options={PLATFORM_OPTIONS} />
+                </Form.Item>
+                <Form.Item
+                  name="user_brief"
+                  label="创作设想"
+                  rules={[{ required: true, message: '请写下你的创作设想' }]}
+                >
+                  <TextArea
+                    placeholder="例如：我想写一本女频修仙文，主角是三岁穿越女娃，核心卖点是科学思维修仙和病毒追杀..."
+                    autoSize={{ minRows: 4, maxRows: 8 }}
+                    showCount
+                    maxLength={1000}
+                  />
+                </Form.Item>
+                <Button type="primary" htmlType="submit" icon={<RobotOutlined />} loading={assistantBusy} block>
+                  生成新书方案
+                </Button>
+              </Form>
+            </Card>
+
+            <Card size="small" title="或者导入已有小说文件">
+              <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+                已有 TXT / DOCX 可先导入，也可以直接创建空作品。
+              </Paragraph>
+              <Space>
+                <Button icon={<PlusOutlined />} onClick={() => openCreateModal()}>
+                  直接创建空作品
+                </Button>
+                <Upload
+                  accept=".txt,.docx"
+                  maxCount={1}
+                  showUploadList={false}
+                  beforeUpload={(file) => openFileCreate(file as File)}
+                >
+                  <Button icon={<FileAddOutlined />}>导入文件</Button>
+                </Upload>
               </Space>
             </Card>
-          )}
+          </div>
+        )}
 
-          <Card size="small" title="1. 告诉墨枢你想写什么">
-            <Form
-              form={assistantForm}
-              layout="vertical"
-              onFinish={handleGenerateBlueprints}
-              initialValues={{ genre: 'xianxia', target_audience: 'all', platform: 'qidian' }}
-            >
-              <Form.Item name="genre" label="类型">
-                <Select options={GENRE_OPTIONS} />
-              </Form.Item>
-              <Form.Item name="target_audience" label="目标读者">
-                <Select options={AUDIENCE_OPTIONS} />
-              </Form.Item>
-              <Form.Item name="platform" label="发布平台">
-                <Select options={PLATFORM_OPTIONS} />
-              </Form.Item>
-              <Form.Item
-                name="user_brief"
-                label="创作设想"
-                rules={[{ required: true, message: '请写下你的创作设想' }]}
-              >
-                <TextArea
-                  placeholder="例如：我想写一本女频修仙文，主角是三岁穿越女娃，核心卖点是科学思维修仙和病毒追杀..."
-                  autoSize={{ minRows: 5, maxRows: 10 }}
-                  showCount
-                  maxLength={1000}
-                />
-              </Form.Item>
-              <Button type="primary" htmlType="submit" icon={<RobotOutlined />} loading={assistantBusy}>
-                生成新书方案
-              </Button>
-            </Form>
-          </Card>
-
-          <Card size="small" title="2. 或者导入已有小说文件">
-            <Paragraph type="secondary">
-              如果你已经有 TXT / DOCX，可以先创建并导入章节，再进入作品建档。也可以跳过助手，直接创建空作品。
-            </Paragraph>
-            <Button icon={<PlusOutlined />} style={{ marginBottom: 12 }} onClick={() => openCreateModal()}>
-              直接创建空作品
-            </Button>
-            <Upload.Dragger
-              accept=".txt,.docx"
-              maxCount={1}
-              showUploadList={false}
-              beforeUpload={(file) => openFileCreate(file as File)}
-            >
-              <p className="ant-upload-drag-icon"><FileAddOutlined /></p>
-              <p className="ant-upload-text">点击或拖拽文件到这里</p>
-              <p className="ant-upload-hint">适合导入完本小说、草稿合集、旧项目正文。</p>
-            </Upload.Dragger>
-          </Card>
-
-          {blueprints.length > 0 && (
-            <Card size="small" title="3. 选择一个方案创建作品">
+        {/* ── Phase 2: Split layout — blueprints + chat side by side ── */}
+        {blueprints.length > 0 && (
+          <div className="assistant-split">
+            {/* Left: Blueprint cards */}
+            <div className="assistant-split-blueprints">
               {assistantRecommendation && (
-                <Alert type="success" showIcon message={assistantRecommendation} style={{ marginBottom: 12 }} />
+                <Alert
+                  type="success"
+                  showIcon
+                  message={assistantRecommendation}
+                  className="assistant-recommendation"
+                />
               )}
-              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Space direction="vertical" size={14} style={{ width: '100%' }}>
                 {blueprints.map((blueprint, index) => (
-                  <Card key={`${blueprint.title}-${index}`} size="small">
+                  <Card key={`${blueprint.title}-${index}`} size="small" className="assistant-blueprint-card">
                     <Space direction="vertical" size={8} style={{ width: '100%' }}>
                       <Title level={5} style={{ margin: 0 }}>{blueprint.title}</Title>
                       {blueprint.subtitle && <Tag color="purple" style={{ width: 'fit-content' }}>{blueprint.subtitle}</Tag>}
@@ -848,9 +812,63 @@ function DashboardPage() {
                   </Card>
                 ))}
               </Space>
-            </Card>
-          )}
-        </Space>
+            </div>
+
+            {/* Right: Sticky chat panel */}
+            <div className="assistant-split-chat">
+              <div className="assistant-chat-header">
+                <RobotOutlined />
+                助手对话
+              </div>
+
+              <div className="assistant-chat-messages">
+                {assistantMessages.map((item, index) => (
+                  <div
+                    key={`${item.role}-${index}`}
+                    className={`assistant-chat-bubble ${
+                      item.role === 'user' ? 'assistant-chat-bubble-user' : 'assistant-chat-bubble-assistant'
+                    }`}
+                  >
+                    {item.content}
+                  </div>
+                ))}
+              </div>
+
+              <div className="assistant-chat-input-area">
+                <TextArea
+                  value={assistantDraftText}
+                  onChange={(event) => setAssistantDraftText(event.target.value)}
+                  placeholder="告诉助手怎么调整：更暗黑、主角别太被动、换一个开局..."
+                  autoSize={{ minRows: 2, maxRows: 4 }}
+                  maxLength={800}
+                  showCount
+                  style={{ fontSize: 13 }}
+                />
+                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                  <Button
+                    type="primary"
+                    icon={<RobotOutlined />}
+                    loading={assistantBusy}
+                    block
+                    size="small"
+                    onClick={() => handleReviseBlueprints('refine')}
+                  >
+                    基于当前方案调整
+                  </Button>
+                  <Button
+                    danger
+                    loading={assistantBusy}
+                    block
+                    size="small"
+                    onClick={() => handleReviseBlueprints('regenerate')}
+                  >
+                    全部重新生成
+                  </Button>
+                </Space>
+              </div>
+            </div>
+          </div>
+        )}
       </Drawer>
 
       <Modal

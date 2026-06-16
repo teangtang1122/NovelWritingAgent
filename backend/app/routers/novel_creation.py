@@ -33,6 +33,7 @@ class NovelCreationDraftRequest(BaseModel):
     user_brief: str = ""
     feedback: str = ""
     revision_mode: Literal["initial", "refine", "regenerate"] = "initial"
+    enhance_with_llm: bool = False
 
 
 class NovelCreationReviewRequest(BaseModel):

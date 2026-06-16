@@ -2129,6 +2129,7 @@ def _register_all() -> None:
             "user_brief": {"type": "string", "description": "Additional user brief"},
             "feedback": {"type": "string", "description": "User feedback for refining or regenerating previous blueprint options"},
             "revision_mode": {"type": "string", "description": "initial|refine|regenerate. Use refine to adjust current direction, regenerate to restart options from feedback."},
+            "enhance_with_llm": {"type": "boolean", "description": "Optional slow LLM enhancement. Default false keeps template drafting instant."},
         },
         required=["session_id"],
         tool_type="read",

@@ -187,6 +187,143 @@
 .dashboard-card-wrap:nth-child(11) { animation-delay: 0.66s; }
 .dashboard-card-wrap:nth-child(12) { animation-delay: 0.72s; }
 
+/* ═══════════════════════════════════════════════════════════
+   新书立项助手 — Split-panel layout
+   ═══════════════════════════════════════════════════════════ */
+
+/* Phase 1: Focused input (no blueprints yet) */
+.assistant-input-phase {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 560px;
+  margin: 0 auto;
+  padding-top: 8px;
+}
+
+.assistant-input-phase .ant-card {
+  border-radius: 10px;
+}
+
+/* Phase 2: Split layout (blueprints exist) */
+.assistant-split {
+  display: flex;
+  gap: 16px;
+  height: calc(100vh - 110px);
+  min-height: 0;
+}
+
+/* Left: blueprint list — scrollable */
+.assistant-split-blueprints {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.assistant-split-blueprints::-webkit-scrollbar {
+  width: 4px;
+}
+
+.assistant-split-blueprints::-webkit-scrollbar-thumb {
+  background: var(--ant-color-border);
+  border-radius: 2px;
+}
+
+/* Right: chat panel — sticky */
+.assistant-split-chat {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--ant-color-border-secondary);
+  padding-left: 16px;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: calc(100vh - 110px);
+}
+
+.assistant-chat-header {
+  font-family: 'Noto Serif SC', 'LXGW WenKai', serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ant-color-text);
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.assistant-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 8px;
+  min-height: 0;
+}
+
+.assistant-chat-messages::-webkit-scrollbar {
+  width: 3px;
+}
+
+.assistant-chat-messages::-webkit-scrollbar-thumb {
+  background: var(--ant-color-border);
+  border-radius: 2px;
+}
+
+.assistant-chat-bubble {
+  padding: 7px 10px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  font-size: 13px;
+  animation: moshu-fade-in 0.25s ease both;
+}
+
+.assistant-chat-bubble-user {
+  align-self: flex-end;
+  max-width: 88%;
+  background: var(--ant-color-primary-bg);
+  color: var(--ant-color-text);
+}
+
+.assistant-chat-bubble-assistant {
+  align-self: flex-start;
+  max-width: 88%;
+  background: var(--ant-color-fill-quaternary);
+  color: var(--ant-color-text);
+}
+
+.assistant-chat-input-area {
+  padding-top: 10px;
+  border-top: 1px solid var(--ant-color-border-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Blueprint card inside split layout */
+.assistant-blueprint-card {
+  border-radius: 10px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.assistant-blueprint-card:hover {
+  border-color: var(--ant-color-primary-border-hover);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+/* Recommendation banner */
+.assistant-recommendation {
+  margin-bottom: 12px;
+  border-radius: 8px;
+}
+
 /* ─── Decorative background pattern ─── */
 .dashboard-bg-pattern {
   position: fixed;

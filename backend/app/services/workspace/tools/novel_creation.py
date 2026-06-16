@@ -7,13 +7,20 @@ tool can produce a conservative template blueprint from the user's brief.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import re
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
+
+from ....ai.gateway import LLMGateway
+from ....core.json_repair import parse_json_object
+
+_logger = logging.getLogger(__name__)
 
 
 GENRE_LABELS = {
@@ -98,6 +105,21 @@ GENRE_PRESETS = {
 def _clean_text(value: Any, default: str = "") -> str:
     text = str(value or "").strip()
     return text or default
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", ""}:
+        return False
+    return default
 
 
 def _genre_key(genre: str | None) -> str:
@@ -245,6 +267,387 @@ def _feedback_tone(feedback: str) -> dict[str, str]:
         "direction": f"按用户反馈调整：{text}",
         "style": "保留原有核心卖点，同时把反馈落实到开篇事件、角色关系和卷内冲突。",
     }
+
+
+# ---------------------------------------------------------------------------
+# LLM-powered blueprint refinement
+# ---------------------------------------------------------------------------
+
+_BLUEPRINT_SCHEMA_DESC = """{
+  "title": "作品标题",
+  "subtitle": "方案定位",
+  "logline": "一句话说明",
+  "premise": "核心设定与卖点，至少80字",
+  "selling_points": ["至少4条"],
+  "genre_positioning": "类型定位",
+  "core_conflict": "全书核心冲突",
+  "protagonist": {
+    "name": "角色名", "goal": "目标", "conflict": "阻碍",
+    "personality": "性格", "background": "背景", "appearance": "外貌",
+    "current_location": "位置", "life_status": "active",
+    "mental_state": "心理状态", "abilities_state": "能力状态",
+    "items_or_assets": "持有物"
+  },
+  "characters": [{"name": "", "role_type": "", "personality": "", "background": "", "goal": "", "conflict": "", "appearance": "", "current_location": "", "life_status": "active"}],
+  "relationships": [{"character_a": "", "character_b": "", "relationship_type": "", "description": ""}],
+  "worldbuilding": [{"dimension": "", "title": "", "content": ""}],
+  "volume_outline": [{"title": "", "summary": "", "start_chapter": 1, "end_chapter": 30, "node_type": "volume"}],
+  "outline": [{"title": "", "summary": "", "node_type": "chapter", "parent_index": 0, "purpose": "", "involved_characters": []}],
+  "golden_three": {"opening_scene": "", "chapter_1": "", "chapter_2": "", "chapter_3": "", "promise": ""},
+  "style_rules": [""],
+  "forbidden_patterns": [""],
+  "risks": [""],
+  "next_questions": [""],
+  "recommendation_reason": ""
+}"""
+
+
+def _build_refine_prompt(
+    *,
+    blueprint: dict[str, Any],
+    feedback: str,
+    revision_mode: str,
+    user_brief: str,
+    genre_label: str,
+    session_context: dict[str, str],
+) -> list[dict[str, str]]:
+    """Build LLM messages for refining a single blueprint."""
+    bp_json = json.dumps(blueprint, ensure_ascii=False, indent=2)
+    target = session_context.get("target_audience", "")
+    platform = session_context.get("platform", "")
+
+    if revision_mode == "refine":
+        task = (
+            "在保持当前方案核心方向的前提下，根据用户反馈做针对性调整。"
+            "保留有效的部分，只修改需要改变的地方。"
+        )
+    else:
+        task = (
+            "以用户反馈为主要创作方向，重新设计方案。"
+            "可以大幅改变角色、世界观、冲突和大纲，但必须保持相同的JSON结构。"
+        )
+
+    system = (
+        f"你是小说策划编辑。用户对当前方案提出了反馈，请修改方案。\n\n"
+        f"## 任务\n{task}\n\n"
+        f"## 用户原始需求\n{user_brief}\n\n"
+        f"## 用户反馈\n{feedback}\n\n"
+        f"## 当前方案（JSON）\n{bp_json}\n\n"
+        f"## 类型：{genre_label}\n"
+        f"## 目标读者：{target}\n"
+        f"## 发布平台：{platform}\n\n"
+        f"## 修改要求\n"
+        f"1. 仔细阅读用户反馈中的每一条具体要求\n"
+        f"2. 将反馈落实到方案的具体字段中：角色性格/背景/目标、关系、世界观、大纲章节\n"
+        f"3. 不能只在premise或selling_points里加一句话就完事\n"
+        f"4. 保留仍然有效的部分，只修改需要改变的部分\n"
+        f"5. 如果反馈涉及主角设定，同时更新protagonist字段和相关outline\n"
+        f"6. 如果反馈涉及氛围/风格，更新style_rules和世界观条目\n\n"
+        f"## 输出格式\n"
+        f"只输出修改后的完整方案JSON对象，不要Markdown代码块，不要解释。\n"
+        f"字段结构必须与当前方案完全一致：\n{_BLUEPRINT_SCHEMA_DESC}"
+    )
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": "请根据反馈修改方案，直接返回JSON。"},
+    ]
+
+
+def _build_multi_variant_prompt(
+    *,
+    base_blueprint: dict[str, Any] | None,
+    feedback: str,
+    revision_mode: str,
+    user_brief: str,
+    genre_label: str,
+    session_context: dict[str, str],
+) -> list[dict[str, str]]:
+    """Build LLM messages for regenerating 3 blueprint variants."""
+    ref_json = json.dumps(base_blueprint, ensure_ascii=False, indent=2) if base_blueprint else "{}"
+    target = session_context.get("target_audience", "")
+    platform = session_context.get("platform", "")
+
+    if feedback:
+        task_desc = f"用户对当前方案不满意，请根据反馈重新设计3套方案。"
+        feedback_section = f"## 用户反馈\n{feedback}\n\n"
+        requirement_extra = f"- 反馈中的每一条具体要求都要在方案中体现\n"
+        user_msg = "请根据反馈重新生成3套方案，直接返回JSON。"
+    else:
+        task_desc = "用户想看到不同的方向，请根据原始需求重新设计3套有实质性差异的方案。"
+        feedback_section = ""
+        requirement_extra = ""
+        user_msg = "请根据原始需求重新生成3套不同的方案，直接返回JSON。"
+
+    system = (
+        f"你是小说策划编辑。{task_desc}\n\n"
+        f"## 用户原始需求\n{user_brief}\n\n"
+        f"{feedback_section}"
+        f"## 参考方案（仅作结构参考，内容可以完全不同）\n{ref_json}\n\n"
+        f"## 类型：{genre_label}\n"
+        f"## 目标读者：{target}\n"
+        f"## 发布平台：{platform}\n\n"
+        f"## 3套方案定位\n"
+        f"1. 稳态长线版：以主角成长、设定展开和关系积累为主线，适合长篇稳定连载\n"
+        f"2. 强悬念暗线版：悬念驱动，暗线和伏笔前置，适合悬念驱动\n"
+        f"3. 强冲突爽点版：高对抗密度，即时反馈，让每一轮判断都带来胜负\n\n"
+        f"## 要求\n"
+        f"- 每套方案的主角、配角、关系、世界观、大纲都要有实质性差异\n"
+        f"- 3套方案之间要有实质性差异，不能只有标题不同\n"
+        f"{requirement_extra}"
+        f"## 输出格式\n"
+        f'{{"blueprints": [方案1, 方案2, 方案3]}}\n'
+        f"每个方案的字段结构：\n{_BLUEPRINT_SCHEMA_DESC}\n"
+        f"只输出JSON，不要Markdown，不要解释。"
+    )
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_msg},
+    ]
+
+
+async def _call_llm_for_blueprints(
+    messages: list[dict[str, str]],
+    *,
+    expect_list: bool = False,
+) -> list[dict[str, Any]] | dict[str, Any] | None:
+    """Call LLM to generate/refine blueprints. Returns parsed JSON or None on failure."""
+    try:
+        result = await LLMGateway.chat_completion(
+            messages=messages,
+            temperature=0.8,
+            max_tokens=6000,
+            timeout=90,
+            retry=1,
+        )
+    except Exception as exc:
+        _logger.warning("LLM blueprint generation failed: %s", exc)
+        return None
+
+    raw = (result.get("content") or "").strip()
+    if not raw:
+        return None
+
+    parsed = parse_json_object(raw)
+    if parsed is None:
+        clean = raw
+        if clean.startswith("```"):
+            clean = clean.split("\n", 1)[-1] if "\n" in clean else clean[3:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        clean = clean.strip()
+        try:
+            parsed = json.loads(clean)
+        except (json.JSONDecodeError, ValueError):
+            _logger.warning("Failed to parse LLM blueprint response as JSON")
+            return None
+
+    if expect_list:
+        if isinstance(parsed, dict) and "blueprints" in parsed:
+            return parsed["blueprints"]
+        if isinstance(parsed, list):
+            return parsed
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _merge_llm_blueprint(
+    llm_bp: dict[str, Any],
+    template_bp: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge LLM-generated blueprint with template baseline to fill gaps."""
+    merged = dict(template_bp)
+
+    for key in llm_bp:
+        val = llm_bp[key]
+        if val is None or val == "" or val == []:
+            continue
+        if key == "protagonist" and isinstance(val, dict) and isinstance(merged.get("protagonist"), dict):
+            nested = dict(merged["protagonist"])
+            for nk, nv in val.items():
+                if nv:
+                    nested[nk] = nv
+            merged["protagonist"] = nested
+        elif key == "golden_three" and isinstance(val, dict) and isinstance(merged.get("golden_three"), dict):
+            nested = dict(merged["golden_three"])
+            for nk, nv in val.items():
+                if nv:
+                    nested[nk] = nv
+            merged["golden_three"] = nested
+        else:
+            merged[key] = val
+
+    return merged
+
+
+def _validate_blueprint(
+    blueprint: dict[str, Any],
+    *,
+    fallback_title: str,
+    genre_label: str,
+    protagonist_name: str,
+) -> dict[str, Any]:
+    """Ensure blueprint has all required fields with sensible defaults."""
+    bp = dict(blueprint)
+
+    bp.setdefault("title", fallback_title)
+    bp.setdefault("subtitle", "")
+    bp.setdefault("logline", "")
+    bp.setdefault("premise", "")
+    bp.setdefault("genre", genre_label)
+    bp.setdefault("genre_positioning", "")
+    bp.setdefault("core_conflict", "")
+    bp.setdefault("selling_points", [])
+    bp.setdefault("world_hook", "")
+    bp.setdefault("opening_scene", "")
+    bp.setdefault("estimated_chapters", 160)
+    bp.setdefault("style_rules", [])
+    bp.setdefault("forbidden_patterns", [])
+    bp.setdefault("risks", [])
+    bp.setdefault("next_questions", [])
+    bp.setdefault("recommendation_reason", "")
+    bp.setdefault("revision_mode", "")
+    bp.setdefault("revision_instruction", "")
+    bp.setdefault("adjustment_notes", {})
+    bp.setdefault("writing_style", "natural")
+
+    # protagonist
+    if not isinstance(bp.get("protagonist"), dict):
+        bp["protagonist"] = {"name": protagonist_name}
+    prot = bp["protagonist"]
+    prot.setdefault("name", protagonist_name)
+    prot.setdefault("goal", "")
+    prot.setdefault("conflict", "")
+    prot.setdefault("personality", "")
+    prot.setdefault("background", "")
+    prot.setdefault("appearance", "")
+    prot.setdefault("current_location", "")
+    prot.setdefault("life_status", "active")
+    prot.setdefault("mental_state", "")
+    prot.setdefault("abilities_state", "")
+    prot.setdefault("items_or_assets", "")
+
+    # lists
+    for list_key in ("characters", "relationships", "worldbuilding", "volume_outline", "outline", "selling_points", "style_rules", "forbidden_patterns", "risks", "next_questions"):
+        if not isinstance(bp.get(list_key), list):
+            bp[list_key] = []
+
+    # golden_three
+    if not isinstance(bp.get("golden_three"), dict):
+        bp["golden_three"] = {}
+    gt = bp["golden_three"]
+    for gt_key in ("opening_scene", "chapter_1", "chapter_2", "chapter_3", "promise"):
+        gt.setdefault(gt_key, "")
+
+    # Ensure minimum selling points
+    if len(bp["selling_points"]) < 3:
+        bp["selling_points"] = [
+            f"{genre_label}类型的差异化卖点",
+            f"主角{protagonist_name}的成长线和认知优势",
+            "前三章快速建立核心矛盾和追读钩子",
+            "角色关系推动剧情，不只是工具人",
+        ]
+
+    return bp
+
+
+async def _try_llm_blueprint_refinement(
+    *,
+    session: Any,
+    template_blueprints: list[dict[str, Any]],
+    feedback: str,
+    revision_mode: str,
+    user_brief: str,
+) -> list[dict[str, Any]] | None:
+    """Attempt LLM-powered blueprint refinement. Returns None if LLM unavailable or fails."""
+    genre_label = _genre_label(_clean_text(session.genre, "other"))
+    session_context = {
+        "target_audience": _clean_text(session.target_audience),
+        "platform": _clean_text(session.platform),
+    }
+
+    if revision_mode == "refine":
+        # Build all prompts first, then call LLM in parallel
+        prompts = [
+            _build_refine_prompt(
+                blueprint=template_bp,
+                feedback=feedback,
+                revision_mode=revision_mode,
+                user_brief=user_brief,
+                genre_label=genre_label,
+                session_context=session_context,
+            )
+            for template_bp in template_blueprints
+        ]
+        llm_results = await asyncio.gather(
+            *[_call_llm_for_blueprints(msgs, expect_list=False) for msgs in prompts],
+            return_exceptions=True,
+        )
+
+        refined_blueprints = []
+        any_success = False
+        for i, template_bp in enumerate(template_blueprints):
+            llm_bp = llm_results[i] if i < len(llm_results) else None
+            if isinstance(llm_bp, Exception):
+                llm_bp = None
+            if llm_bp and isinstance(llm_bp, dict):
+                merged = _merge_llm_blueprint(llm_bp, template_bp)
+                prot_name = _clean_text(
+                    (merged.get("protagonist") or {}).get("name")
+                    or (template_bp.get("protagonist") or {}).get("name")
+                )
+                validated = _validate_blueprint(
+                    merged,
+                    fallback_title=template_bp.get("title", ""),
+                    genre_label=genre_label,
+                    protagonist_name=prot_name,
+                )
+                validated["revision_mode"] = "refine"
+                validated["revision_instruction"] = feedback
+                validated["adjustment_notes"] = _feedback_tone(feedback)
+                refined_blueprints.append(validated)
+                any_success = True
+            else:
+                refined_blueprints.append(template_bp)
+        return refined_blueprints if any_success else None
+
+    elif revision_mode == "regenerate":
+        base_blueprint = template_blueprints[0] if template_blueprints else None
+        messages = _build_multi_variant_prompt(
+            base_blueprint=base_blueprint,
+            feedback=feedback,
+            revision_mode=revision_mode,
+            user_brief=user_brief,
+            genre_label=genre_label,
+            session_context=session_context,
+        )
+        llm_blueprints = await _call_llm_for_blueprints(messages, expect_list=True)
+        if not llm_blueprints or not isinstance(llm_blueprints, list):
+            return None
+
+        result = []
+        for i, llm_bp in enumerate(llm_blueprints):
+            if not isinstance(llm_bp, dict):
+                continue
+            template_ref = template_blueprints[i] if i < len(template_blueprints) else template_blueprints[0]
+            merged = _merge_llm_blueprint(llm_bp, template_ref)
+            prot_name = _clean_text(
+                (merged.get("protagonist") or {}).get("name")
+                or (template_ref.get("protagonist") or {}).get("name")
+            )
+            validated = _validate_blueprint(
+                merged,
+                fallback_title=merged.get("title", template_ref.get("title", "")),
+                genre_label=genre_label,
+                protagonist_name=prot_name,
+            )
+            validated["revision_mode"] = "regenerate"
+            validated["revision_instruction"] = feedback
+            validated["adjustment_notes"] = _feedback_tone(feedback)
+            result.append(validated)
+
+        return result if len(result) >= 1 else None
+
+    return None
 
 
 def _variant_profile(variant: int) -> dict[str, str]:
@@ -880,6 +1283,7 @@ async def draft_novel_blueprint(
     user_brief = _clean_text(args.get("user_brief"))
     feedback = _clean_text(args.get("feedback"))
     revision_mode = _clean_text(args.get("revision_mode"), "initial")
+    enhance_with_llm = _as_bool(args.get("enhance_with_llm"), False)
 
     if not session_id:
         return {"tool": "draft_novel_blueprint", "status": "skipped", "detail": "session_id is required", "data": None}
@@ -894,12 +1298,28 @@ async def draft_novel_blueprint(
     ).first()
 
     if execution_mode in {"template", "local_template", "auto"}:
-        blueprints = _build_template_blueprints(
+        # Step 1: Always generate template blueprints as baseline
+        template_blueprints = _build_template_blueprints(
             session,
             user_brief=user_brief,
             feedback=feedback,
             revision_mode=revision_mode,
         )
+
+        blueprints = template_blueprints
+
+        # Step 2: Optional LLM enhancement. Keep the dashboard template flow instant by default.
+        if enhance_with_llm and ((feedback and revision_mode == "refine") or revision_mode == "regenerate"):
+            llm_result = await _try_llm_blueprint_refinement(
+                session=session,
+                template_blueprints=template_blueprints,
+                feedback=feedback,
+                revision_mode=revision_mode,
+                user_brief=_clean_text(user_brief or session.user_brief),
+            )
+            if llm_result:
+                blueprints = llm_result
+
         session.blueprint_json = blueprints
         if user_brief or feedback:
             base_brief = _clean_text(user_brief or session.user_brief)
@@ -923,6 +1343,7 @@ async def draft_novel_blueprint(
                 "session_id": session_id,
                 "execution_mode": "template",
                 "revision_mode": revision_mode,
+                "enhance_with_llm": enhance_with_llm,
                 "feedback": feedback,
                 "blueprints": blueprints,
                 "recommendation": recommendation,

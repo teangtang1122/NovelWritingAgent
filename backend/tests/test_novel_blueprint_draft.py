@@ -3,7 +3,7 @@ import asyncio
 import sys
 import os
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -185,6 +185,45 @@ class DraftNovelBlueprintTest(unittest.TestCase):
         self.assertEqual(first["revision_instruction"], "更暗黑一点，把病毒线提前")
         self.assertEqual(first["adjustment_notes"]["label"], "暗线压迫")
         self.assertTrue(any("本轮调整重点" in point for point in first["selling_points"]))
+
+
+    def test_template_refine_does_not_call_llm_by_default(self):
+        from app.services.workspace.tools.novel_creation import draft_novel_blueprint
+
+        session = MagicMock()
+        session.id = "s1"
+        session.user_brief = "xianxia virus novel"
+        session.genre = "xianxia"
+        session.target_audience = "all"
+        session.platform = "qidian"
+        session.blueprint_json = [{"title": "Existing Title"}]
+
+        def query_side_effect(model):
+            q = MagicMock()
+            q.filter.return_value = q
+            model_name = model.__name__ if hasattr(model, "__name__") else str(model)
+            if "NovelCreationSession" in model_name:
+                q.first.return_value = session
+            else:
+                q.first.return_value = None
+            return q
+
+        db = MagicMock()
+        db.query.side_effect = query_side_effect
+
+        with patch(
+            "app.services.workspace.tools.novel_creation._try_llm_blueprint_refinement",
+            side_effect=AssertionError("template refine should not call LLM unless enhance_with_llm=true"),
+        ):
+            result = asyncio.run(draft_novel_blueprint(db, "p1", {
+                "session_id": "s1",
+                "execution_mode": "template",
+                "feedback": "make it darker",
+                "revision_mode": "refine",
+            }))
+
+        self.assertEqual(result["status"], "ok")
+        self.assertFalse(result["data"]["enhance_with_llm"])
 
 
 if __name__ == "__main__":
