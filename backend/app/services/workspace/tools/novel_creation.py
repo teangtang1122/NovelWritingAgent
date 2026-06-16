@@ -1,15 +1,805 @@
-"""Novel creation tools — API-free tools for starting new novels.
+"""API-free tools for starting a new novel project.
 
-These tools work without any Moshu model API configured. They help
-external agents and the project assistant gather user requirements,
-generate blueprints, and apply them to create new projects.
+The project assistant, external agents, and the dashboard creation flow all use
+these tools as the shared entry point for "new book" creation.  They do not
+require a configured model API: when no external agent fills the blueprint, the
+tool can produce a conservative template blueprint from the user's brief.
 """
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy.orm import Session
+
+
+GENRE_LABELS = {
+    "xianxia": "仙侠",
+    "fantasy": "玄幻",
+    "urban": "都市",
+    "scifi": "科幻",
+    "mystery": "悬疑",
+    "romance": "言情",
+    "history": "历史",
+    "other": "其他",
+}
+
+
+GENRE_PRESETS = {
+    "xianxia": {
+        "hook": "修炼规则与现实逻辑发生碰撞",
+        "conflict": "主角必须在宗门、家族与未知灾厄之间找到自己的修行道路",
+        "worldbuilding": [
+            ("power_system", "修炼体系", "以灵气、境界、功法和心法构成的修炼体系。主角的优势应来自独特理解，避免单纯开挂。"),
+            ("factions", "修行势力", "家族、宗门、散修与隐藏势力之间存在资源竞争和传承冲突。"),
+            ("history", "旧日隐患", "过去被压下的灾祸或秘密传承，会在主角成长过程中重新浮现。"),
+        ],
+    },
+    "fantasy": {
+        "hook": "古老力量以新的代价重新苏醒",
+        "conflict": "主角必须理解力量规则，并在势力倾轧中保住自我",
+        "worldbuilding": [
+            ("power_system", "超凡力量规则", "力量需要明确来源、代价和限制，不能无条件解决所有冲突。"),
+            ("geography", "核心地域", "故事围绕一个具备资源、禁地或秘密入口的核心地域展开。"),
+            ("factions", "权力结构", "不同势力围绕资源、血统、信仰或传承发生冲突。"),
+        ],
+    },
+    "urban": {
+        "hook": "日常秩序下隐藏着新的机会与危险",
+        "conflict": "主角要在现实压力、人际关系与事业目标之间做出选择",
+        "worldbuilding": [
+            ("culture", "城市生态", "城市中的行业规则、人情网络与阶层差异推动剧情。"),
+            ("factions", "利益圈层", "公司、家族、社群或行业组织构成主要冲突结构。"),
+            ("history", "过去事件", "主角或关键角色的旧事会影响当前选择。"),
+        ],
+    },
+    "scifi": {
+        "hook": "技术进步带来新的生存边界",
+        "conflict": "主角要在技术伦理、资源危机和未知威胁之间寻找出路",
+        "worldbuilding": [
+            ("power_system", "核心科技", "设定一项会改变社会结构的关键技术，并明确成本与边界。"),
+            ("factions", "科技势力", "企业、联盟、实验机构或殖民地围绕技术与资源展开博弈。"),
+            ("geography", "主要空间", "故事发生在城市、星舰、基地或殖民星等具备功能区的空间中。"),
+        ],
+    },
+    "mystery": {
+        "hook": "一处异常细节撕开更大的真相",
+        "conflict": "主角需要在误导、压力和危险中还原事件链",
+        "worldbuilding": [
+            ("culture", "调查规则", "明确侦查权限、证据边界、线索来源与社会阻力。"),
+            ("history", "旧案背景", "当前案件与过去事件存在因果或镜像关系。"),
+            ("geography", "案发空间", "案发地应具备可调查的地点结构和行动路线。"),
+        ],
+    },
+    "romance": {
+        "hook": "亲密关系被目标、身份或秘密持续施压",
+        "conflict": "主角要在情感选择、自我成长和现实阻碍之间推进关系",
+        "worldbuilding": [
+            ("culture", "关系规则", "身份、职业、家庭或社交环境规定了关系推进的阻力。"),
+            ("factions", "关系网络", "亲友、同事、家族或竞争者影响主角关系走向。"),
+            ("history", "情感前史", "旧伤、误会或承诺会成为关系发展的关键伏笔。"),
+        ],
+    },
+    "history": {
+        "hook": "个人命运卷入时代转折",
+        "conflict": "主角在权力、家国与个人选择之间寻找生路",
+        "worldbuilding": [
+            ("history", "时代背景", "明确朝代、制度、社会矛盾与重大历史压力。"),
+            ("factions", "权力结构", "朝堂、地方、军队、世家或民间组织构成博弈网络。"),
+            ("culture", "生活制度", "礼法、税役、婚姻、科举或军制影响角色行动。"),
+        ],
+    },
+}
+
+
+def _clean_text(value: Any, default: str = "") -> str:
+    text = str(value or "").strip()
+    return text or default
+
+
+def _genre_key(genre: str | None) -> str:
+    text = _clean_text(genre).lower()
+    reverse = {v: k for k, v in GENRE_LABELS.items()}
+    return reverse.get(text, text if text in GENRE_LABELS else "other")
+
+
+def _genre_label(genre: str | None) -> str:
+    key = _genre_key(genre)
+    return GENRE_LABELS.get(key, _clean_text(genre, "其他"))
+
+
+def _extract_title(user_brief: str, genre_label: str) -> str:
+    text = _clean_text(user_brief)
+    for pattern in (
+        r"[《「『“\"]([^《》「」『』“”\"]{2,40})[》」』”\"]",
+        r"(?:书名|标题|作品名)[:：]\s*([^\n，。,.]{2,40})",
+        r"想写(?:一本|一部)?([^，。,.]{2,24})",
+    ):
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1).strip()
+    if text:
+        first = re.split(r"[。\n\r]", text, maxsplit=1)[0].strip()
+        first = re.sub(r"^(我想|我要|帮我|创建|新建|写)(一本|一部)?", "", first).strip()
+        if 2 <= len(first) <= 24:
+            return first
+    return f"未命名{genre_label}小说"
+
+
+def _is_generic_title(title: str, genre_label: str) -> bool:
+    text = _clean_text(title)
+    generic_titles = {
+        "小说",
+        "新小说",
+        "一本小说",
+        "一部小说",
+        f"{genre_label}小说",
+        f"未命名{genre_label}小说",
+    }
+    return text in generic_titles or (text.endswith("小说") and len(text) <= 5)
+
+
+def _extract_protagonist_name(user_brief: str) -> str:
+    text = _clean_text(user_brief)
+    for pattern in (
+        r"(?:主角|女主|男主|主人公)(?:叫|名叫|是|：|:)\s*([A-Za-z0-9_\-\u4e00-\u9fff]{1,12})",
+        r"([A-Za-z0-9_\-\u4e00-\u9fff]{1,12})(?:是|作为)(?:主角|女主|男主)",
+    ):
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1).strip(" ，。,.")
+    return "未命名主角"
+
+
+def _suggest_title(user_brief: str, genre_label: str, protagonist_name: str, features: list[str]) -> str:
+    text = _clean_text(user_brief)
+    has_named_protagonist = protagonist_name and protagonist_name != "未命名主角"
+    if "病毒" in text and "归墟" in text:
+        return f"{protagonist_name}与归墟病毒" if has_named_protagonist else "归墟病毒档案"
+    if "病毒" in text and genre_label == "仙侠":
+        return f"{protagonist_name}的病毒修仙录" if has_named_protagonist else "病毒追着我修仙"
+    if "灵石" in text or "账目" in text:
+        return f"{protagonist_name}的灵石账簿" if has_named_protagonist else "灵石账簿疑云"
+    if "穿越" in text and has_named_protagonist:
+        return f"{protagonist_name}的异世开局"
+    if features:
+        return f"{features[0]}{genre_label}录"
+    return f"未命名{genre_label}小说"
+
+
+def _brief_features(user_brief: str) -> list[str]:
+    text = _clean_text(user_brief)
+    feature_rules = [
+        ("穿越", "穿越视角"),
+        ("重生", "重生改命"),
+        ("系统", "系统规则"),
+        ("病毒", "异常病毒"),
+        ("末日", "末日压力"),
+        ("修仙", "修仙规则"),
+        ("宗门", "宗门成长"),
+        ("家族", "家族矛盾"),
+        ("女娃", "幼年主角"),
+        ("幼崽", "幼年主角"),
+        ("科学", "科学思维"),
+        ("推理", "理性推演"),
+        ("诡异", "诡异悬念"),
+        ("同人", "原作延展"),
+    ]
+    features: list[str] = []
+    for keyword, label in feature_rules:
+        if keyword in text and label not in features:
+            features.append(label)
+    return features[:6] or ["异常线索", "成长压力", "长期伏笔"]
+
+
+def _opening_anchor(user_brief: str) -> str:
+    text = _clean_text(user_brief)
+    anchors = [
+        (("灵石", "账目"), "家族灵石账目异常"),
+        (("账本",), "账本里出现不该存在的记录"),
+        (("病毒",), "第一例异常感染或病毒痕迹"),
+        (("归墟",), "与归墟有关的异常回声"),
+        (("宗门",), "宗门入门或任务现场的异常"),
+        (("家族",), "家族日常秩序里的裂缝"),
+        (("穿越",), "主角穿越后发现身体与世界规则不匹配"),
+    ]
+    for keywords, anchor in anchors:
+        if all(keyword in text for keyword in keywords):
+            return anchor
+    return "一个看似普通却无法用常识解释的异常细节"
+
+
+def _feedback_tone(feedback: str) -> dict[str, str]:
+    text = _clean_text(feedback)
+    if not text:
+        return {"label": "", "direction": "", "style": ""}
+    if any(word in text for word in ("暗黑", "压抑", "恐怖", "诡异")):
+        return {
+            "label": "暗线压迫",
+            "direction": "加强未知威胁、环境压迫和角色付出代价后的余波。",
+            "style": "气氛更冷，信息释放更克制，章末钩子偏危险感。",
+        }
+    if any(word in text for word in ("轻松", "温馨", "日常", "治愈")):
+        return {
+            "label": "日常牵引",
+            "direction": "保留核心危机，但增加生活细节、关系暖点和轻微反差。",
+            "style": "语言更清爽，情绪起伏更柔和，冲突后留一点回温空间。",
+        }
+    if any(word in text for word in ("爽", "快", "打脸", "升级", "节奏")):
+        return {
+            "label": "快节奏爽点",
+            "direction": "提高冲突密度，让每章都有明确胜负、反击或新收获。",
+            "style": "动作更直接，章节目标更短，章末更强调下一次对抗。",
+        }
+    if any(word in text for word in ("感情", "关系", "羁绊", "亲情", "友情")):
+        return {
+            "label": "关系驱动",
+            "direction": "把角色关系变成剧情压力源，让每次选择都影响一段关系。",
+            "style": "多写潜台词和行动反应，少用直白解释情绪。",
+        }
+    return {
+        "label": "用户反馈",
+        "direction": f"按用户反馈调整：{text}",
+        "style": "保留原有核心卖点，同时把反馈落实到开篇事件、角色关系和卷内冲突。",
+    }
+
+
+def _variant_profile(variant: int) -> dict[str, str]:
+    profiles = [
+        {
+            "name": "稳态长线版",
+            "suffix": "",
+            "focus": "以主角成长、设定展开和关系积累为主线，适合长篇稳定连载。",
+            "opening": "从一个能立刻体现主角观察力的日常异常开场，让读者先看见主角与世界规则的错位。",
+            "advantage": "主角的优势来自观察、推理、记忆或特殊经验，必须通过具体选择兑现。",
+            "pressure": "外部压力逐章递增，先压迫生活秩序，再牵动更大的势力结构。",
+        },
+        {
+            "name": "强悬念暗线版",
+            "suffix": "：暗线版",
+            "focus": "把隐藏敌人、旧案伏笔和异常源头提前埋入前三章，适合悬念驱动。",
+            "opening": "从一句异常信息、一个不该出现的痕迹或一次错误记录开场，第一章末给出不可忽视的疑问。",
+            "advantage": "主角能从细节里拼出常人忽略的因果，但每次接近真相都会暴露自己。",
+            "pressure": "真正的敌人先隐藏正面行动，通过线索、规则和旁人选择持续施压。",
+        },
+        {
+            "name": "强冲突爽点版",
+            "suffix": "：强冲突版",
+            "focus": "提高对抗密度和即时反馈，让每一轮判断都带来胜负、代价或反击。",
+            "opening": "从主角被低估、被试探或被逼到台前开始，第一场冲突就展示她的独特解法。",
+            "advantage": "主角避开无条件碾压，用不同于世界常识的判断打穿规则漏洞。",
+            "pressure": "对手会快速调整策略，逼主角在保护关系和暴露底牌之间选择。",
+        },
+    ]
+    return profiles[min(max(variant, 0), len(profiles) - 1)]
+
+
+def _build_selling_points(
+    *,
+    title: str,
+    genre_label: str,
+    protagonist_name: str,
+    preset_hook: str,
+    features: list[str],
+    profile: dict[str, str],
+    revision_tone: dict[str, str] | None = None,
+) -> list[str]:
+    feature_text = "、".join(features[:3])
+    points = [
+        f"{genre_label}底色叠加{feature_text}，让《{title}》从第一章就有可识别的差异化标签。",
+        f"{protagonist_name}的核心爽点来自{profile['advantage']}，每次解决问题都让读者看见判断依据。",
+        f"主线围绕“{preset_hook}”展开，每一卷都让读者看到规则被发现、利用、反噬和升级。",
+        "角色关系要推动剧情：盟友提供情感支撑，对手提供持续压力，引导者保留关键信息制造后续钩子。",
+    ]
+    if revision_tone and revision_tone.get("direction"):
+        points.insert(1, f"本轮调整重点：{revision_tone['direction']}")
+    return points
+
+
+def _build_characters(
+    *,
+    protagonist_name: str,
+    title: str,
+    genre_label: str,
+    conflict: str,
+    profile: dict[str, str],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": "关键盟友",
+            "role_type": "supporting",
+            "personality": "可靠、敏感，愿意帮主角，但有自己的恐惧和底线。",
+            "background": f"在《{title}》第一卷早期与{protagonist_name}结盟，最初只是被卷入异常的人，后来成为主角验证规则和承受代价的重要同伴。",
+            "goal": "活下来，并弄清自己为何会被异常牵连。",
+            "conflict": "信任主角会带来风险，不信任主角又会失去唯一的生路。",
+            "appearance": "外貌可在前三章根据具体场景补写，默认给读者留下清晰但不过度堆砌的第一印象。",
+            "current_location": "第一卷核心舞台",
+            "life_status": "active",
+        },
+        {
+            "name": "主要对手",
+            "role_type": "antagonist",
+            "personality": "目标明确、行事克制，习惯利用现有规则逼迫别人替自己承担代价。",
+            "background": f"代表第一卷最直接的压迫力量，表面只是在执行秩序，实际上与{conflict}有利益绑定。",
+            "goal": "夺取关键资源，压制主角的异常成长。",
+            "conflict": f"必须在不惊动更高层势力的情况下处理{protagonist_name}。",
+            "appearance": "出场时应通过动作、语气和压迫感建立识别度。",
+            "current_location": "第一卷敌对阵营",
+            "life_status": "active",
+        },
+        {
+            "name": "引导者",
+            "role_type": "mentor",
+            "personality": "沉稳、审慎，掌握部分真相，但不会一次性说透。",
+            "background": f"曾经接触过《{title}》核心异常，知道它并非偶发事件，因此会观察并试探主角。",
+            "goal": "判断主角是否有资格接触更高层秘密。",
+            "conflict": "想保护主角，却也需要利用主角破局。",
+            "appearance": "应有一两个稳定识别物，例如旧物、伤痕、习惯动作或固定称呼。",
+            "current_location": f"{genre_label}世界的旧秩序边缘",
+            "life_status": "active",
+        },
+        {
+            "name": "情感牵引者",
+            "role_type": "supporting",
+            "personality": "真诚、直接，能让主角在高压判断之外保留柔软动机。",
+            "background": f"与{protagonist_name}存在亲缘、友情或同伴关系，是主角不愿只按利益计算的理由。",
+            "goal": "守住与主角之间的承诺或共同生活。",
+            "conflict": "越接近主角，越容易成为敌人施压的目标。",
+            "appearance": "适合用生活化细节建立亲近感。",
+            "current_location": "主角身边",
+            "life_status": "active",
+        },
+        {
+            "name": "规则见证者",
+            "role_type": "supporting",
+            "personality": "谨慎、现实，常用普通人的反应映照世界规则的残酷。",
+            "background": "力量层级可以较低，但会亲眼见证异常如何改变普通人的命运，帮助读者理解代价。",
+            "goal": "在大势变化中保住自己和身边人。",
+            "conflict": f"理解不了{protagonist_name}的判断，却不得不跟随结果行动。",
+            "appearance": "出场可朴素，重点在反应真实。",
+            "current_location": "第一卷事件现场",
+            "life_status": "active",
+        },
+    ]
+
+
+def _build_relationships(protagonist_name: str) -> list[dict[str, str]]:
+    return [
+        {
+            "character_a": protagonist_name,
+            "character_b": "关键盟友",
+            "relationship_type": "互信未稳的同盟",
+            "description": "两人因异常事件绑定，合作能提高生存概率，但早期仍会互相试探。",
+        },
+        {
+            "character_a": protagonist_name,
+            "character_b": "主要对手",
+            "relationship_type": "被低估的敌对",
+            "description": "对手起初把主角当成可处理的小变量，随后逐步意识到她会改变整局。",
+        },
+        {
+            "character_a": protagonist_name,
+            "character_b": "引导者",
+            "relationship_type": "试探与传承",
+            "description": "引导者给出必要线索，也会隐瞒更危险的真相，让主角自己做选择。",
+        },
+        {
+            "character_a": protagonist_name,
+            "character_b": "情感牵引者",
+            "relationship_type": "保护与牵挂",
+            "description": "这段关系决定主角不会只追求胜利，也要考虑普通人的安全和情感代价。",
+        },
+        {
+            "character_a": protagonist_name,
+            "character_b": "规则见证者",
+            "relationship_type": "行动者与见证者",
+            "description": "规则见证者记录主角选择造成的实际后果，帮助剧情保持真实压力。",
+        },
+        {
+            "character_a": "主要对手",
+            "character_b": "引导者",
+            "relationship_type": "旧怨或立场冲突",
+            "description": "两人都知道部分旧事，但选择不同，形成第一卷背后的价值对撞。",
+        },
+    ]
+
+
+def _build_worldbuilding(
+    *,
+    title: str,
+    genre_label: str,
+    target_audience: str,
+    platform: str,
+    preset: dict[str, Any],
+    profile: dict[str, str],
+    features: list[str],
+) -> list[dict[str, str]]:
+    worldbuilding = [
+        {"dimension": dimension, "title": wb_title, "content": content}
+        for dimension, wb_title, content in preset["worldbuilding"]
+    ]
+    feature_text = "、".join(features)
+    worldbuilding.extend([
+        {
+            "dimension": "power_system",
+            "title": "主角优势边界",
+            "content": f"主角可以依靠{feature_text}获得认知优势，但每次使用都必须消耗时间、暴露信息或带来关系风险，避免无代价解决冲突。",
+        },
+        {
+            "dimension": "factions",
+            "title": "第一卷压力源",
+            "content": f"第一卷的主要压力来自能代表旧秩序的势力。它们前期可以少做正面强攻，更多通过资源、身份、规则和舆论限制主角行动。",
+        },
+        {
+            "dimension": "geography",
+            "title": "开局核心舞台",
+            "content": f"《{title}》前十章应集中在一个可反复使用的核心舞台，便于读者记住地点、关系和危险边界。",
+        },
+        {
+            "dimension": "history",
+            "title": "旧日隐线",
+            "content": f"当前异常早有前史。过去曾有人试图掩盖或利用它，留下的旧记录会在中后期成为破局线索。",
+        },
+        {
+            "dimension": "culture",
+            "title": "读者承诺",
+            "content": f"面向{_clean_text(target_audience, '目标读者')}，发布平台为{_clean_text(platform, '未指定平台')}。开篇要用具体事件兑现卖点，少用解释性设定堆砌。",
+        },
+        {
+            "dimension": "culture",
+            "title": "连载节奏约束",
+            "content": f"{profile['focus']}每章至少推进一种变化：信息、关系、局势、能力或代价，避免连续铺垫。",
+        },
+    ])
+    return worldbuilding
+
+
+def _build_volume_outline(title: str, protagonist_name: str, conflict: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "title": "第一卷 异常入局",
+            "summary": f"{protagonist_name}发现身边秩序出现裂缝，先在小范围内验证规则，再被迫直面{conflict}。",
+            "start_chapter": 1,
+            "end_chapter": 30,
+            "node_type": "volume",
+        },
+        {
+            "title": "第二卷 规则反噬",
+            "summary": "主角把第一卷得到的方法用于更大舞台，却发现规则本身会反过来筛选和吞噬使用者。",
+            "start_chapter": 31,
+            "end_chapter": 70,
+            "node_type": "volume",
+        },
+        {
+            "title": "第三卷 旧事重启",
+            "summary": f"旧日隐线浮出水面，{protagonist_name}必须判断前人的失败究竟是能力不足，还是方向错误。",
+            "start_chapter": 71,
+            "end_chapter": 120,
+            "node_type": "volume",
+        },
+        {
+            "title": "第四卷 终局改写",
+            "summary": "主角将个人成长、关系选择和世界规则合并为最终方案，付出代价后改写核心危机。",
+            "start_chapter": 121,
+            "end_chapter": 160,
+            "node_type": "volume",
+        },
+    ]
+
+
+def _build_golden_three(
+    *,
+    protagonist_name: str,
+    preset_hook: str,
+    profile: dict[str, str],
+) -> dict[str, str]:
+    return {
+        "opening_scene": profile["opening"],
+        "chapter_1": f"主角登场并遭遇异常。第一章必须让读者看到{protagonist_name}如何观察别人忽略的细节，章末留下“异常并非偶然”的钩子。",
+        "chapter_2": "主角主动验证异常，得到一个小结果，同时暴露出代价或风险。读者应知道主角想要什么，也知道阻碍来自哪里。",
+        "chapter_3": f"第一轮冲突落地，{preset_hook}从概念变成具体危险。主角做出选择，形成短期目标和第一卷追读问题。",
+        "promise": "前三章要完成主角识别、卖点兑现、核心矛盾、短期目标和追读钩子，不把世界观解释压在正文前排。",
+    }
+
+
+def _build_outline(
+    title: str,
+    genre_label: str,
+    protagonist_name: str,
+    conflict: str,
+    profile: dict[str, str] | None = None,
+    user_brief: str = "",
+    revision_tone: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    profile = profile or _variant_profile(0)
+    anchor = _opening_anchor(user_brief)
+    tone_direction = revision_tone.get("direction") if revision_tone else ""
+    beats = [
+        ("第1章 异常开端", f"从{anchor}切入，{protagonist_name}用独特观察方式发现第一处不合理，章末抛出异常源头疑问。", "开场钩子"),
+        ("第2章 第一次试探", f"{protagonist_name}围绕{anchor}主动验证，得到一个小胜利，也发现问题比表面更深。", "卖点兑现"),
+        ("第3章 代价显形", f"主角第一次为选择付出代价，同时建立短期目标和第一卷主要阻碍。{tone_direction}", "追读钩子"),
+        ("第4章 新关系入场", "关键盟友、对手或引导者登场，推动主角进入更大的舞台。", "关系建压"),
+        ("第5章 规则边界", f"通过具体事件展示{genre_label}世界的力量规则、社会规则和危险边界。", "规则展示"),
+        ("第6章 暗线浮出", "隐藏势力或旧日秘密露出痕迹，主角意识到单点事件背后存在系统性问题。", "悬念升级"),
+        ("第7章 小胜与反噬", "主角取得阶段性胜利，但胜利立刻带来更高层级的关注或反击。", "爽点反噬"),
+        ("第8章 关系施压", "重要关系受到考验，主角的目标和情感牵挂发生冲突。", "情感压力"),
+        ("第9章 真相碎片", "主角获得关键线索，确认敌人、规则或危机的真实方向。", "真相碎片"),
+        ("第10章 卷首转折", f"{conflict}升级，主角从被动应对转为主动布局。", "阶段转折"),
+        ("第11章 新阶段入口", f"故事进入第一卷中段，{title}的核心卖点开始稳定运转。", "结构扩展"),
+        ("第12章 第一次大钩子", "用一个更大的危机、谜题或关系反转把读者带入下一轮剧情。", "大钩子"),
+        ("第13章 反向利用", "主角开始反向利用已知规则，但敌人也借此确认主角价值。", "攻守转换"),
+        ("第14章 旧线回声", "旧日隐线与当前事件第一次明确相连，读者意识到故事已经牵动更大的危机。", "伏笔回收"),
+        ("第15章 第一卷中段爆点", "主角必须在保护关系和继续追查之间做选择，推动第一卷进入中段高潮。", "中段爆点"),
+    ]
+    return [
+        {
+            "title": beat_title,
+            "summary": summary,
+            "node_type": "chapter",
+            "parent_index": 0,
+            "purpose": purpose,
+            "involved_characters": [protagonist_name, "关键盟友"] if index < 3 else [protagonist_name],
+        }
+        for index, (beat_title, summary, purpose) in enumerate(beats)
+    ]
+
+
+def _template_blueprint(
+    *,
+    title: str,
+    user_brief: str,
+    genre: str,
+    target_audience: str,
+    platform: str,
+    variant: int,
+    revision_instruction: str = "",
+    revision_mode: str = "initial",
+) -> dict[str, Any]:
+    genre_key = _genre_key(genre)
+    genre_label = _genre_label(genre)
+    preset = GENRE_PRESETS.get(genre_key, GENRE_PRESETS["fantasy"])
+    protagonist_name = _extract_protagonist_name(user_brief)
+    features = _brief_features(user_brief)
+    profile = _variant_profile(variant)
+    revision_tone = _feedback_tone(revision_instruction)
+
+    variant_titles = [
+        title,
+        f"{title}{_variant_profile(1)['suffix']}",
+        f"{title}{_variant_profile(2)['suffix']}",
+    ]
+    selected_title = variant_titles[min(variant, len(variant_titles) - 1)]
+    conflict = preset["conflict"]
+    premise = (
+        f"{_clean_text(user_brief, f'一部{genre_label}小说')}。"
+        f" 本方案主打“{preset['hook']}”，{profile['focus']}"
+    )
+    if revision_instruction:
+        premise += f" 本轮根据反馈“{revision_instruction}”调整，重点是{revision_tone['direction']}"
+    logline = (
+        f"{protagonist_name}从{_opening_anchor(user_brief)}里察觉危机，"
+        f"用自己的认知优势破解{preset['hook']}，并在{conflict}中争取主动。"
+    )
+
+    protagonist = {
+        "name": protagonist_name,
+        "goal": "弄清异常背后的规则，保护自己重视的人，并在危机中争取主动权",
+        "conflict": conflict,
+        "personality": "观察细致，有行动力，但会因信息不足和关系牵挂付出代价",
+        "background": f"故事开局时与核心异常产生直接关联，是推动《{title}》剧情展开的中心人物。",
+        "appearance": "外貌可在正式正文中根据年龄、身份和题材进一步细化；第一章应给出一个能被读者记住的动作或神态。",
+        "current_location": "第一卷核心舞台",
+        "life_status": "active",
+        "mental_state": "警觉、好奇，尚未完全理解自身处境",
+        "abilities_state": profile["advantage"],
+        "items_or_assets": "开局可配置一件与核心异常有关的物品、记录或身份凭证",
+    }
+    characters = _build_characters(
+        protagonist_name=protagonist_name,
+        title=title,
+        genre_label=genre_label,
+        conflict=conflict,
+        profile=profile,
+    )
+    worldbuilding = _build_worldbuilding(
+        title=title,
+        genre_label=genre_label,
+        target_audience=target_audience,
+        platform=platform,
+        preset=preset,
+        profile=profile,
+        features=features,
+    )
+    volume_outline = _build_volume_outline(title, protagonist_name, conflict)
+    outline = _build_outline(
+        selected_title,
+        genre_label,
+        protagonist_name,
+        conflict,
+        profile,
+        user_brief=user_brief,
+        revision_tone=revision_tone,
+    )
+
+    return {
+        "title": selected_title,
+        "subtitle": profile["name"],
+        "logline": logline,
+        "premise": premise,
+        "genre": genre_label,
+        "genre_positioning": f"{genre_label}长篇连载，突出{', '.join(features[:3])}与持续升级的外部压力。",
+        "revision_mode": revision_mode,
+        "revision_instruction": revision_instruction,
+        "adjustment_notes": revision_tone,
+        "target_audience": target_audience,
+        "target_reader": target_audience,
+        "platform": platform,
+        "writing_style": "natural",
+        "core_conflict": conflict,
+        "selling_points": _build_selling_points(
+            title=title,
+            genre_label=genre_label,
+            protagonist_name=protagonist_name,
+            preset_hook=preset["hook"],
+            features=features,
+            profile=profile,
+            revision_tone=revision_tone,
+        ),
+        "protagonist": protagonist,
+        "characters": characters,
+        "relationships": _build_relationships(protagonist_name),
+        "world_hook": preset["hook"],
+        "opening_scene": profile["opening"],
+        "estimated_chapters": 160,
+        "worldbuilding": worldbuilding,
+        "volume_outline": volume_outline,
+        "outline": outline,
+        "golden_three": _build_golden_three(
+            protagonist_name=protagonist_name,
+            preset_hook=preset["hook"],
+            profile=profile,
+        ),
+        "style_rules": [
+            "正文优先用行动、对话和选择展示设定，少用成段解释。",
+            "每章至少推进一种变化：信息、关系、局势、能力或代价。",
+            "主角判断可以强，但必须让读者看到依据和误差。",
+            "反派或压力源要持续反馈，不让主角单方面顺利推进。",
+        ],
+        "forbidden_patterns": [
+            "连续用空泛旁白解释世界观",
+            "无代价开挂解决核心冲突",
+            "角色只为解释设定而对话",
+            "章末没有信息增量或情绪钩子",
+        ],
+        "risks": [
+            "如果前三章只讲设定，读者可能看不到主角魅力。",
+            "如果对手压迫不足，长篇中段会缺少持续推进力。",
+            "如果主角优势没有边界，后续冲突会变弱。",
+        ],
+        "next_questions": [
+            "主角的真实姓名、年龄和第一章具体处境是什么？",
+            "第一卷核心舞台是家族、宗门、城市、学校还是其他空间？",
+            "你更想强调爽点、悬念、情感关系，还是世界观探索？",
+        ],
+    }
+
+
+def _base_blueprint_title(blueprints: Any) -> str:
+    if isinstance(blueprints, list) and blueprints and isinstance(blueprints[0], dict):
+        title = _clean_text(blueprints[0].get("title"))
+        for suffix in ("：暗线版", "：强冲突版"):
+            if title.endswith(suffix):
+                title = title[: -len(suffix)]
+        return title
+    if isinstance(blueprints, dict):
+        return _clean_text(blueprints.get("title"))
+    return ""
+
+
+def _build_template_blueprints(
+    session: Any,
+    user_brief: str = "",
+    feedback: str = "",
+    revision_mode: str = "initial",
+) -> list[dict[str, Any]]:
+    base_brief = _clean_text(user_brief or session.user_brief, "用户希望创建一部新小说。")
+    feedback = _clean_text(feedback)
+    revision_mode = _clean_text(revision_mode, "initial")
+    if feedback:
+        if revision_mode == "refine":
+            brief = f"{base_brief}\n\n在当前方案基础上调整：{feedback}"
+        elif revision_mode == "regenerate":
+            brief = f"{base_brief}\n\n请按以下反馈重新生成整套方案：{feedback}"
+        else:
+            brief = f"{base_brief}\n\n用户补充要求：{feedback}"
+    else:
+        brief = base_brief
+    genre = _clean_text(session.genre, "other")
+    genre_label = _genre_label(genre)
+    protagonist_name = _extract_protagonist_name(brief)
+    features = _brief_features(brief)
+    title = _extract_title(brief, genre_label)
+    if revision_mode == "refine":
+        title = _base_blueprint_title(getattr(session, "blueprint_json", None)) or title
+    if _is_generic_title(title, genre_label):
+        title = _suggest_title(brief, genre_label, protagonist_name, features)
+    return [
+        _template_blueprint(
+            title=title,
+            user_brief=brief,
+            genre=genre,
+            target_audience=_clean_text(session.target_audience),
+            platform=_clean_text(session.platform),
+            variant=index,
+            revision_instruction=feedback,
+            revision_mode=revision_mode,
+        )
+        for index in range(3)
+    ]
+
+
+def _is_real_session(db: Session) -> bool:
+    """Return True for a real SQLAlchemy session, False for unit-test mocks."""
+    return db.__class__.__module__.startswith("sqlalchemy.")
+
+
+def _score_blueprint(blueprint: dict[str, Any]) -> dict[str, Any]:
+    issues: list[str] = []
+    suggestions: list[str] = []
+
+    protagonist = blueprint.get("protagonist", {})
+    protagonist_name = _clean_text(protagonist.get("name") if isinstance(protagonist, dict) else "")
+    outline = blueprint.get("outline", []) if isinstance(blueprint.get("outline"), list) else []
+    worldbuilding = blueprint.get("worldbuilding", []) if isinstance(blueprint.get("worldbuilding"), list) else []
+    characters = blueprint.get("characters", []) if isinstance(blueprint.get("characters"), list) else []
+    relationships = blueprint.get("relationships", []) if isinstance(blueprint.get("relationships"), list) else []
+    volume_outline = blueprint.get("volume_outline", []) if isinstance(blueprint.get("volume_outline"), list) else []
+    golden_three = blueprint.get("golden_three", {}) if isinstance(blueprint.get("golden_three"), dict) else {}
+    selling_points = blueprint.get("selling_points", []) if isinstance(blueprint.get("selling_points"), list) else []
+
+    scores = {
+        "premise_clarity": 10 if len(_clean_text(blueprint.get("premise"))) >= 60 else 6,
+        "protagonist_goal": 10 if protagonist_name and _clean_text(protagonist.get("goal") if isinstance(protagonist, dict) else "") else 5,
+        "conflict_engine": 10 if _clean_text(blueprint.get("core_conflict")) or _clean_text(protagonist.get("conflict") if isinstance(protagonist, dict) else "") else 5,
+        "world_rules": min(10, 4 + len(worldbuilding)),
+        "character_relationship_pressure": min(10, 4 + len(relationships)),
+        "golden_three_hook": 10 if len(golden_three) >= 4 else 5,
+        "thirty_chapter_runway": 10 if len(outline) >= 12 and len(volume_outline) >= 2 else 6,
+        "trope_freshness": min(10, 6 + len(selling_points) // 2),
+    }
+
+    if not protagonist_name or protagonist_name == "未命名主角":
+        issues.append("主角姓名仍未明确，创建后需要尽快补齐。")
+    if len(characters) < 4:
+        issues.append("配角数量不足，关系网还撑不起长篇推进。")
+    if len(relationships) < 5:
+        issues.append("角色关系压力不足，建议补充盟友、对手、引导者之间的张力。")
+    if len(worldbuilding) < 6:
+        issues.append("世界观条目偏少，建议补充力量边界、势力结构、历史隐线和开局舞台。")
+    if len(outline) < 10:
+        issues.append("前期大纲节点偏少，建议至少补齐前十章。")
+    if not golden_three:
+        issues.append("缺少黄金三章拆解，开篇钩子不够可控。")
+
+    if not issues:
+        suggestions.append("方案已经具备可创建项目的基础，可在创建后继续细化主角姓名、第一章场景和卷内爆点。")
+    else:
+        suggestions.extend([
+            "优先补主角姓名、前三章具体事件和第一卷对手压力。",
+            "创建后可用项目助手继续扩写角色档案、世界观边界和章节细纲。",
+        ])
+
+    total_score = sum(scores.values())
+    return {
+        "scores": scores,
+        "total_score": total_score,
+        "pass": total_score >= 56 and len(issues) <= 2,
+        "issues": issues,
+        "suggestions": suggestions,
+    }
 
 
 async def start_novel_creation_session(
@@ -17,23 +807,18 @@ async def start_novel_creation_session(
     project_id: str,
     args: dict[str, Any],
 ) -> dict:
-    """Start a new novel creation session.
-
-    API-free: creates or resumes a session and returns the interview checklist.
-    Does not call LLM.
-    """
-    from app.database.models import NovelCreationSession
+    """Start a new novel creation session and return the shared prompt pack."""
+    from app.database.models import NovelCreationSession, PublicPromptPack
     from app.services.prompt_packs.seed import ensure_builtin_packs
 
     ensure_builtin_packs(db)
 
-    mode = str(args.get("mode") or "internal_llm").strip()
-    user_brief = str(args.get("user_brief") or "").strip()
-    target_audience = str(args.get("target_audience") or "").strip()
-    genre = str(args.get("genre") or "").strip()
-    platform = str(args.get("platform") or "").strip()
+    mode = _clean_text(args.get("mode"), "external_agent")
+    user_brief = _clean_text(args.get("user_brief"))
+    target_audience = _clean_text(args.get("target_audience"))
+    genre = _clean_text(args.get("genre"))
+    platform = _clean_text(args.get("platform"))
 
-    # Create new session
     session = NovelCreationSession(
         source_project_id=project_id if project_id else None,
         mode=mode,
@@ -47,26 +832,23 @@ async def start_novel_creation_session(
     db.commit()
     db.refresh(session)
 
-    # Build interview checklist
-    checklist = _build_interview_checklist(user_brief, genre, target_audience, platform)
-
-    # Get the prompt pack for novel creation
-    from app.database.models import PublicPromptPack
     pack = db.query(PublicPromptPack).filter(
         PublicPromptPack.pack_id == "new_project_setup",
         PublicPromptPack.enabled == True,
     ).first()
-
     prompt_pack_data = None
     if pack:
         prompt_pack_data = {
             "pack_id": pack.pack_id,
             "version": pack.version,
             "title": pack.title,
+            "summary": pack.summary,
             "system_prompt": pack.system_prompt,
             "workflow": pack.workflow_json,
+            "quality_rubric": pack.quality_rubric_json,
         }
 
+    checklist = _build_interview_checklist(user_brief, genre, target_audience, platform)
     return {
         "tool": "start_novel_creation_session",
         "status": "ok",
@@ -87,45 +869,68 @@ async def draft_novel_blueprint(
     project_id: str,
     args: dict[str, Any],
 ) -> dict:
-    """Draft novel blueprints for a creation session.
-
-    Supports two modes:
-    - internal_llm: calls Moshu API if configured
-    - external_agent: returns prompt/context/output schema for external agent to fill
-    """
+    """Draft novel blueprints or return the canonical prompt for external agents."""
     from app.database.models import NovelCreationSession, PublicPromptPack
+    from app.services.prompt_packs.seed import ensure_builtin_packs
 
-    session_id = str(args.get("session_id") or "").strip()
-    execution_mode = str(args.get("execution_mode") or "external_agent").strip()
-    user_brief = str(args.get("user_brief") or "").strip()
+    ensure_builtin_packs(db)
+
+    session_id = _clean_text(args.get("session_id"))
+    execution_mode = _clean_text(args.get("execution_mode"), "template")
+    user_brief = _clean_text(args.get("user_brief"))
+    feedback = _clean_text(args.get("feedback"))
+    revision_mode = _clean_text(args.get("revision_mode"), "initial")
 
     if not session_id:
-        return {
-            "tool": "draft_novel_blueprint",
-            "status": "skipped",
-            "detail": "session_id is required",
-            "data": None,
-        }
+        return {"tool": "draft_novel_blueprint", "status": "skipped", "detail": "session_id is required", "data": None}
 
-    session = db.query(NovelCreationSession).filter(
-        NovelCreationSession.id == session_id,
-    ).first()
+    session = db.query(NovelCreationSession).filter(NovelCreationSession.id == session_id).first()
     if not session:
-        return {
-            "tool": "draft_novel_blueprint",
-            "status": "skipped",
-            "detail": "Session not found",
-            "data": None,
-        }
+        return {"tool": "draft_novel_blueprint", "status": "skipped", "detail": "Session not found", "data": None}
 
-    # Get the prompt pack
     pack = db.query(PublicPromptPack).filter(
         PublicPromptPack.pack_id == "new_project_setup",
         PublicPromptPack.enabled == True,
     ).first()
 
+    if execution_mode in {"template", "local_template", "auto"}:
+        blueprints = _build_template_blueprints(
+            session,
+            user_brief=user_brief,
+            feedback=feedback,
+            revision_mode=revision_mode,
+        )
+        session.blueprint_json = blueprints
+        if user_brief or feedback:
+            base_brief = _clean_text(user_brief or session.user_brief)
+            session.user_brief = f"{base_brief}\n\n{feedback}".strip() if feedback and revision_mode == "regenerate" else base_brief
+        session.status = "reviewing"
+        db.commit()
+        if revision_mode == "refine":
+            detail = f"Refined {len(blueprints)} blueprint options from current direction"
+            recommendation = "已按反馈在当前方向上调整三套方案；如果仍感觉方向不对，可以选择全部重新生成。"
+        elif revision_mode == "regenerate":
+            detail = f"Regenerated {len(blueprints)} blueprint options"
+            recommendation = "已按反馈重新生成三套方案；建议先比较标题、核心冲突和黄金三章是否符合预期。"
+        else:
+            detail = f"Generated {len(blueprints)} API-free blueprint options"
+            recommendation = "优先选择第一个稳态方案；如果想强化悬念或高压节奏，可选择后两个变体。"
+        return {
+            "tool": "draft_novel_blueprint",
+            "status": "ok",
+            "detail": detail,
+            "data": {
+                "session_id": session_id,
+                "execution_mode": "template",
+                "revision_mode": revision_mode,
+                "feedback": feedback,
+                "blueprints": blueprints,
+                "recommendation": recommendation,
+                "next_tool": "review_novel_blueprint",
+            },
+        }
+
     if execution_mode == "external_agent":
-        # Return prompt and context for external agent to fill
         return {
             "tool": "draft_novel_blueprint",
             "status": "ok",
@@ -137,44 +942,70 @@ async def draft_novel_blueprint(
                     "pack_id": pack.pack_id,
                     "system_prompt": pack.system_prompt,
                     "workflow": pack.workflow_json,
+                    "quality_rubric": pack.quality_rubric_json,
                 } if pack else None,
                 "user_brief": session.user_brief or user_brief,
+                "feedback": feedback,
+                "revision_mode": revision_mode,
                 "genre": session.genre,
                 "target_audience": session.target_audience,
                 "platform": session.platform,
                 "output_schema": {
                     "blueprints": [
                         {
-                            "title": "Blueprint title",
-                            "premise": "Core premise in 2-3 sentences",
+                            "title": "作品标题",
+                            "subtitle": "方案定位，如稳态长线版/强悬念暗线版/强冲突版",
+                            "logline": "一句话说明主角、危机、目标和差异化卖点",
+                            "premise": "核心设定与卖点，至少80字",
+                            "selling_points": ["至少4条具体卖点"],
+                            "genre_positioning": "类型定位与平台节奏说明",
+                            "core_conflict": "全书核心冲突",
                             "protagonist": {
-                                "name": "Character name",
-                                "goal": "What they want",
-                                "conflict": "What blocks them",
+                                "name": "角色名",
+                                "goal": "角色目标",
+                                "conflict": "主要阻碍",
+                                "personality": "性格",
+                                "background": "背景故事",
+                                "appearance": "可写入角色卡的外貌或第一印象",
+                                "current_location": "开局位置",
+                                "life_status": "active",
+                                "mental_state": "开局心理状态",
                             },
-                            "world_hook": "Unique world element",
-                            "opening_scene": "First scene description",
-                            "estimated_chapters": 30,
+                            "characters": ["至少5个配角/反派/引导者，字段同角色卡"],
+                            "relationships": ["至少6条角色关系，含character_a、character_b、relationship_type、description"],
+                            "worldbuilding": ["至少8条，覆盖power_system/factions/geography/history/culture等维度"],
+                            "volume_outline": ["至少3卷，含title、summary、start_chapter、end_chapter"],
+                            "outline": ["至少12个前期章节节点，含title、summary、node_type、parent_index、purpose"],
+                            "golden_three": {
+                                "opening_scene": "开场场景",
+                                "chapter_1": "第一章功能和钩子",
+                                "chapter_2": "第二章功能和钩子",
+                                "chapter_3": "第三章功能和钩子",
+                                "promise": "前三章读者承诺",
+                            },
+                            "style_rules": ["正文风格规则"],
+                            "forbidden_patterns": ["禁用写法"],
+                            "risks": ["创作风险"],
+                            "next_questions": ["后续需要向用户确认的问题"],
+                            "recommendation_reason": "推荐理由",
                         }
                     ],
-                    "recommendation": "Which blueprint to pursue and why",
+                    "recommendation": "推荐选择哪个方案以及原因",
                 },
                 "next_tool": "review_novel_blueprint",
             },
         }
-    else:
-        # Internal LLM mode — would call LLM here
-        # For now, return a placeholder since this requires API
-        return {
-            "tool": "draft_novel_blueprint",
-            "status": "skipped",
-            "detail": "Internal LLM mode requires Moshu API key. Use external_agent mode instead.",
-            "data": {
-                "session_id": session_id,
-                "execution_mode": "internal_llm",
-                "hint": "Set execution_mode='external_agent' or configure a Moshu API key",
-            },
-        }
+
+    return {
+        "tool": "draft_novel_blueprint",
+        "status": "skipped",
+        "detail": "Internal LLM mode requires Moshu API key. Use execution_mode='template' or 'external_agent'.",
+        "data": {
+            "session_id": session_id,
+            "execution_mode": execution_mode,
+            "hint": "Set execution_mode='template' or 'external_agent', or configure a Moshu API key.",
+        },
+    }
 
 
 async def review_novel_blueprint(
@@ -182,40 +1013,51 @@ async def review_novel_blueprint(
     project_id: str,
     args: dict[str, Any],
 ) -> dict:
-    """Review novel blueprints with internal or external model support.
-
-    Internal mode may call Moshu API. External mode returns review prompt
-    and rubric for external agent to fill.
-    """
+    """Review a blueprint and persist external edits back into the session."""
     from app.database.models import NovelCreationSession
 
-    session_id = str(args.get("session_id") or "").strip()
-    execution_mode = str(args.get("execution_mode") or "external_agent").strip()
+    session_id = _clean_text(args.get("session_id"))
+    execution_mode = _clean_text(args.get("execution_mode"), "template")
     blueprint_json = args.get("blueprint")
 
     if not session_id:
-        return {
-            "tool": "review_novel_blueprint",
-            "status": "skipped",
-            "detail": "session_id is required",
-            "data": None,
-        }
+        return {"tool": "review_novel_blueprint", "status": "skipped", "detail": "session_id is required", "data": None}
 
-    session = db.query(NovelCreationSession).filter(
-        NovelCreationSession.id == session_id,
-    ).first()
+    session = db.query(NovelCreationSession).filter(NovelCreationSession.id == session_id).first()
     if not session:
+        return {"tool": "review_novel_blueprint", "status": "skipped", "detail": "Session not found", "data": None}
+
+    if blueprint_json and isinstance(blueprint_json, (dict, list)):
+        if isinstance(blueprint_json, dict) and "blueprints" in blueprint_json:
+            session.blueprint_json = blueprint_json.get("blueprints")
+        else:
+            session.blueprint_json = blueprint_json
+        db.commit()
+
+    if execution_mode in {"template", "local_template", "auto"}:
+        blueprints = session.blueprint_json or []
+        selected = blueprints[0] if isinstance(blueprints, list) and blueprints else blueprints
+        review = _score_blueprint(selected) if isinstance(selected, dict) else {
+            "scores": {},
+            "total_score": 0,
+            "pass": False,
+            "issues": ["方案格式无效。"],
+            "suggestions": ["请重新生成方案或让外部 Agent 按 schema 输出。"],
+        }
+        session.review_json = review
+        session.status = "reviewing"
+        db.commit()
         return {
             "tool": "review_novel_blueprint",
-            "status": "skipped",
-            "detail": "Session not found",
-            "data": None,
+            "status": "ok",
+            "detail": "Blueprint reviewed with API-free rubric",
+            "data": {
+                "session_id": session_id,
+                "execution_mode": "template",
+                "review": review,
+                "next_tool": "apply_novel_blueprint",
+            },
         }
-
-    # Save blueprint to session if provided
-    if blueprint_json and isinstance(blueprint_json, (dict, list)):
-        session.blueprint_json = blueprint_json
-        db.commit()
 
     if execution_mode == "external_agent":
         return {
@@ -240,23 +1082,19 @@ async def review_novel_blueprint(
                     "scores": {"dimension_name": 0},
                     "total_score": 0,
                     "pass": True,
-                    "issues": ["Issue description"],
-                    "suggestions": ["Suggestion description"],
+                    "issues": ["问题描述"],
+                    "suggestions": ["修改建议"],
                 },
                 "next_tool": "apply_novel_blueprint",
             },
         }
-    else:
-        return {
-            "tool": "review_novel_blueprint",
-            "status": "skipped",
-            "detail": "Internal LLM mode requires Moshu API key. Use external_agent mode instead.",
-            "data": {
-                "session_id": session_id,
-                "execution_mode": "internal_llm",
-                "hint": "Set execution_mode='external_agent' or configure a Moshu API key",
-            },
-        }
+
+    return {
+        "tool": "review_novel_blueprint",
+        "status": "skipped",
+        "detail": "Internal LLM mode requires Moshu API key. Use execution_mode='template' or 'external_agent'.",
+        "data": {"session_id": session_id, "execution_mode": execution_mode},
+    }
 
 
 async def apply_novel_blueprint(
@@ -264,38 +1102,32 @@ async def apply_novel_blueprint(
     project_id: str,
     args: dict[str, Any],
 ) -> dict:
-    """Apply a confirmed blueprint to create a real Moshu project.
-
-    Creates project, worldbuilding, characters, relationships, outline,
-    skills, and memories from the blueprint.
-    """
+    """Apply a confirmed blueprint to create a real Moshu project."""
     from app.database.models import (
-        NovelCreationSession, Project,
-        Character, WorldbuildingEntry, OutlineNode, CharacterRelationship,
+        Character,
+        CharacterRelationship,
+        OutlineNode,
+        Project,
+        WorldbuildingEntry,
+        NovelCreationSession,
     )
+    from app.services.content_store import ensure_project_folder, sync_project_to_files, write_project_manifest
 
-    session_id = str(args.get("session_id") or "").strip()
-    blueprint_index = int(args.get("blueprint_index", 0))
-    mode = str(args.get("mode") or "auto").strip()
+    session_id = _clean_text(args.get("session_id"))
+    blueprint_index = int(args.get("blueprint_index", 0) or 0)
+    mode = _clean_text(args.get("mode"), "auto")
+    override_blueprint = args.get("blueprint")
 
     if not session_id:
-        return {
-            "tool": "apply_novel_blueprint",
-            "status": "skipped",
-            "detail": "session_id is required",
-            "data": None,
-        }
+        return {"tool": "apply_novel_blueprint", "status": "skipped", "detail": "session_id is required", "data": None}
 
-    session = db.query(NovelCreationSession).filter(
-        NovelCreationSession.id == session_id,
-    ).first()
+    session = db.query(NovelCreationSession).filter(NovelCreationSession.id == session_id).first()
     if not session:
-        return {
-            "tool": "apply_novel_blueprint",
-            "status": "skipped",
-            "detail": "Session not found",
-            "data": None,
-        }
+        return {"tool": "apply_novel_blueprint", "status": "skipped", "detail": "Session not found", "data": None}
+
+    if override_blueprint and isinstance(override_blueprint, (dict, list)):
+        session.blueprint_json = override_blueprint
+        db.flush()
 
     blueprints = session.blueprint_json
     if not blueprints:
@@ -306,7 +1138,6 @@ async def apply_novel_blueprint(
             "data": None,
         }
 
-    # Handle both single blueprint and list
     if isinstance(blueprints, list):
         if blueprint_index >= len(blueprints):
             return {
@@ -319,8 +1150,10 @@ async def apply_novel_blueprint(
     else:
         blueprint = blueprints
 
+    if not isinstance(blueprint, dict):
+        return {"tool": "apply_novel_blueprint", "status": "skipped", "detail": "Blueprint must be an object", "data": None}
+
     if mode == "manual":
-        # Return candidates without applying
         return {
             "tool": "apply_novel_blueprint",
             "status": "ok",
@@ -332,91 +1165,184 @@ async def apply_novel_blueprint(
             },
         }
 
-    # Auto mode: create the project
     try:
-        # Create project
-        title = blueprint.get("title", "Untitled Novel")
+        title = _clean_text(blueprint.get("title"), "未命名小说")[:200]
+        style_rules = blueprint.get("style_rules", []) if isinstance(blueprint.get("style_rules"), list) else []
+        forbidden_patterns = blueprint.get("forbidden_patterns", []) if isinstance(blueprint.get("forbidden_patterns"), list) else []
+        project_tags = [
+            _clean_text(blueprint.get("genre")),
+            _clean_text(blueprint.get("subtitle")),
+            _clean_text(blueprint.get("platform")),
+        ]
+        project_tags = [tag for tag in project_tags if tag]
         project = Project(
+            id=str(uuid4()),
             title=title,
-            description=blueprint.get("premise", ""),
-            writing_style=blueprint.get("writing_style", "natural"),
+            description=_clean_text(blueprint.get("logline")) or _clean_text(blueprint.get("premise")) or None,
+            tags=json.dumps(project_tags, ensure_ascii=False) if project_tags else None,
+            writing_style=_clean_text(blueprint.get("writing_style"), "natural")[:50],
+            narrative_perspective=_clean_text(blueprint.get("narrative_perspective"), "third_person")[:50],
+            daily_word_goal=int(blueprint.get("daily_word_goal") or 6000),
+            forbidden_sentence_patterns="\n".join(str(item) for item in forbidden_patterns) or None,
+            rhetoric_guidelines="\n".join(str(item) for item in style_rules) or None,
+            custom_style_prompt=_clean_text(blueprint.get("genre_positioning")) or None,
         )
         db.add(project)
-        db.flush()  # Get the ID
+        db.flush()
+        if _is_real_session(db):
+            ensure_project_folder(db, project)
+            write_project_manifest(db, project)
 
-        created_items = {
+        created_items: dict[str, Any] = {
             "project_id": project.id,
             "characters": [],
             "worldbuilding": [],
+            "volumes": [],
             "outline": [],
             "relationships": [],
         }
+        characters_by_name: dict[str, Character] = {}
 
-        # Create protagonist
         protagonist = blueprint.get("protagonist", {})
-        if protagonist.get("name"):
+        if isinstance(protagonist, dict) and _clean_text(protagonist.get("name")):
             char = Character(
                 project_id=project.id,
-                name=protagonist["name"],
-                personality=protagonist.get("personality", ""),
-                background=protagonist.get("background", ""),
+                name=_clean_text(protagonist["name"])[:100],
+                personality=_clean_text(protagonist.get("personality")) or None,
+                background=_clean_text(protagonist.get("background")) or None,
+                appearance=_clean_text(protagonist.get("appearance")) or None,
                 role_type="protagonist",
-                current_goal=protagonist.get("goal", ""),
-                active_conflict=protagonist.get("conflict", ""),
+                age=_clean_text(protagonist.get("age")) or None,
+                life_status=_clean_text(protagonist.get("life_status"), "active")[:50],
+                current_location=_clean_text(protagonist.get("current_location")) or None,
+                realm_or_level=_clean_text(protagonist.get("realm_or_level")) or None,
+                physical_state=_clean_text(protagonist.get("physical_state")) or None,
+                mental_state=_clean_text(protagonist.get("mental_state")) or None,
+                current_goal=_clean_text(protagonist.get("goal")) or None,
+                active_conflict=_clean_text(protagonist.get("conflict")) or None,
+                abilities_state=_clean_text(protagonist.get("abilities_state")) or None,
+                items_or_assets=_clean_text(protagonist.get("items_or_assets")) or None,
+                abilities=json.dumps(protagonist.get("abilities"), ensure_ascii=False) if isinstance(protagonist.get("abilities"), list) else None,
             )
             db.add(char)
-            created_items["characters"].append(protagonist["name"])
+            db.flush()
+            characters_by_name[char.name] = char
+            created_items["characters"].append(char.name)
 
-        # Create other characters
         for char_data in blueprint.get("characters", []):
-            if isinstance(char_data, dict) and char_data.get("name"):
+            if isinstance(char_data, dict) and _clean_text(char_data.get("name")):
+                name = _clean_text(char_data["name"])[:100]
+                if name in characters_by_name:
+                    continue
                 char = Character(
                     project_id=project.id,
-                    name=char_data["name"],
-                    personality=char_data.get("personality", ""),
-                    background=char_data.get("background", ""),
-                    role_type=char_data.get("role_type", "supporting"),
+                    name=name,
+                    personality=_clean_text(char_data.get("personality")) or None,
+                    background=_clean_text(char_data.get("background")) or None,
+                    appearance=_clean_text(char_data.get("appearance")) or None,
+                    role_type=_clean_text(char_data.get("role_type"), "supporting")[:50],
+                    age=_clean_text(char_data.get("age")) or None,
+                    life_status=_clean_text(char_data.get("life_status"), "active")[:50],
+                    current_location=_clean_text(char_data.get("current_location")) or None,
+                    realm_or_level=_clean_text(char_data.get("realm_or_level")) or None,
+                    physical_state=_clean_text(char_data.get("physical_state")) or None,
+                    mental_state=_clean_text(char_data.get("mental_state")) or None,
+                    current_goal=_clean_text(char_data.get("goal")) or None,
+                    active_conflict=_clean_text(char_data.get("conflict")) or None,
+                    abilities_state=_clean_text(char_data.get("abilities_state")) or None,
+                    items_or_assets=_clean_text(char_data.get("items_or_assets")) or None,
+                    abilities=json.dumps(char_data.get("abilities"), ensure_ascii=False) if isinstance(char_data.get("abilities"), list) else None,
                 )
                 db.add(char)
-                created_items["characters"].append(char_data["name"])
+                db.flush()
+                characters_by_name[name] = char
+                created_items["characters"].append(name)
 
-        # Create worldbuilding entries
         for wb_data in blueprint.get("worldbuilding", []):
-            if isinstance(wb_data, dict) and wb_data.get("title"):
+            if isinstance(wb_data, dict) and _clean_text(wb_data.get("title")):
                 entry = WorldbuildingEntry(
                     project_id=project.id,
-                    title=wb_data["title"],
-                    content=wb_data.get("content", ""),
-                    dimension=wb_data.get("dimension", "culture"),
+                    title=_clean_text(wb_data["title"])[:200],
+                    content=_clean_text(wb_data.get("content"), "待补充"),
+                    dimension=_clean_text(wb_data.get("dimension"), "culture")[:50],
                 )
                 db.add(entry)
-                created_items["worldbuilding"].append(wb_data["title"])
+                db.flush()
+                created_items["worldbuilding"].append(entry.title)
 
-        # Create outline nodes (first 10 chapters)
+        volume_nodes: list[OutlineNode] = []
+        volume_data = blueprint.get("volume_outline", [])
+        if isinstance(volume_data, list):
+            for i, volume in enumerate(volume_data):
+                if isinstance(volume, dict) and _clean_text(volume.get("title")):
+                    node = OutlineNode(
+                        project_id=project.id,
+                        title=_clean_text(volume["title"])[:200],
+                        summary=_clean_text(volume.get("summary")) or None,
+                        planned_summary=_clean_text(volume.get("planned_summary") or volume.get("summary")) or None,
+                        node_type="volume",
+                        sort_order=i,
+                    )
+                    db.add(node)
+                    db.flush()
+                    volume_nodes.append(node)
+                    created_items["volumes"].append(node.title)
+                    created_items["outline"].append(node.title)
+
         outline_data = blueprint.get("outline", [])
-        for i, node_data in enumerate(outline_data[:10]):
-            if isinstance(node_data, dict) and node_data.get("title"):
+        for i, node_data in enumerate(outline_data):
+            if isinstance(node_data, dict) and _clean_text(node_data.get("title")):
+                parent_id = None
+                parent_index = node_data.get("parent_index")
+                if isinstance(parent_index, int) and 0 <= parent_index < len(volume_nodes):
+                    parent_id = volume_nodes[parent_index].id
                 node = OutlineNode(
                     project_id=project.id,
-                    title=node_data["title"],
-                    summary=node_data.get("summary", ""),
-                    node_type=node_data.get("node_type", "chapter"),
+                    parent_id=parent_id,
+                    title=_clean_text(node_data["title"])[:200],
+                    summary=_clean_text(node_data.get("summary")) or None,
+                    planned_summary=_clean_text(node_data.get("planned_summary")) or None,
+                    node_type=_clean_text(node_data.get("node_type"), "chapter")[:20],
                     sort_order=i,
                 )
                 db.add(node)
-                created_items["outline"].append(node_data["title"])
+                db.flush()
+                created_items["outline"].append(node.title)
 
-        # Update session
+        for rel_data in blueprint.get("relationships", []):
+            if not isinstance(rel_data, dict):
+                continue
+            a = characters_by_name.get(_clean_text(rel_data.get("character_a") or rel_data.get("source")))
+            b = characters_by_name.get(_clean_text(rel_data.get("character_b") or rel_data.get("target")))
+            if a and b and a.id != b.id:
+                rel = CharacterRelationship(
+                    project_id=project.id,
+                    character_a_id=a.id,
+                    character_b_id=b.id,
+                    relationship_type=_clean_text(rel_data.get("relationship_type"), "related")[:100],
+                    description=_clean_text(rel_data.get("description")) or None,
+                )
+                db.add(rel)
+                created_items["relationships"].append(rel.relationship_type)
+
         session.created_project_id = project.id
         session.status = "completed"
-        session.completed_at = __import__("datetime").datetime.utcnow()
+        session.completed_at = datetime.utcnow()
 
+        db.flush()
+        if _is_real_session(db):
+            sync_project_to_files(db, project.id)
         db.commit()
 
         return {
             "tool": "apply_novel_blueprint",
             "status": "ok",
-            "detail": f"Project created: {title} ({len(created_items['characters'])} characters, {len(created_items['outline'])} outline nodes)",
+            "detail": (
+                f"Project created: {title} "
+                f"({len(created_items['characters'])} characters, "
+                f"{len(created_items['worldbuilding'])} worldbuilding entries, "
+                f"{len(created_items['outline'])} outline nodes)"
+            ),
             "data": created_items,
         }
 
@@ -434,19 +1360,15 @@ async def apply_novel_blueprint(
 
 def _build_blueprint_candidates(blueprint: dict) -> list[dict]:
     """Build candidate list from blueprint for manual review."""
-    candidates = []
-
-    # Project
-    candidates.append({
+    candidates: list[dict[str, Any]] = [{
         "type": "project",
         "action": "create",
-        "title": blueprint.get("title", "Untitled"),
+        "title": blueprint.get("title", "未命名小说"),
         "description": blueprint.get("premise", ""),
-    })
+    }]
 
-    # Characters
     protagonist = blueprint.get("protagonist", {})
-    if protagonist.get("name"):
+    if isinstance(protagonist, dict) and protagonist.get("name"):
         candidates.append({
             "type": "character",
             "action": "create",
@@ -462,7 +1384,6 @@ def _build_blueprint_candidates(blueprint: dict) -> list[dict]:
                 "role_type": char.get("role_type", "supporting"),
             })
 
-    # Worldbuilding
     for wb in blueprint.get("worldbuilding", []):
         if isinstance(wb, dict) and wb.get("title"):
             candidates.append({
@@ -472,13 +1393,32 @@ def _build_blueprint_candidates(blueprint: dict) -> list[dict]:
                 "dimension": wb.get("dimension", "culture"),
             })
 
-    # Outline
+    for volume in blueprint.get("volume_outline", []):
+        if isinstance(volume, dict) and volume.get("title"):
+            candidates.append({
+                "type": "outline",
+                "action": "create",
+                "node_type": "volume",
+                "title": volume["title"],
+            })
+
     for node in blueprint.get("outline", []):
         if isinstance(node, dict) and node.get("title"):
             candidates.append({
                 "type": "outline",
                 "action": "create",
+                "node_type": node.get("node_type", "chapter"),
                 "title": node["title"],
+            })
+
+    for rel in blueprint.get("relationships", []):
+        if isinstance(rel, dict) and (rel.get("character_a") or rel.get("source")) and (rel.get("character_b") or rel.get("target")):
+            candidates.append({
+                "type": "relationship",
+                "action": "create",
+                "character_a": rel.get("character_a") or rel.get("source"),
+                "character_b": rel.get("character_b") or rel.get("target"),
+                "relationship_type": rel.get("relationship_type", "related"),
             })
 
     return candidates
@@ -517,9 +1457,7 @@ def _build_interview_checklist(
             "value": user_brief or None,
         },
     }
-
-    missing = [k for k, v in fields.items() if not v["provided"]]
-
+    missing = [key for key, value in fields.items() if not value["provided"]]
     return {
         "fields": fields,
         "missing": missing,

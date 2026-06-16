@@ -2122,11 +2122,13 @@ def _register_all() -> None:
 
     _r(ToolDef(
         name="draft_novel_blueprint",
-        description="Draft novel blueprints for a creation session. Supports internal_llm and external_agent modes.",
+        description="Draft novel blueprints for a creation session. Supports template, internal_llm and external_agent modes.",
         input_schema={
             "session_id": {"type": "string", "description": "Creation session ID"},
-            "execution_mode": {"type": "string", "description": "internal_llm|external_agent"},
+            "execution_mode": {"type": "string", "description": "template|internal_llm|external_agent"},
             "user_brief": {"type": "string", "description": "Additional user brief"},
+            "feedback": {"type": "string", "description": "User feedback for refining or regenerating previous blueprint options"},
+            "revision_mode": {"type": "string", "description": "initial|refine|regenerate. Use refine to adjust current direction, regenerate to restart options from feedback."},
         },
         required=["session_id"],
         tool_type="read",
@@ -2155,6 +2157,7 @@ def _register_all() -> None:
             "session_id": {"type": "string", "description": "Creation session ID"},
             "blueprint_index": {"type": "integer", "description": "Which blueprint to apply (default 0)"},
             "mode": {"type": "string", "description": "manual|auto. Manual returns candidates, auto creates project."},
+            "blueprint": {"type": "object", "description": "Optional blueprint override to apply directly."},
         },
         required=["session_id"],
         tool_type="write",

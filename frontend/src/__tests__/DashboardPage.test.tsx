@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -139,7 +139,7 @@ describe('DashboardPage', () => {
     renderDashboard()
 
     await waitFor(() => {
-      expect(screen.getByText('暂无作品，开始你的第一部创作')).toBeInTheDocument()
+      expect(screen.getByText('暂无作品。可以创建空项目、上传已有小说，也可以让新书立项助手先生成角色、世界观和大纲。')).toBeInTheDocument()
     })
   })
 
@@ -150,7 +150,8 @@ describe('DashboardPage', () => {
     renderDashboard()
 
     await waitFor(() => {
-      expect(screen.getByText('立即创建')).toBeInTheDocument()
+      expect(screen.getByText('让助手帮我开书')).toBeInTheDocument()
+      expect(screen.getByText('直接创建')).toBeInTheDocument()
     })
   })
 
@@ -228,9 +229,9 @@ describe('DashboardPage', () => {
   })
 
   // ------------------------------------------------------------------
-  // TC-F08: Create modal opens on button click
+  // TC-F08: Create button opens the creation assistant first
   // ------------------------------------------------------------------
-  it('should open create modal when "创建新作品" button is clicked', async () => {
+  it('should open creation assistant when "创建新作品" button is clicked', async () => {
     const user = userEvent.setup()
     renderDashboard()
 
@@ -238,8 +239,9 @@ describe('DashboardPage', () => {
     await user.click(createButton)
 
     await waitFor(() => {
-      expect(screen.getByText('创建新作品')).toBeInTheDocument()
-      expect(screen.getByLabelText('作品标题')).toBeInTheDocument()
+      expect(screen.getByText('从一个想法创建完整小说项目')).toBeInTheDocument()
+      expect(screen.getByText('助手对话')).toBeInTheDocument()
+      expect(screen.getByText('直接创建空作品')).toBeInTheDocument()
     })
   })
 
@@ -254,6 +256,7 @@ describe('DashboardPage', () => {
     renderDashboard()
 
     await user.click(screen.getByText('创建新作品'))
+    await user.click(screen.getByText('直接创建空作品'))
 
     const titleInput = screen.getByLabelText('作品标题')
     await user.type(titleInput, '我的新作品')
@@ -277,11 +280,14 @@ describe('DashboardPage', () => {
     renderDashboard()
 
     await user.click(screen.getByText('创建新作品'))
+    await user.click(screen.getByText('直接创建空作品'))
 
-    await user.click(screen.getByRole('button', { name: /取消/ }))
+    const footer = document.querySelector('.ant-modal-footer') as HTMLElement
+    const cancelButton = within(footer).getByRole('button', { name: '取消' })
+    await user.click(cancelButton)
 
     await waitFor(() => {
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('作品标题')).not.toBeInTheDocument()
     })
   })
 
@@ -330,7 +336,7 @@ describe('DashboardPage', () => {
       expect(screen.getByText('确认删除')).toBeInTheDocument()
     })
 
-    const confirmBtn = screen.getByRole('button', { name: /删除/ })
+    const confirmBtn = screen.getByRole('button', { name: /^删除$/ })
     await user.click(confirmBtn)
 
     await waitFor(() => {

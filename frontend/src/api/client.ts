@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosError } from 'axios'
+import axios, { AxiosError, AxiosInstance } from 'axios'
 
 const API_BASE_URL = '/api/v1'
 const API_TIMEOUT_MS = 600000
@@ -19,8 +19,8 @@ class ApiClient {
       (response) => response,
       (error: AxiosError) => {
         if (error.response) {
-          const data = error.response.data as { code?: number; message?: string }
-          return Promise.reject(new Error(data.message || `请求失败: ${error.response.status}`))
+          const data = error.response.data as { code?: number; message?: string; detail?: string }
+          return Promise.reject(new Error(data.message || data.detail || `请求失败: ${error.response.status}`))
         }
         if (error.code === 'ECONNABORTED') {
           return Promise.reject(new Error('请求超时，AI任务可能仍在处理中，请稍后重试或减少文本量'))
@@ -50,7 +50,6 @@ class ApiClient {
     return this.client.delete<T>(url)
   }
 
-  /** SSE stream request for AI generation */
   stream(url: string, data: unknown, onMessage: (chunk: string) => void, onError?: (err: Error) => void) {
     const fullUrl = `${API_BASE_URL}${url}`
     fetch(fullUrl, {
@@ -67,13 +66,13 @@ class ApiClient {
         let buffer = ''
 
         const emitFrame = (frame: string) => {
-          const data = frame
+          const payload = frame
             .split(/\r?\n/)
             .filter((line) => line.startsWith('data:'))
             .map((line) => line.replace(/^data:\s?/, ''))
             .join('\n')
-          if (data && data !== '[DONE]') {
-            onMessage(data)
+          if (payload && payload !== '[DONE]') {
+            onMessage(payload)
           }
         }
 

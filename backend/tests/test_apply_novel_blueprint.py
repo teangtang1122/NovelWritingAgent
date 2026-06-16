@@ -71,7 +71,13 @@ class ApplyNovelBlueprintTest(unittest.TestCase):
             "protagonist": {"name": "Hero", "goal": "Save world"},
             "characters": [{"name": "Villain", "role_type": "antagonist"}],
             "worldbuilding": [{"title": "Magic System", "content": "Mana-based"}],
+            "volume_outline": [{"title": "Volume 1", "summary": "Start"}],
             "outline": [{"title": "Chapter 1"}, {"title": "Chapter 2"}],
+            "relationships": [{
+                "character_a": "Hero",
+                "character_b": "Villain",
+                "relationship_type": "enemy",
+            }],
         }
 
         db = MagicMock()
@@ -87,6 +93,8 @@ class ApplyNovelBlueprintTest(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["mode"], "manual")
         self.assertGreater(len(result["data"]["candidates"]), 0)
+        candidate_types = {item["type"] for item in result["data"]["candidates"]}
+        self.assertIn("relationship", candidate_types)
 
     def test_auto_mode_creates_project(self):
         from app.services.workspace.tools.novel_creation import apply_novel_blueprint

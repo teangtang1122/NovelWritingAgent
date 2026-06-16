@@ -106,6 +106,86 @@ class DraftNovelBlueprintTest(unittest.TestCase):
         self.assertEqual(result["status"], "skipped")
         self.assertIn("external_agent", result["data"]["hint"])
 
+    def test_template_mode_generates_full_blueprints(self):
+        from app.services.workspace.tools.novel_creation import draft_novel_blueprint
+
+        session = MagicMock()
+        session.id = "s1"
+        session.user_brief = "我想写一本仙侠小说，主角叫特昂糖，是三岁穿越女娃，核心卖点是科学思维修仙和病毒追杀。"
+        session.genre = "xianxia"
+        session.target_audience = "all"
+        session.platform = "qidian"
+
+        def query_side_effect(model):
+            q = MagicMock()
+            q.filter.return_value = q
+            model_name = model.__name__ if hasattr(model, "__name__") else str(model)
+            if "NovelCreationSession" in model_name:
+                q.first.return_value = session
+            else:
+                q.first.return_value = None
+            return q
+
+        db = MagicMock()
+        db.query.side_effect = query_side_effect
+
+        result = asyncio.run(draft_novel_blueprint(db, "p1", {
+            "session_id": "s1",
+            "execution_mode": "template",
+        }))
+
+        self.assertEqual(result["status"], "ok")
+        blueprints = result["data"]["blueprints"]
+        self.assertEqual(len(blueprints), 3)
+        first = blueprints[0]
+        self.assertGreaterEqual(len(first["selling_points"]), 4)
+        self.assertGreaterEqual(len(first["characters"]), 5)
+        self.assertGreaterEqual(len(first["relationships"]), 6)
+        self.assertGreaterEqual(len(first["worldbuilding"]), 8)
+        self.assertGreaterEqual(len(first["volume_outline"]), 3)
+        self.assertGreaterEqual(len(first["outline"]), 12)
+        self.assertIn("golden_three", first)
+        self.assertIn("chapter_1", first["golden_three"])
+
+    def test_template_mode_refines_from_feedback(self):
+        from app.services.workspace.tools.novel_creation import draft_novel_blueprint
+
+        session = MagicMock()
+        session.id = "s1"
+        session.user_brief = "我想写一本仙侠小说，主角叫特昂糖，是三岁穿越女娃。"
+        session.genre = "xianxia"
+        session.target_audience = "all"
+        session.platform = "qidian"
+        session.blueprint_json = [{"title": "特昂糖的灵石账簿"}]
+
+        def query_side_effect(model):
+            q = MagicMock()
+            q.filter.return_value = q
+            model_name = model.__name__ if hasattr(model, "__name__") else str(model)
+            if "NovelCreationSession" in model_name:
+                q.first.return_value = session
+            else:
+                q.first.return_value = None
+            return q
+
+        db = MagicMock()
+        db.query.side_effect = query_side_effect
+
+        result = asyncio.run(draft_novel_blueprint(db, "p1", {
+            "session_id": "s1",
+            "execution_mode": "template",
+            "feedback": "更暗黑一点，把病毒线提前",
+            "revision_mode": "refine",
+        }))
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["revision_mode"], "refine")
+        first = result["data"]["blueprints"][0]
+        self.assertEqual(first["title"], "特昂糖的灵石账簿")
+        self.assertEqual(first["revision_instruction"], "更暗黑一点，把病毒线提前")
+        self.assertEqual(first["adjustment_notes"]["label"], "暗线压迫")
+        self.assertTrue(any("本轮调整重点" in point for point in first["selling_points"]))
+
 
 if __name__ == "__main__":
     unittest.main()

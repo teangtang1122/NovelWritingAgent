@@ -15,6 +15,7 @@ from ..services.import_service import (
     execute_import,
     parse_uploaded_file,
 )
+from ..services.content_store import sync_project_to_files
 
 router = APIRouter(tags=["import"])
 
@@ -56,5 +57,6 @@ def confirm_import(project_id: str, payload: ConfirmImportRequest, db: Session =
     get_project_or_404(db, project_id)
     get_outline_node_or_404(db, project_id, payload.outline_node_id)
     chapters = execute_import(db, project_id, payload.text, payload.splits, payload.outline_node_id)
+    sync_project_to_files(db, project_id)
     db.commit()
     return ApiResponse.success(data={"chapters": chapters, "total": len(chapters)}, message=f"成功导入 {len(chapters)} 章")
