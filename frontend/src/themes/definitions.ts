@@ -4,8 +4,6 @@ export interface ThemeDefinition {
   key: string
   name: string
   description: string
-  /** Icon emoji for the theme switcher */
-  icon: string
   config: ThemeConfig
   /** CSS accent color for decorative use (borders, gradients) */
   accent: string
@@ -21,7 +19,6 @@ const wenfang: ThemeDefinition = {
   key: 'wenfang',
   name: '文房',
   description: '温润沉静，文学气息',
-  icon: '📜',
   accent: '#7c5e2a',
   grainOpacity: 0.018,
   config: {
@@ -76,7 +73,6 @@ const mobai: ThemeDefinition = {
   key: 'mobai',
   name: '墨白',
   description: '清爽素雅，黑白分明',
-  icon: '🖋️',
   accent: '#2a2a2a',
   grainOpacity: 0.012,
   config: {
@@ -131,7 +127,6 @@ const qingzhu: ThemeDefinition = {
   key: 'qingzhu',
   name: '青竹',
   description: '清新自然，竹韵悠然',
-  icon: '🎋',
   accent: '#2d6b4e',
   grainOpacity: 0.014,
   config: {
@@ -186,7 +181,6 @@ const yedu: ThemeDefinition = {
   key: 'yedu',
   name: '夜读',
   description: '暗色沉浸，深夜护眼',
-  icon: '🌙',
   accent: '#c9a04e',
   grainOpacity: 0.025,
   config: {

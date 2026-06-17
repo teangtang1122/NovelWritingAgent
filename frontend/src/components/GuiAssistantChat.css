@@ -35,6 +35,10 @@
   background: linear-gradient(180deg, rgba(0,0,0,0.01) 0%, transparent 100%);
 }
 
+.gui-chat-sidebar-head .ant-btn {
+  min-width: 32px;
+}
+
 .gui-chat-collapsed .gui-chat-sidebar-head {
   justify-content: center;
 }
@@ -120,9 +124,17 @@
 }
 
 .gui-chat-welcome-icon {
-  font-size: 64px;
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
   margin-bottom: 16px;
-  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.08));
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 18px;
+  background: linear-gradient(180deg, var(--ant-color-bg-container), var(--ant-color-primary-bg));
+  color: var(--ant-color-primary);
+  font-size: 34px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.06);
   animation: moshu-float 4s ease-in-out infinite;
 }
 
@@ -230,6 +242,13 @@
   flex-shrink: 0;
 }
 
+.gui-chat-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
 .gui-chat-composer-actions {
   display: flex;
   justify-content: flex-end;
@@ -237,6 +256,22 @@
 }
 
 /* ── Responsive ── */
+@media (prefers-reduced-motion: reduce) {
+  .gui-chat,
+  .gui-chat-sidebar-head,
+  .gui-chat-conv-item,
+  .gui-chat-welcome,
+  .gui-chat-welcome-icon,
+  .gui-chat-msg {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .gui-chat-conv-item:hover {
+    transform: none;
+  }
+}
+
 @media (max-width: 820px) {
   .gui-chat,
   .gui-chat-collapsed {

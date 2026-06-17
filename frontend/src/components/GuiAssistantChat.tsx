@@ -677,6 +677,21 @@ function GuiAssistantChat() {
     )
   }
 
+  const quickActions = [
+    {
+      label: '新书立项',
+      prompt: '帮我创建一本新的小说，克苏鲁+规则怪谈，至少要能写1000章的创意',
+    },
+    {
+      label: '查看作品',
+      prompt: '查看我的作品列表',
+    },
+    {
+      label: activeProject ? '规划后续' : '设计主角',
+      prompt: activeProject ? '根据当前作品，帮我规划后续三章' : '分别设计一下主角，给出名字、目标、弱点和开局压力',
+    },
+  ]
+
   const settingsContent = (
     <Space direction="vertical" size={12} style={{ width: 300 }}>
       <div>
@@ -761,10 +776,22 @@ function GuiAssistantChat() {
             {!sidebarCollapsed && (
               <>
                 <Tooltip title="刷新对话">
-                  <Button icon={<ReloadOutlined />} size="small" onClick={() => fetchConversations()} loading={conversationsLoading} />
+                  <Button
+                    icon={<ReloadOutlined />}
+                    size="small"
+                    aria-label="刷新对话"
+                    onClick={() => fetchConversations()}
+                    loading={conversationsLoading}
+                  />
                 </Tooltip>
                 <Tooltip title="新对话">
-                  <Button type="primary" icon={<PlusOutlined />} size="small" onClick={startNewConversation} />
+                  <Button
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    size="small"
+                    aria-label="新对话"
+                    onClick={startNewConversation}
+                  />
                 </Tooltip>
               </>
             )}
@@ -772,6 +799,7 @@ function GuiAssistantChat() {
               <Button
                 icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
                 size="small"
+                aria-label={sidebarCollapsed ? '展开对话列表' : '收起对话列表'}
                 onClick={() => setSidebarCollapsed((value) => !value)}
               />
             </Tooltip>
@@ -793,6 +821,7 @@ function GuiAssistantChat() {
                     type="text"
                     size="small"
                     icon={<DeleteOutlined />}
+                    aria-label="删除对话"
                     danger
                     onClick={(e) => {
                       e.stopPropagation()
@@ -835,7 +864,9 @@ function GuiAssistantChat() {
         <div className="gui-chat-messages">
           {!activeProjectId && !projectsLoading ? (
             <div className="gui-chat-welcome">
-              <div className="gui-chat-welcome-icon">📜</div>
+              <div className="gui-chat-welcome-icon" aria-hidden="true">
+                <RobotOutlined />
+              </div>
               <Title level={3} style={{ margin: '0 0 8px', fontFamily: "'Noto Serif SC', serif" }}>
                 墨枢系统助手
               </Title>
@@ -853,7 +884,9 @@ function GuiAssistantChat() {
             </div>
           ) : !activeConvId && messages.length === 0 ? (
             <div className="gui-chat-welcome">
-              <div className="gui-chat-welcome-icon">📜</div>
+              <div className="gui-chat-welcome-icon" aria-hidden="true">
+                <RobotOutlined />
+              </div>
               <Title level={3} style={{ margin: '0 0 8px', fontFamily: "'Noto Serif SC', serif" }}>
                 墨枢 AI 助手
               </Title>
@@ -890,6 +923,18 @@ function GuiAssistantChat() {
         </div>
 
         <div className="gui-chat-composer">
+          <div className="gui-chat-quick-actions">
+            {quickActions.map((action) => (
+              <Button
+                key={action.label}
+                size="small"
+                onClick={() => setInputValue(action.prompt)}
+                disabled={streaming}
+              >
+                {action.label}
+              </Button>
+            ))}
+          </div>
           <Input.TextArea
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}

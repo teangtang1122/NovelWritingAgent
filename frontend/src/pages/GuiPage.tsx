@@ -7,6 +7,7 @@ import { useState } from 'react'
 import { Button, Layout, Menu, Tooltip, Typography, message } from 'antd'
 import {
   ApiOutlined,
+  BookOutlined,
   CodeOutlined,
   ExportOutlined,
   RobotOutlined,
@@ -85,7 +86,7 @@ function GuiPage() {
           }}
           onClick={() => setSidebarCollapsed((v) => !v)}
         >
-          <span style={{ fontSize: 22, lineHeight: 1 }}>📜</span>
+          <BookOutlined style={{ fontSize: 22, lineHeight: 1, color: 'var(--ant-color-primary)' }} />
           {!sidebarCollapsed && (
             <Title
               level={5}
@@ -135,6 +136,7 @@ function GuiPage() {
                   type="text"
                   icon={<ExportOutlined />}
                   size="small"
+                  aria-label="打开写作台"
                   onClick={openHomeInBrowser}
                   style={{ width: '100%' }}
                 />

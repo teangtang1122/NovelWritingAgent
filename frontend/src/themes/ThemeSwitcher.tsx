@@ -15,14 +15,15 @@ function ThemeSwitcher({ iconOnly }: ThemeSwitcherProps) {
       type="text"
       size="small"
       icon={<BgColorsOutlined />}
+      aria-label={iconOnly ? `切换主题，当前主题：${currentTheme.name}` : undefined}
       style={{ opacity: 0.75, transition: 'opacity 0.2s ease' }}
     >
-      {iconOnly ? null : `${currentTheme.icon} ${currentTheme.name}`}
+      {iconOnly ? null : currentTheme.name}
     </Button>
   )
 
   return (
-    <Tooltip title={iconOnly ? `${currentTheme.icon} ${currentTheme.name}` : undefined} placement={iconOnly ? 'right' : undefined}>
+    <Tooltip title={iconOnly ? `切换主题：${currentTheme.name}` : undefined} placement={iconOnly ? 'right' : undefined}>
       <Dropdown
         menu={{
           items: themes.map((t) => ({
@@ -42,7 +43,7 @@ function ThemeSwitcher({ iconOnly }: ThemeSwitcherProps) {
                 />
                 <div>
                   <div style={{ fontWeight: t.key === currentTheme.key ? 700 : 400, fontSize: 13.5 }}>
-                    {t.icon} {t.name}
+                    {t.name}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--ant-color-text-tertiary)', lineHeight: 1.3 }}>
                     {t.description}
