@@ -305,6 +305,81 @@ class DraftNovelBlueprintTest(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["blueprints"][0]["protagonist"]["name"], "沈夜")
 
+    def test_template_auto_names_protagonists_for_cthulhu_rules(self):
+        from app.services.workspace.tools.novel_creation import draft_novel_blueprint
+
+        session = MagicMock()
+        session.id = "s1"
+        session.user_brief = "克苏鲁+规则怪谈"
+        session.genre = "xianxia"
+        session.target_audience = "all"
+        session.platform = "qidian"
+        session.blueprint_json = []
+
+        def query_side_effect(model):
+            q = MagicMock()
+            q.filter.return_value = q
+            model_name = model.__name__ if hasattr(model, "__name__") else str(model)
+            if "NovelCreationSession" in model_name:
+                q.first.return_value = session
+            else:
+                q.first.return_value = None
+            return q
+
+        db = MagicMock()
+        db.query.side_effect = query_side_effect
+
+        result = asyncio.run(draft_novel_blueprint(db, "p1", {
+            "session_id": "s1",
+            "execution_mode": "template",
+        }))
+
+        blueprints = result["data"]["blueprints"]
+        names = [bp["protagonist"]["name"] for bp in blueprints]
+        self.assertEqual(len(set(names)), 3)
+        self.assertNotIn("未命名主角", names)
+        self.assertTrue(all("禁忌档案" in bp["title"] for bp in blueprints))
+        self.assertTrue(all(bp["requirement_coverage"]["score"] >= 90 for bp in blueprints))
+
+    def test_template_feedback_separately_designs_protagonists_without_false_avoid(self):
+        from app.services.workspace.tools.novel_creation import draft_novel_blueprint
+
+        session = MagicMock()
+        session.id = "s1"
+        session.user_brief = "克苏鲁+规则怪谈"
+        session.genre = "xianxia"
+        session.target_audience = "all"
+        session.platform = "qidian"
+        session.blueprint_json = [{"title": "禁忌怪谈档案"}]
+
+        def query_side_effect(model):
+            q = MagicMock()
+            q.filter.return_value = q
+            model_name = model.__name__ if hasattr(model, "__name__") else str(model)
+            if "NovelCreationSession" in model_name:
+                q.first.return_value = session
+            else:
+                q.first.return_value = None
+            return q
+
+        db = MagicMock()
+        db.query.side_effect = query_side_effect
+
+        result = asyncio.run(draft_novel_blueprint(db, "p1", {
+            "session_id": "s1",
+            "execution_mode": "template",
+            "feedback": "分别设计一下主角",
+            "revision_mode": "refine",
+        }))
+
+        blueprints = result["data"]["blueprints"]
+        names = [bp["protagonist"]["name"] for bp in blueprints]
+        self.assertEqual(len(set(names)), 3)
+        self.assertNotIn("未命名主角", names)
+        for bp in blueprints:
+            forbidden_text = " ".join(bp["forbidden_patterns"])
+            self.assertNotIn("设计一下主角", forbidden_text)
+
     def test_template_preserves_unusual_custom_motifs(self):
         from app.services.workspace.tools.novel_creation import draft_novel_blueprint
 

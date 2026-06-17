@@ -269,9 +269,38 @@ def _extract_protagonist_name(user_brief: str) -> str:
     return "未命名主角"
 
 
+def _suggest_protagonist_names(user_brief: str) -> list[str]:
+    text = _clean_text(user_brief)
+    if "克苏鲁" in text and "规则怪谈" in text:
+        return ["林雾白", "沈灯", "闻缺"]
+    if "克苏鲁" in text or "旧日" in text:
+        return ["沈夜灯", "陆观澜", "许听潮"]
+    if "规则怪谈" in text or "怪谈" in text:
+        return ["秦照夜", "林知则", "闻灯"]
+    if "修仙" in text or "仙侠" in text:
+        return ["陆知微", "谢问心", "沈青衡"]
+    if "科幻" in text or "赛博" in text:
+        return ["周临界", "林栖白", "许星桥"]
+    if "悬疑" in text:
+        return ["陈见微", "林照", "许沉舟"]
+    return ["林知夏", "沈望舒", "陆明微"]
+
+
+def _resolve_protagonist_name(user_brief: str, variant: int = 0) -> str:
+    explicit = _extract_protagonist_name(user_brief)
+    if explicit != "未命名主角":
+        return explicit
+    names = _suggest_protagonist_names(user_brief)
+    return names[min(max(variant, 0), len(names) - 1)]
+
+
 def _suggest_title(user_brief: str, genre_label: str, protagonist_name: str, features: list[str]) -> str:
     text = _clean_text(user_brief)
     has_named_protagonist = protagonist_name and protagonist_name != "未命名主角"
+    if "克苏鲁" in text and "规则怪谈" in text and "修仙" in text:
+        return f"{protagonist_name}的旧日禁则" if has_named_protagonist else "旧日禁则录"
+    if "克苏鲁" in text and "规则怪谈" in text:
+        return f"{protagonist_name}的禁忌档案" if has_named_protagonist else "禁忌怪谈档案"
     if all(keyword in text for keyword in ("克苏鲁", "修仙", "规则怪谈")):
         return f"{protagonist_name}的旧日仙途" if has_named_protagonist else "旧日仙途怪谈录"
     if "克苏鲁" in text and "修仙" in text:
@@ -393,7 +422,7 @@ def _has_explicit_chapter_count(user_brief: str) -> bool:
 def _extract_avoid_patterns(user_brief: str) -> list[str]:
     text = _clean_text(user_brief)
     patterns: list[str] = []
-    for match in re.finditer(r"(?:不要|别|避免|禁止|不想要|不喜欢)([^。；;\n]{2,36})", text):
+    for match in re.finditer(r"(?:^|[，。,；;\s])(?:不要|(?<!分)别|避免|禁止|不想要|不喜欢)([^。；;\n]{2,36})", text):
         value = match.group(1).strip(" ，,：:。；;")
         if value:
             patterns.append(value)
@@ -450,7 +479,9 @@ def _compile_creative_brief(
     genre_tags = _extract_genre_tags(brief, _genre_label(genre))
     features = _brief_features(brief)
     chapter_count = _extract_chapter_count(brief)
-    protagonist_name = _extract_protagonist_name(brief)
+    explicit_protagonist = _extract_protagonist_name(brief)
+    auto_protagonist_names = _suggest_protagonist_names(brief)
+    protagonist_name = explicit_protagonist if explicit_protagonist != "未命名主角" else auto_protagonist_names[0]
     title = _extract_title(brief, genre_label)
     avoid_patterns = _extract_avoid_patterns(brief)
     references = _extract_reference_examples(brief)
@@ -461,14 +492,14 @@ def _compile_creative_brief(
         hard_constraints.append(f"篇幅约束：{chapter_count}章")
     if genre_tags:
         hard_constraints.append(f"类型融合：{'+'.join(genre_tags)}")
-    if protagonist_name != "未命名主角":
+    if explicit_protagonist != "未命名主角":
         hard_constraints.append(f"主角姓名：{protagonist_name}")
+    elif any(word in brief for word in ("主角", "女主", "男主", "主人公", "给主角命名", "设计一下主角")):
+        hard_constraints.append("主角姓名：由系统自动生成可用姓名")
     if avoid_patterns:
         hard_constraints.append(f"禁用/避免：{'；'.join(avoid_patterns)}")
 
     missing_fields: list[str] = []
-    if protagonist_name == "未命名主角":
-        missing_fields.append("主角姓名")
     if _looks_like_requirement_title(title) or _is_generic_title(title, genre_label):
         missing_fields.append("作品标题")
     if not references:
@@ -482,6 +513,8 @@ def _compile_creative_brief(
         "chapter_count": chapter_count,
         "explicit_chapter_count": _has_explicit_chapter_count(brief),
         "protagonist_name": protagonist_name,
+        "explicit_protagonist_name": explicit_protagonist != "未命名主角",
+        "auto_protagonist_names": auto_protagonist_names,
         "title_candidate": title,
         "opening_anchor": _opening_anchor(brief),
         "avoid_patterns": avoid_patterns,
@@ -540,12 +573,16 @@ def _blueprint_requirement_coverage(
             missing.append(f"缺少类型要素：{tag}")
 
     protagonist_name = _clean_text(compiled.get("protagonist_name"))
-    if protagonist_name and protagonist_name != "未命名主角":
-        actual_name = _clean_text((blueprint.get("protagonist") or {}).get("name") if isinstance(blueprint.get("protagonist"), dict) else "")
+    actual_name = _clean_text((blueprint.get("protagonist") or {}).get("name") if isinstance(blueprint.get("protagonist"), dict) else "")
+    if protagonist_name and protagonist_name != "未命名主角" and compiled.get("explicit_protagonist_name"):
         if actual_name == protagonist_name:
             covered.append(f"主角命名：{protagonist_name}")
         else:
             missing.append(f"主角姓名应为 {protagonist_name}")
+    elif actual_name and actual_name != "未命名主角":
+        covered.append(f"主角已自动命名：{actual_name}")
+    else:
+        missing.append("主角姓名仍是占位符")
 
     for motif in compiled.get("custom_motifs") or []:
         if motif and motif in text:
@@ -615,10 +652,12 @@ def _repair_blueprint_against_constraints(
     bp["estimated_chapters"] = int(compiled.get("chapter_count") or bp.get("estimated_chapters") or 160)
 
     protagonist_name = _clean_text(compiled.get("protagonist_name"))
-    if protagonist_name and protagonist_name != "未命名主角":
-        protagonist = dict(bp.get("protagonist") or {})
+    protagonist = dict(bp.get("protagonist") or {})
+    if protagonist_name and protagonist_name != "未命名主角" and compiled.get("explicit_protagonist_name"):
         protagonist["name"] = protagonist_name
-        bp["protagonist"] = protagonist
+    elif not _clean_text(protagonist.get("name")) or protagonist.get("name") == "未命名主角":
+        protagonist["name"] = protagonist_name or _resolve_protagonist_name(compiled.get("raw_brief", ""), 0)
+    bp["protagonist"] = protagonist
 
     selling_points = list(bp.get("selling_points") or [])
     motifs = compiled.get("custom_motifs") or []
@@ -1419,7 +1458,11 @@ def _template_blueprint(
     )
     genre_label = _clean_text(compiled.get("genre_label"), _genre_display_label(genre, user_brief))
     preset = GENRE_PRESETS.get(genre_key, GENRE_PRESETS["fantasy"])
-    protagonist_name = _clean_text(compiled.get("protagonist_name"), _extract_protagonist_name(user_brief))
+    if compiled.get("explicit_protagonist_name"):
+        protagonist_name = _clean_text(compiled.get("protagonist_name"), _extract_protagonist_name(user_brief))
+    else:
+        auto_names = compiled.get("auto_protagonist_names") or _suggest_protagonist_names(user_brief)
+        protagonist_name = _clean_text(auto_names[min(max(variant, 0), len(auto_names) - 1)], _resolve_protagonist_name(user_brief, variant))
     features = _brief_features(user_brief)
     chapter_count = int(compiled.get("chapter_count") or _extract_chapter_count(user_brief))
     profile = _variant_profile(variant)
@@ -1431,6 +1474,10 @@ def _template_blueprint(
         f"{title}{_variant_profile(2)['suffix']}",
     ]
     selected_title = variant_titles[min(variant, len(variant_titles) - 1)]
+    if not compiled.get("explicit_protagonist_name"):
+        first_auto_name = _clean_text((compiled.get("auto_protagonist_names") or [compiled.get("protagonist_name")])[0])
+        if first_auto_name and first_auto_name in selected_title:
+            selected_title = selected_title.replace(first_auto_name, protagonist_name, 1)
     conflict = preset["conflict"]
     premise = (
         f"{_clean_text(user_brief, f'一部{genre_label}小说')}。"
