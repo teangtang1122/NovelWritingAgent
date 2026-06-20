@@ -77,12 +77,20 @@ interface PersistedMessage {
   created_at?: string
 }
 
+interface ChatQuestion {
+  question: string
+  purpose?: string
+  options?: string[]
+  type?: 'single_select' | 'multi_select' | 'text'
+}
+
 interface ChatMessage {
   id?: string
   role: 'user' | 'assistant'
   content: string
   status?: string
   created_at?: string
+  questions?: ChatQuestion[]
 }
 
 interface NovelBlueprint {
@@ -127,6 +135,9 @@ interface NovelStartData {
 interface NovelDraftData {
   blueprints: NovelBlueprint[]
   recommendation?: string
+  questions?: Array<{ question: string; purpose?: string; options?: string[] }>
+  original_brief?: string
+  hint?: string
 }
 
 interface NovelApplyData {
@@ -205,12 +216,34 @@ function GuiAssistantChat() {
   const [systemBrief, setSystemBrief] = useState('')
   const [systemBlueprints, setSystemBlueprints] = useState<NovelBlueprint[]>([])
   const [applyingBlueprintIndex, setApplyingBlueprintIndex] = useState<number | null>(null)
+  const [runningStartTime, setRunningStartTime] = useState<number | null>(null)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  // Single-question flow
+  const [activeQuestion, setActiveQuestion] = useState<ChatQuestion | null>(null)
+  const [questionHistory, setQuestionHistory] = useState<Array<{ question: string; answer: string }>>([])
+  const [selectedOption, setSelectedOption] = useState<string | null>(null)
+  const [showOtherInput, setShowOtherInput] = useState(false)
+  const [otherText, setOtherText] = useState('')
+  const [showQAEditor, setShowQAEditor] = useState(false)
+  const [editingAnswers, setEditingAnswers] = useState<Record<string, string>>({})
 
   const { modelOptions, defaultModel, loading: modelsLoading } = useModelOptions()
   const [model, setModel] = useState<string | undefined>()
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  // Elapsed timer for "running" status messages
+  useEffect(() => {
+    if (!runningStartTime) {
+      setElapsedSeconds(0)
+      return
+    }
+    const interval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - runningStartTime) / 1000))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [runningStartTime])
 
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId),
@@ -421,6 +454,11 @@ function GuiAssistantChat() {
   }
 
   const setLastAssistantMessage = (content: string, status: ChatMessage['status'] = 'completed') => {
+    if (status === 'running') {
+      setRunningStartTime(Date.now())
+    } else {
+      setRunningStartTime(null)
+    }
     setMessages((prev) => {
       const next = [...prev]
       const last = next[next.length - 1]
@@ -501,7 +539,7 @@ function GuiAssistantChat() {
         setLastAssistantMessage(`正在创建《${blueprint.title}》...`, 'running')
         await apiClient.post<ApiResponse<unknown>>('/novel-creation/review', {
           session_id: systemSessionId,
-          execution_mode: 'template',
+          execution_mode: 'hybrid',
           blueprint: systemBlueprints,
         })
         const applyRes = await apiClient.post<ApiResponse<NovelApplyData>>('/novel-creation/apply', {
@@ -527,7 +565,7 @@ function GuiAssistantChat() {
       }
 
       if (shouldUseNovelCreation(text, Boolean(activeProjectId))) {
-        setLastAssistantMessage('收到，我先按这个设想生成三套方向不同的新书立项方案。', 'running')
+        setLastAssistantMessage('收到，正在分析你的需求...', 'running')
         const startRes = await apiClient.post<ApiResponse<NovelStartData>>('/novel-creation/start', {
           mode: 'template',
           user_brief: text,
@@ -542,16 +580,35 @@ function GuiAssistantChat() {
         persistedBrief = text
         const draftRes = await apiClient.post<ApiResponse<NovelDraftData>>('/novel-creation/draft', {
           session_id: sessionId,
-          execution_mode: 'template',
+          execution_mode: 'hybrid',
           user_brief: text,
           enhance_with_llm: false,
         })
-        const blueprints = draftRes.data.data.blueprints || []
+        const draftData = draftRes.data.data
+
+        // Handle clarifying questions — show first question only
+        if (draftData.questions && draftData.questions.length > 0) {
+          const firstQ = draftData.questions[0]
+          setActiveQuestion(firstQ)
+          setCurrentOptions(firstQ.options || [])
+          setQuestionHistory([])
+          setSelectedOption(null)
+          setShowOtherInput(false)
+          setOtherText('')
+          setRunningStartTime(null)
+          setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', content: '', questions: [firstQ], status: 'completed' },
+          ])
+          return
+        }
+
+        const blueprints = draftData.blueprints || []
         setSystemBlueprints(blueprints)
         persistedBlueprints = blueprints
         finish(
           [
-            `已生成 ${blueprints.length} 个新书方案。你可以继续提修改意见，也可以回复“使用第1个创建”。`,
+            `已生成 ${blueprints.length} 个新书方案。你可以继续提修改意见，也可以回复”使用第1个创建”。`,
             '',
             formatBlueprintSummary(blueprints),
           ].join('\n'),
@@ -559,17 +616,88 @@ function GuiAssistantChat() {
         return
       }
 
+      // Handle answers to clarifying questions (session exists but no blueprints yet)
+      if (systemSessionId && systemBlueprints.length === 0 && !/作品|项目|列表|有哪些|查看/.test(text)) {
+        const isSkip = /跳过|不用了|直接生成|skip/i.test(text)
+        if (isSkip) {
+          // Skip questions — generate directly
+          setLastAssistantMessage('收到，正在生成方案，预计需要30-60秒...', 'running')
+          setActiveQuestion(null)
+          setSelectedOption(null)
+          setShowOtherInput(false)
+          setOtherText('')
+          const draftRes = await apiClient.post<ApiResponse<NovelDraftData>>('/novel-creation/draft', {
+            session_id: systemSessionId,
+            execution_mode: 'hybrid',
+            user_brief: systemBrief || text,
+            skip_questions: true,
+            revision_mode: 'initial',
+          })
+          const blueprints = draftRes.data.data.blueprints || []
+          setSystemBlueprints(blueprints)
+          finish(
+            [
+              `已生成 ${blueprints.length} 个新书方案。你可以继续提修改意见，也可以回复"使用第1个创建"。`,
+              '',
+              formatBlueprintSummary(blueprints),
+            ].join('\n'),
+          )
+        } else if (activeQuestion) {
+          // User typed an answer while a question is active — use submitQuestionAnswer
+          submitQuestionAnswer(text)
+        } else {
+          // No active question but session exists — treat as brief supplement
+          setRunningStartTime(Date.now())
+          setLastAssistantMessage('思考中...', 'running')
+          const newHistory = [...questionHistory, { question: '用户补充', answer: text }]
+          const answers: Record<string, string> = {}
+          for (const qa of newHistory) {
+            answers[qa.question] = qa.answer
+          }
+          const draftRes = await apiClient.post<ApiResponse<NovelDraftData>>('/novel-creation/draft', {
+            session_id: systemSessionId,
+            execution_mode: 'hybrid',
+            user_brief: systemBrief || text,
+            answers: answers,
+            revision_mode: 'initial',
+          })
+          const draftData = draftRes.data.data
+          if (draftData.questions && draftData.questions.length > 0) {
+            const nextQ = draftData.questions[0]
+            setActiveQuestion(nextQ)
+            setQuestionHistory(newHistory)
+            setRunningStartTime(null)
+            setMessages((prev) => [
+              ...prev,
+              { role: 'assistant', content: '', questions: [nextQ], status: 'completed' },
+            ])
+          } else {
+            setActiveQuestion(null)
+            const blueprints = draftData.blueprints || []
+            setSystemBlueprints(blueprints)
+            finish(
+              [
+                `已生成 ${blueprints.length} 个新书方案。你可以继续提修改意见，也可以回复"使用第1个创建"。`,
+                '',
+                formatBlueprintSummary(blueprints),
+              ].join('\n'),
+            )
+          }
+        }
+        return
+      }
+
       if (systemBlueprints.length > 0 && systemSessionId && !/作品|项目|列表|有哪些|查看/.test(text)) {
-        const revisionMode = /重新|全部|重来|换一批|不要当前/.test(text) ? 'regenerate' : 'refine'
+        const revisionMode = /重新|全部|重来|换一批|不要当前|换[别的]|不好|不满意|其他方案|不同/.test(text) ? 'regenerate' : 'refine'
         setLastAssistantMessage(
           revisionMode === 'regenerate'
-            ? '我会按你的反馈重新生成整套方案。'
-            : '我会在当前方案基础上继续调整书名、主角、卖点和卷纲。',
+            ? '正在按反馈重新生成整套方案，预计需要30-60秒...'
+            : '正在用LLM调整方案，预计需要20-40秒...',
           'running',
         )
         const draftRes = await apiClient.post<ApiResponse<NovelDraftData>>('/novel-creation/draft', {
           session_id: systemSessionId,
-          execution_mode: 'template',
+          execution_mode: 'hybrid',
           user_brief: systemBrief || text,
           feedback: text,
           revision_mode: revisionMode,
@@ -734,18 +862,441 @@ function GuiAssistantChat() {
     }
   }
 
+  // ── Single-question interactive flow ──
+  const submitQuestionAnswer = async (answer: string) => {
+    if (!activeQuestion || !systemSessionId) return
+
+    // Add user's answer to chat
+    setMessages((prev) => [...prev, { role: 'user', content: answer }])
+
+    // Update history
+    const newHistory = [...questionHistory, { question: activeQuestion.question, answer }]
+    setQuestionHistory(newHistory)
+
+    // Clear current question state
+    setActiveQuestion(null)
+    setSelectedOption(null)
+    setShowOtherInput(false)
+    setOtherText('')
+    setCurrentOptions([])
+
+    // Show thinking indicator with timer
+    setRunningStartTime(Date.now())
+    setMessages((prev) => [
+      ...prev,
+      { role: 'assistant', content: '思考中...', status: 'running' },
+    ])
+
+    try {
+      // Build answers dict from full history
+      const answers: Record<string, string> = {}
+      for (const qa of newHistory) {
+        answers[qa.question] = qa.answer
+      }
+
+      const draftRes = await apiClient.post<ApiResponse<NovelDraftData>>('/novel-creation/draft', {
+        session_id: systemSessionId,
+        execution_mode: 'hybrid',
+        user_brief: systemBrief,
+        answers: answers,
+        revision_mode: 'initial',
+      })
+      const draftData = draftRes.data.data
+
+      if (draftData.questions && draftData.questions.length > 0) {
+        // More questions — replace thinking message with question card
+        const nextQ = draftData.questions[0]
+        setActiveQuestion(nextQ)
+        setCurrentOptions(nextQ.options || [])
+        setSelectedOption(null)
+        setShowOtherInput(false)
+        setOtherText('')
+        setRunningStartTime(null)
+        setMessages((prev) => {
+          const next = [...prev]
+          // Update the last "thinking" message to show the question
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant' && last?.status === 'running') {
+            last.content = ''
+            last.questions = [nextQ]
+            last.status = 'completed'
+          }
+          return [...next]
+        })
+      } else {
+        // Info sufficient — replace thinking message with blueprints
+        setActiveQuestion(null)
+        const blueprints = draftData.blueprints || []
+        setSystemBlueprints(blueprints)
+        setRunningStartTime(null)
+        setMessages((prev) => {
+          const next = [...prev]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant' && last?.status === 'running') {
+            last.content = [
+              `已生成 ${blueprints.length} 个新书方案。你可以继续提修改意见，也可以回复"使用第1个创建"。`,
+              '',
+              formatBlueprintSummary(blueprints),
+            ].join('\n')
+            last.questions = undefined
+            last.status = 'completed'
+          }
+          return [...next]
+        })
+      }
+    } catch {
+      setActiveQuestion(null)
+      setRunningStartTime(null)
+      setMessages((prev) => {
+        const next = [...prev]
+        const last = next[next.length - 1]
+        if (last?.role === 'assistant' && last?.status === 'running') {
+          last.content = '网络连接出现问题，请重试。'
+          last.status = 'error'
+        }
+        return [...next]
+      })
+    }
+  }
+
+  const handleQuestionSkip = async () => {
+    if (!systemSessionId) return
+    setRunningStartTime(Date.now())
+    setLastAssistantMessage('收到，正在生成方案，预计需要30-60秒...', 'running')
+    setActiveQuestion(null)
+    setSelectedOption(null)
+    setShowOtherInput(false)
+    setOtherText('')
+
+    try {
+      const draftRes = await apiClient.post<ApiResponse<NovelDraftData>>('/novel-creation/draft', {
+        session_id: systemSessionId,
+        execution_mode: 'hybrid',
+        user_brief: systemBrief,
+        skip_questions: true,
+        revision_mode: 'initial',
+      })
+      const blueprints = draftRes.data.data.blueprints || []
+      setSystemBlueprints(blueprints)
+      setRunningStartTime(null)
+      setLastAssistantMessage(
+        [
+          `已生成 ${blueprints.length} 个新书方案。你可以继续提修改意见，也可以回复"使用第1个创建"。`,
+          '',
+          formatBlueprintSummary(blueprints),
+        ].join('\n'),
+        'completed',
+      )
+    } catch {
+      setRunningStartTime(null)
+      setLastAssistantMessage('生成失败，请重试。', 'completed')
+    }
+  }
+
+  const [currentOptions, setCurrentOptions] = useState<string[]>([])
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const handleReplaceOption = async (optionToReplace: string) => {
+    if (!activeQuestion || !systemSessionId) return
+    setIsRefreshing(true)
+    try {
+      const res = await apiClient.post<ApiResponse<{ question: string; options: string[] }>>(
+        '/novel-creation/refresh-question',
+        {
+          session_id: systemSessionId,
+          question: activeQuestion.question,
+          existing_options: currentOptions,
+          user_brief: systemBrief,
+        },
+      )
+      const newOptions = res.data?.data?.options || []
+      if (newOptions.length > 0) {
+        // Replace the selected option with the new one
+        setCurrentOptions((prev) => prev.map((o) => o === optionToReplace ? newOptions[0] : o))
+        setActiveQuestion((prev) => prev ? {
+          ...prev,
+          options: (prev.options || []).map((o) => o === optionToReplace ? newOptions[0] : o),
+        } : null)
+        setSelectedOption(newOptions[0])
+      }
+    } catch {
+      // silent fail
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
+  const renderQuestions = (questions: ChatQuestion[]) => {
+    // Only render the first question (single-question flow)
+    const q = questions[0]
+    if (!q) return null
+
+    const displayOptions = currentOptions.length > 0 ? currentOptions : (q.options || [])
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
+        <div style={{ background: '#f8f9fa', borderRadius: 8, padding: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+            <span style={{ fontWeight: 600, color: '#1890ff' }}>Q</span>
+            <span>{q.question}</span>
+            {q.purpose && <span style={{ fontSize: 12, color: '#999' }}>{q.purpose}</span>}
+          </div>
+          {q.type === 'text' ? (
+            <div>
+              <Input.TextArea
+                placeholder="请输入你的回答..."
+                autoSize={{ minRows: 1, maxRows: 3 }}
+                value={otherText}
+                onChange={(e) => setOtherText(e.target.value)}
+                onPressEnter={(e) => {
+                  if (!e.shiftKey && otherText.trim()) {
+                    e.preventDefault()
+                    submitQuestionAnswer(otherText.trim())
+                  }
+                }}
+              />
+              <Button
+                type="primary"
+                size="small"
+                style={{ marginTop: 8 }}
+                disabled={!otherText.trim()}
+                onClick={() => submitQuestionAnswer(otherText.trim())}
+              >
+                确认回答
+              </Button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                {displayOptions.map((opt, oi) => (
+                  <Button
+                    key={oi}
+                    type={selectedOption === opt ? 'primary' : 'default'}
+                    size="small"
+                    onClick={() => {
+                      setSelectedOption(opt)
+                      setShowOtherInput(false)
+                      setOtherText('')
+                    }}
+                  >
+                    {opt}
+                  </Button>
+                ))}
+              </div>
+              <div style={{ marginBottom: 8 }}>
+                <Button
+                  type={showOtherInput ? 'primary' : 'dashed'}
+                  size="small"
+                  block
+                  onClick={() => {
+                    setShowOtherInput(true)
+                    setSelectedOption(null)
+                  }}
+                >
+                  其他...
+                </Button>
+              </div>
+              {/* Action buttons — show when an option is selected */}
+              {selectedOption && !showOtherInput && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <Button
+                    type="primary"
+                    size="small"
+                    onClick={() => submitQuestionAnswer(selectedOption)}
+                  >
+                    确认回答
+                  </Button>
+                  <Button
+                    size="small"
+                    loading={isRefreshing}
+                    onClick={() => handleReplaceOption(selectedOption)}
+                  >
+                    替换该选项
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          {showOtherInput && q.type !== 'text' && (
+            <div style={{ marginTop: 8 }}>
+              <Input.TextArea
+                placeholder="请输入你的回答..."
+                autoSize={{ minRows: 1, maxRows: 3 }}
+                value={otherText}
+                onChange={(e) => setOtherText(e.target.value)}
+                onPressEnter={(e) => {
+                  if (!e.shiftKey && otherText.trim()) {
+                    e.preventDefault()
+                    submitQuestionAnswer(otherText.trim())
+                  }
+                }}
+              />
+              <Button
+                type="primary"
+                size="small"
+                style={{ marginTop: 4 }}
+                disabled={!otherText.trim()}
+                onClick={() => submitQuestionAnswer(otherText.trim())}
+              >
+                确认回答
+              </Button>
+            </div>
+          )}
+        </div>
+        <Button type="link" onClick={handleQuestionSkip} style={{ alignSelf: 'flex-start' }}>
+          跳过，直接生成
+        </Button>
+      </div>
+    )
+  }
+
+  // ── Regenerate with current Q&A history ──
+  const handleRegenerateWithAnswers = async (updatedHistory?: Array<{ question: string; answer: string }>) => {
+    if (!systemSessionId) return
+    const history = updatedHistory || questionHistory
+    if (history.length === 0) {
+      // No Q&A history, use the old flow
+      handleSystemAssistantMessage('全部重新生成')
+      return
+    }
+
+    setRunningStartTime(Date.now())
+    setSystemBlueprints([])
+    setShowQAEditor(false)
+    setMessages((prev) => [
+      ...prev,
+      { role: 'assistant', content: '思考中...', status: 'running' },
+    ])
+
+    try {
+      const answers: Record<string, string> = {}
+      for (const qa of history) {
+        answers[qa.question] = qa.answer
+      }
+
+      const draftRes = await apiClient.post<ApiResponse<NovelDraftData>>('/novel-creation/draft', {
+        session_id: systemSessionId,
+        execution_mode: 'hybrid',
+        user_brief: systemBrief,
+        answers: answers,
+        revision_mode: 'initial',
+      })
+      const draftData = draftRes.data.data
+
+      if (draftData.questions && draftData.questions.length > 0) {
+        const nextQ = draftData.questions[0]
+        setActiveQuestion(nextQ)
+        setCurrentOptions(nextQ.options || [])
+        setQuestionHistory(history)
+        setRunningStartTime(null)
+        setMessages((prev) => {
+          const next = [...prev]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant' && last?.status === 'running') {
+            last.content = ''
+            last.questions = [nextQ]
+            last.status = 'completed'
+          }
+          return [...next]
+        })
+      } else {
+        const blueprints = draftData.blueprints || []
+        setSystemBlueprints(blueprints)
+        setRunningStartTime(null)
+        setMessages((prev) => {
+          const next = [...prev]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant' && last?.status === 'running') {
+            last.content = [
+              `已重新生成 ${blueprints.length} 个方案。`,
+              '',
+              formatBlueprintSummary(blueprints),
+            ].join('\n')
+            last.status = 'completed'
+          }
+          return [...next]
+        })
+      }
+    } catch {
+      setRunningStartTime(null)
+      setMessages((prev) => {
+        const next = [...prev]
+        const last = next[next.length - 1]
+        if (last?.role === 'assistant' && last?.status === 'running') {
+          last.content = '网络连接出现问题，请重试。'
+          last.status = 'error'
+        }
+        return [...next]
+      })
+    }
+  }
+
+  const renderQAEditor = () => {
+    if (!showQAEditor || questionHistory.length === 0) return null
+    return (
+      <div style={{ background: '#f8f9fa', borderRadius: 8, padding: 12, marginBottom: 8 }}>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>修改你的回答：</div>
+        {questionHistory.map((qa, i) => (
+          <div key={i} style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>{qa.question}</div>
+            <Input
+              size="small"
+              value={editingAnswers[qa.question] ?? qa.answer}
+              onChange={(e) => setEditingAnswers((prev) => ({ ...prev, [qa.question]: e.target.value }))}
+            />
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <Button
+            type="primary"
+            size="small"
+            onClick={() => {
+              // Apply edits and regenerate
+              const updatedHistory = questionHistory.map((qa) => ({
+                question: qa.question,
+                answer: editingAnswers[qa.question] ?? qa.answer,
+              }))
+              setQuestionHistory(updatedHistory)
+              handleRegenerateWithAnswers(updatedHistory)
+            }}
+          >
+            修改后重新生成
+          </Button>
+          <Button size="small" onClick={() => setShowQAEditor(false)}>
+            取消
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   const renderBlueprintCards = () => {
     if (!systemBlueprints.length) return null
     return (
       <div className="gui-chat-blueprints">
+        {renderQAEditor()}
         <div className="gui-chat-blueprints-head">
           <div>
             <Text strong>新书方案</Text>
             <Text type="secondary">  ·  可继续对话微调，也可以直接创建</Text>
           </div>
           <Space size={8}>
-            <Button size="small" onClick={() => handleSystemAssistantMessage('全部重新生成')} disabled={streaming}>
-              全部重来
+            {questionHistory.length > 0 && (
+              <Button size="small" onClick={() => {
+                setEditingAnswers({})
+                setShowQAEditor(!showQAEditor)
+              }}>
+                修改回答
+              </Button>
+            )}
+            <Button size="small" onClick={() => {
+              if (questionHistory.length > 0) {
+                handleRegenerateWithAnswers()
+              } else {
+                handleSystemAssistantMessage('全部重新生成')
+              }
+            }} disabled={streaming}>
+              重新生成
             </Button>
             <Button size="small" onClick={() => handleSystemAssistantMessage('强化书名、主角动机和前三章钩子')} disabled={streaming}>
               强化方案
@@ -1098,6 +1649,12 @@ function GuiAssistantChat() {
                   <div className="gui-chat-msg-role">{msg.role === 'user' ? '你' : '墨枢'}</div>
                   <div className="gui-chat-msg-content">
                     {msg.content || (streaming && msg.role === 'assistant' ? '思考中...' : '')}
+                    {msg.status === 'running' && elapsedSeconds > 0 && (
+                      <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>
+                        ⏱ {elapsedSeconds}s
+                      </span>
+                    )}
+                    {msg.questions && msg.questions.length > 0 && renderQuestions(msg.questions)}
                   </div>
                 </div>
               ))}

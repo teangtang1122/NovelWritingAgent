@@ -2122,14 +2122,15 @@ def _register_all() -> None:
 
     _r(ToolDef(
         name="draft_novel_blueprint",
-        description="Draft novel blueprints for a creation session. Supports template, internal_llm and external_agent modes.",
+        description="Draft novel blueprints for a creation session. Supports template, hybrid, internal_llm and external_agent modes.",
         input_schema={
             "session_id": {"type": "string", "description": "Creation session ID"},
-            "execution_mode": {"type": "string", "description": "template|internal_llm|external_agent"},
+            "execution_mode": {"type": "string", "description": "template|hybrid|internal_llm|external_agent. hybrid uses template+LLM for creative output."},
             "user_brief": {"type": "string", "description": "Additional user brief"},
             "feedback": {"type": "string", "description": "User feedback for refining or regenerating previous blueprint options"},
             "revision_mode": {"type": "string", "description": "initial|refine|regenerate. Use refine to adjust current direction, regenerate to restart options from feedback."},
             "enhance_with_llm": {"type": "boolean", "description": "Optional slow LLM enhancement. Default false keeps template drafting instant."},
+            "skip_questions": {"type": "boolean", "description": "Skip clarifying questions and generate blueprints directly. Default false."},
         },
         required=["session_id"],
         tool_type="read",
@@ -2139,10 +2140,10 @@ def _register_all() -> None:
 
     _r(ToolDef(
         name="review_novel_blueprint",
-        description="Review novel blueprints. Supports internal_llm and external_agent modes.",
+        description="Review novel blueprints. Supports hybrid, internal_llm and external_agent modes.",
         input_schema={
             "session_id": {"type": "string", "description": "Creation session ID"},
-            "execution_mode": {"type": "string", "description": "internal_llm|external_agent"},
+            "execution_mode": {"type": "string", "description": "hybrid|internal_llm|external_agent"},
             "blueprint": {"type": "object", "description": "Blueprint to review (optional, saves to session)"},
         },
         required=["session_id"],

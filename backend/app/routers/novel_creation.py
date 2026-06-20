@@ -29,16 +29,18 @@ class NovelCreationStartRequest(BaseModel):
 
 class NovelCreationDraftRequest(BaseModel):
     session_id: str
-    execution_mode: Literal["template", "external_agent", "internal_llm"] = "template"
+    execution_mode: Literal["template", "hybrid", "external_agent", "internal_llm"] = "hybrid"
     user_brief: str = ""
     feedback: str = ""
     revision_mode: Literal["initial", "refine", "regenerate"] = "initial"
     enhance_with_llm: bool = False
+    skip_questions: bool = False
+    answers: dict[str, str] | None = None
 
 
 class NovelCreationReviewRequest(BaseModel):
     session_id: str
-    execution_mode: Literal["template", "external_agent", "internal_llm"] = "template"
+    execution_mode: Literal["template", "hybrid", "external_agent", "internal_llm"] = "hybrid"
     blueprint: Any | None = None
 
 
@@ -52,7 +54,7 @@ class NovelCreationApplyRequest(BaseModel):
 def _tool_response(result: dict[str, Any]) -> ApiResponse:
     status = result.get("status")
     detail = result.get("detail") or status or "success"
-    if status != "ok":
+    if status not in ("ok", "need_clarification"):
         raise HTTPException(status_code=400, detail=detail)
     return ApiResponse.success(data=result.get("data"), message=detail)
 
@@ -79,3 +81,23 @@ async def review_blueprint(payload: NovelCreationReviewRequest, db: Session = De
 async def apply_blueprint(payload: NovelCreationApplyRequest, db: Session = Depends(get_db)):
     result = await apply_novel_blueprint(db, "", payload.model_dump())
     return _tool_response(result)
+
+
+class RefreshQuestionRequest(BaseModel):
+    session_id: str
+    question: str
+    existing_options: list[str] = []
+    user_brief: str = ""
+
+
+@router.post("/novel-creation/refresh-question")
+async def refresh_question(payload: RefreshQuestionRequest, db: Session = Depends(get_db)):
+    from app.services.workspace.tools.novel_creation import refresh_question_options
+    result = await refresh_question_options(
+        db=db,
+        session_id=payload.session_id,
+        question=payload.question,
+        existing_options=payload.existing_options,
+        user_brief=payload.user_brief,
+    )
+    return ApiResponse.success(data=result)

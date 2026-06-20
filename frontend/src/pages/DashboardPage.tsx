@@ -157,6 +157,9 @@ interface NovelDraftData {
   enhancement_mode?: string
   compiled_brief?: Record<string, unknown>
   coverage_summary?: Array<{ title?: string; score?: number; missing?: string[] }>
+  questions?: Array<{ question: string; purpose?: string; options?: string[]; type?: 'single_select' | 'multi_select' | 'text' }>
+  original_brief?: string
+  hint?: string
 }
 
 interface NovelApplyData {
@@ -167,9 +170,18 @@ interface NovelApplyData {
   relationships?: string[]
 }
 
+interface ChatQuestion {
+  question: string
+  purpose?: string
+  options?: string[]
+  type?: 'single_select' | 'multi_select' | 'text'
+}
+
 interface AssistantMessage {
   role: 'user' | 'assistant'
   content: string
+  questions?: ChatQuestion[]
+  status?: 'running' | 'completed' | 'error'
 }
 
 interface CreationTemplate {
@@ -295,9 +307,21 @@ function DashboardPage() {
   const [assistantSessionId, setAssistantSessionId] = useState('')
   const [assistantRecommendation, setAssistantRecommendation] = useState('')
   const [assistantDraftText, setAssistantDraftText] = useState('')
+  // Question flow state
+  const [activeQuestion, setActiveQuestion] = useState<ChatQuestion | null>(null)
+  const [questionHistory, setQuestionHistory] = useState<Array<{ question: string; answer: string }>>([])
+  const [selectedOption, setSelectedOption] = useState<string | null>(null)
+  const [showOtherInput, setShowOtherInput] = useState(false)
+  const [otherText, setOtherText] = useState('')
+  const [currentOptions, setCurrentOptions] = useState<string[]>([])
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [questionStartTime, setQuestionStartTime] = useState<number | null>(null)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([])
   const [blueprints, setBlueprints] = useState<NovelBlueprint[]>([])
   const [applyingBlueprintIndex, setApplyingBlueprintIndex] = useState<number | null>(null)
+  const [showQAEditor, setShowQAEditor] = useState(false)
+  const [editingAnswers, setEditingAnswers] = useState<Record<string, string>>({})
   const [creationTemplates, setCreationTemplates] = useState<CreationTemplate[]>([])
   const [slotEditorOpen, setSlotEditorOpen] = useState(false)
   const [slotBlueprintIndex, setSlotBlueprintIndex] = useState<number | null>(null)
@@ -319,6 +343,18 @@ function DashboardPage() {
   useEffect(() => {
     setCreationTemplates(readCreationTemplates())
   }, [])
+
+  // Elapsed timer for question flow
+  useEffect(() => {
+    if (!questionStartTime) {
+      setElapsedSeconds(0)
+      return
+    }
+    const interval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - questionStartTime) / 1000))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [questionStartTime])
 
   const pendingUploadList = useMemo<UploadFile[]>(() => {
     if (!pendingImportFile) return []
@@ -550,14 +586,385 @@ function DashboardPage() {
     return false
   }
 
+  // ── Single-question interactive flow ──
+  const submitQuestionAnswer = async (answer: string) => {
+    if (!activeQuestion || !assistantSessionId) return
+
+    // Add user's answer to messages
+    setAssistantMessages((prev) => [...prev, { role: 'user', content: answer }])
+
+    // Update history
+    const newHistory = [...questionHistory, { question: activeQuestion.question, answer }]
+    setQuestionHistory(newHistory)
+
+    // Clear current question state
+    setActiveQuestion(null)
+    setSelectedOption(null)
+    setShowOtherInput(false)
+    setOtherText('')
+    setCurrentOptions([])
+
+    // Show thinking indicator
+    setQuestionStartTime(Date.now())
+    setAssistantBusy(true)
+    setAssistantMessages((prev) => [
+      ...prev,
+      { role: 'assistant', content: '思考中...', status: 'running' },
+    ])
+
+    try {
+      const answers: Record<string, string> = {}
+      for (const qa of newHistory) {
+        answers[qa.question] = qa.answer
+      }
+
+      const draftRes = await apiClient.post<ApiResponse<NovelDraftData>>('/novel-creation/draft', {
+        session_id: assistantSessionId,
+        execution_mode: 'hybrid',
+        user_brief: '',
+        answers: answers,
+        revision_mode: 'initial',
+      })
+      const draftData = draftRes.data.data
+
+      if (draftData.questions && draftData.questions.length > 0) {
+        const nextQ = draftData.questions[0]
+        setActiveQuestion(nextQ)
+        setCurrentOptions(nextQ.options || [])
+        setSelectedOption(null)
+        setShowOtherInput(false)
+        setOtherText('')
+        setQuestionStartTime(null)
+        setAssistantBusy(false)
+        setAssistantMessages((prev) => {
+          const next = [...prev]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant' && last?.status === 'running') {
+            last.content = ''
+            last.questions = [nextQ]
+            last.status = 'completed'
+          }
+          return [...next]
+        })
+      } else {
+        setActiveQuestion(null)
+        const blueprints = draftData.blueprints || []
+        setBlueprints(blueprints)
+        setAssistantRecommendation(draftData.recommendation || '')
+        setQuestionStartTime(null)
+        setAssistantBusy(false)
+        setAssistantMessages((prev) => {
+          const next = [...prev]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant' && last?.status === 'running') {
+            last.content = `已生成 ${blueprints.length} 个方案。你可以直接选一个创建，也可以继续告诉我想加强或删掉的部分。`
+            last.questions = undefined
+            last.status = 'completed'
+          }
+          return [...next]
+        })
+        message.success('已生成新书方案')
+      }
+    } catch {
+      setActiveQuestion(null)
+      setQuestionStartTime(null)
+      setAssistantBusy(false)
+      setAssistantMessages((prev) => {
+        const next = [...prev]
+        const last = next[next.length - 1]
+        if (last?.role === 'assistant' && last?.status === 'running') {
+          last.content = '网络连接出现问题，请重试。'
+          last.status = 'error'
+        }
+        return [...next]
+      })
+    }
+  }
+
+  const handleReplaceOption = async (optionToReplace: string) => {
+    if (!activeQuestion || !assistantSessionId) return
+    setIsRefreshing(true)
+    try {
+      const res = await apiClient.post<ApiResponse<{ question: string; options: string[] }>>(
+        '/novel-creation/refresh-question',
+        {
+          session_id: assistantSessionId,
+          question: activeQuestion.question,
+          existing_options: currentOptions,
+          user_brief: '',
+        },
+      )
+      const newOptions = res.data?.data?.options || []
+      if (newOptions.length > 0) {
+        setCurrentOptions((prev) => prev.map((o) => o === optionToReplace ? newOptions[0] : o))
+        setActiveQuestion((prev) => prev ? {
+          ...prev,
+          options: (prev.options || []).map((o) => o === optionToReplace ? newOptions[0] : o),
+        } : null)
+        setSelectedOption(newOptions[0])
+      }
+    } catch {
+      // silent fail
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
+  const handleQuestionSkip = async () => {
+    if (!assistantSessionId) return
+    setQuestionStartTime(Date.now())
+    setAssistantBusy(true)
+    setActiveQuestion(null)
+    setSelectedOption(null)
+    setShowOtherInput(false)
+    setOtherText('')
+    setAssistantMessages((prev) => [
+      ...prev,
+      { role: 'assistant', content: '收到，正在生成方案，预计需要30-60秒...', status: 'running' },
+    ])
+
+    try {
+      const draftRes = await apiClient.post<ApiResponse<NovelDraftData>>('/novel-creation/draft', {
+        session_id: assistantSessionId,
+        execution_mode: 'hybrid',
+        skip_questions: true,
+        revision_mode: 'initial',
+      })
+      const blueprints = draftRes.data.data.blueprints || []
+      setBlueprints(blueprints)
+      setAssistantRecommendation(draftRes.data.data.recommendation || '')
+      setQuestionStartTime(null)
+      setAssistantBusy(false)
+      setAssistantMessages((prev) => {
+        const next = [...prev]
+        const last = next[next.length - 1]
+        if (last?.role === 'assistant' && last?.status === 'running') {
+          last.content = `已生成 ${blueprints.length} 个方案。你可以直接选一个创建，也可以继续告诉我想加强或删掉的部分。`
+          last.status = 'completed'
+        }
+        return [...next]
+      })
+      message.success('已生成新书方案')
+    } catch {
+      setQuestionStartTime(null)
+      setAssistantBusy(false)
+      setAssistantMessages((prev) => {
+        const next = [...prev]
+        const last = next[next.length - 1]
+        if (last?.role === 'assistant' && last?.status === 'running') {
+          last.content = '网络连接出现问题，请重试。'
+          last.status = 'error'
+        }
+        return [...next]
+      })
+    }
+  }
+
+  const handleRegenerateWithAnswers = async (updatedHistory?: Array<{ question: string; answer: string }>) => {
+    if (!assistantSessionId) return
+    const history = updatedHistory || questionHistory
+    if (history.length === 0) return
+
+    setQuestionStartTime(Date.now())
+    setAssistantBusy(true)
+    setBlueprints([])
+    setShowQAEditor(false)
+    setAssistantMessages((prev) => [
+      ...prev,
+      { role: 'assistant', content: '思考中...', status: 'running' },
+    ])
+
+    try {
+      const answers: Record<string, string> = {}
+      for (const qa of history) {
+        answers[qa.question] = qa.answer
+      }
+
+      const draftRes = await apiClient.post<ApiResponse<NovelDraftData>>('/novel-creation/draft', {
+        session_id: assistantSessionId,
+        execution_mode: 'hybrid',
+        user_brief: '',
+        answers: answers,
+        revision_mode: 'initial',
+      })
+      const draftData = draftRes.data.data
+
+      if (draftData.questions && draftData.questions.length > 0) {
+        const nextQ = draftData.questions[0]
+        setActiveQuestion(nextQ)
+        setCurrentOptions(nextQ.options || [])
+        setQuestionHistory(history)
+        setQuestionStartTime(null)
+        setAssistantBusy(false)
+        setAssistantMessages((prev) => {
+          const next = [...prev]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant' && last?.status === 'running') {
+            last.content = ''
+            last.questions = [nextQ]
+            last.status = 'completed'
+          }
+          return [...next]
+        })
+      } else {
+        const blueprints = draftData.blueprints || []
+        setBlueprints(blueprints)
+        setAssistantRecommendation(draftData.recommendation || '')
+        setQuestionStartTime(null)
+        setAssistantBusy(false)
+        setAssistantMessages((prev) => {
+          const next = [...prev]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant' && last?.status === 'running') {
+            last.content = `已重新生成 ${blueprints.length} 个方案。你可以直接选一个创建，也可以继续告诉我想加强或删掉的部分。`
+            last.status = 'completed'
+          }
+          return [...next]
+        })
+        message.success('已重新生成方案')
+      }
+    } catch {
+      setQuestionStartTime(null)
+      setAssistantBusy(false)
+      setAssistantMessages((prev) => {
+        const next = [...prev]
+        const last = next[next.length - 1]
+        if (last?.role === 'assistant' && last?.status === 'running') {
+          last.content = '网络连接出现问题，请重试。'
+          last.status = 'error'
+        }
+        return [...next]
+      })
+    }
+  }
+
+  const renderQuestionCard = (q: ChatQuestion) => {
+    const displayOptions = currentOptions.length > 0 ? currentOptions : (q.options || [])
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
+        <div style={{ background: '#f8f9fa', borderRadius: 8, padding: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+            <span style={{ fontWeight: 600, color: '#1890ff' }}>Q</span>
+            <span>{q.question}</span>
+            {q.purpose && <span style={{ fontSize: 12, color: '#999' }}>{q.purpose}</span>}
+          </div>
+          {q.type === 'text' ? (
+            <div>
+              <Input.TextArea
+                placeholder="请输入你的回答..."
+                autoSize={{ minRows: 1, maxRows: 3 }}
+                value={otherText}
+                onChange={(e) => setOtherText(e.target.value)}
+                onPressEnter={(e) => {
+                  if (!e.shiftKey && otherText.trim()) {
+                    e.preventDefault()
+                    submitQuestionAnswer(otherText.trim())
+                  }
+                }}
+              />
+              <Button
+                type="primary"
+                size="small"
+                style={{ marginTop: 8 }}
+                disabled={!otherText.trim()}
+                onClick={() => submitQuestionAnswer(otherText.trim())}
+              >
+                确认回答
+              </Button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                {displayOptions.map((opt, oi) => (
+                  <Button
+                    key={oi}
+                    type={selectedOption === opt ? 'primary' : 'default'}
+                    size="small"
+                    onClick={() => {
+                      setSelectedOption(opt)
+                      setShowOtherInput(false)
+                      setOtherText('')
+                    }}
+                  >
+                    {opt}
+                  </Button>
+                ))}
+              </div>
+              <div style={{ marginBottom: 8 }}>
+                <Button
+                  type={showOtherInput ? 'primary' : 'dashed'}
+                  size="small"
+                  block
+                  onClick={() => {
+                    setShowOtherInput(true)
+                    setSelectedOption(null)
+                  }}
+                >
+                  其他...
+                </Button>
+              </div>
+              {selectedOption && !showOtherInput && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <Button
+                    type="primary"
+                    size="small"
+                    onClick={() => submitQuestionAnswer(selectedOption)}
+                  >
+                    确认回答
+                  </Button>
+                  <Button
+                    size="small"
+                    loading={isRefreshing}
+                    onClick={() => handleReplaceOption(selectedOption)}
+                  >
+                    替换该选项
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          {showOtherInput && q.type !== 'text' && (
+            <div style={{ marginTop: 8 }}>
+              <Input.TextArea
+                placeholder="请输入你的回答..."
+                autoSize={{ minRows: 1, maxRows: 3 }}
+                value={otherText}
+                onChange={(e) => setOtherText(e.target.value)}
+                onPressEnter={(e) => {
+                  if (!e.shiftKey && otherText.trim()) {
+                    e.preventDefault()
+                    submitQuestionAnswer(otherText.trim())
+                  }
+                }}
+              />
+              <Button
+                type="primary"
+                size="small"
+                style={{ marginTop: 4 }}
+                disabled={!otherText.trim()}
+                onClick={() => submitQuestionAnswer(otherText.trim())}
+              >
+                确认回答
+              </Button>
+            </div>
+          )}
+        </div>
+        <Button type="link" onClick={handleQuestionSkip} style={{ alignSelf: 'flex-start' }}>
+          跳过，直接生成
+        </Button>
+      </div>
+    )
+  }
+
   const handleGenerateBlueprints = async (values: NovelBriefValues) => {
     const userBrief = buildCreationBrief(values)
     setAssistantBusy(true)
     setAssistantRecommendation('')
     setBlueprints([])
+    setQuestionHistory([])
     setAssistantMessages([
       { role: 'user', content: userBrief },
-      { role: 'assistant', content: '收到，我先按这个设想生成三套方向不同的新书立项方案。' },
+      { role: 'assistant', content: '收到，正在分析你的需求...', status: 'running' },
     ])
     try {
       const startRes = await apiClient.post<ApiResponse<NovelStartData>>('/novel-creation/start', {
@@ -569,17 +976,41 @@ function DashboardPage() {
       setAssistantSessionId(sessionId)
       const draftRes = await apiClient.post<ApiResponse<NovelDraftData>>('/novel-creation/draft', {
         session_id: sessionId,
-        execution_mode: 'template',
+        execution_mode: 'hybrid',
         user_brief: userBrief,
         enhance_with_llm: false,
       })
-      setBlueprints(draftRes.data.data.blueprints || [])
-      setAssistantRecommendation(draftRes.data.data.recommendation || '')
+      const draftData = draftRes.data.data
+
+      // Handle clarifying questions — show first question interactively
+      if (draftData.questions && draftData.questions.length > 0) {
+        const firstQ = draftData.questions[0]
+        setActiveQuestion(firstQ)
+        setCurrentOptions(firstQ.options || [])
+        setSelectedOption(null)
+        setShowOtherInput(false)
+        setOtherText('')
+        setAssistantBusy(false)
+        setAssistantMessages((items) => {
+          const next = [...items]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant' && last?.status === 'running') {
+            last.content = ''
+            last.questions = [firstQ]
+            last.status = 'completed'
+          }
+          return [...next]
+        })
+        return
+      }
+
+      setBlueprints(draftData.blueprints || [])
+      setAssistantRecommendation(draftData.recommendation || '')
       setAssistantMessages((items) => [
         ...items,
         {
           role: 'assistant',
-          content: `已生成 ${draftRes.data.data.blueprints?.length || 0} 个方案。你可以直接选一个创建，也可以继续告诉我想加强或删掉的部分。`,
+          content: `已生成 ${draftData.blueprints?.length || 0} 个方案。你可以直接选一个创建，也可以继续告诉我想加强或删掉的部分。`,
         },
       ])
       message.success('已生成新书方案')
@@ -630,11 +1061,12 @@ function DashboardPage() {
       }
       const draftRes = await apiClient.post<ApiResponse<NovelDraftData>>('/novel-creation/draft', {
         session_id: sessionId,
-        execution_mode: 'template',
+        execution_mode: 'hybrid',
         user_brief: userBrief,
         feedback: requestFeedback,
         revision_mode: revisionMode,
         enhance_with_llm: enhanceWithLlm,
+        skip_questions: true,
       })
       setBlueprints(draftRes.data.data.blueprints || [])
       setAssistantRecommendation(draftRes.data.data.recommendation || '')
@@ -664,7 +1096,7 @@ function DashboardPage() {
     try {
       await apiClient.post<ApiResponse<unknown>>('/novel-creation/review', {
         session_id: assistantSessionId,
-        execution_mode: 'template',
+        execution_mode: 'hybrid',
         blueprint: blueprints,
       })
       const applyRes = await apiClient.post<ApiResponse<NovelApplyData>>('/novel-creation/apply', {
@@ -1080,6 +1512,42 @@ function DashboardPage() {
               </div>
 
               <div className="assistant-chat-messages">
+                {showQAEditor && questionHistory.length > 0 && (
+                  <div style={{ background: '#f8f9fa', borderRadius: 8, padding: 12, marginBottom: 8 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 8 }}>修改你的回答：</div>
+                    {questionHistory.map((qa, i) => (
+                      <div key={i} style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>{qa.question}</div>
+                        <Input
+                          size="small"
+                          value={editingAnswers[qa.question] ?? qa.answer}
+                          onChange={(e) => setEditingAnswers((prev) => ({ ...prev, [qa.question]: e.target.value }))}
+                        />
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <Button
+                        type="primary"
+                        size="small"
+                        onClick={() => {
+                          const updatedHistory = questionHistory.map((qa) => ({
+                            question: qa.question,
+                            answer: editingAnswers[qa.question] ?? qa.answer,
+                          }))
+                          setQuestionHistory(updatedHistory)
+                          setShowQAEditor(false)
+                          // Regenerate with updated answers
+                          handleRegenerateWithAnswers(updatedHistory)
+                        }}
+                      >
+                        修改后重新生成
+                      </Button>
+                      <Button size="small" onClick={() => setShowQAEditor(false)}>
+                        取消
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {assistantMessages.map((item, index) => (
                   <div
                     key={`${item.role}-${index}`}
@@ -1088,6 +1556,10 @@ function DashboardPage() {
                     }`}
                   >
                     {item.content}
+                    {item.status === 'running' && elapsedSeconds > 0 && (
+                      <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>⏱ {elapsedSeconds}s</span>
+                    )}
+                    {item.questions && item.questions.length > 0 && renderQuestionCard(item.questions[0])}
                   </div>
                 ))}
               </div>
@@ -1122,6 +1594,18 @@ function DashboardPage() {
                   >
                     全部重新生成
                   </Button>
+                  {questionHistory.length > 0 && (
+                    <Button
+                      block
+                      size="small"
+                      onClick={() => {
+                        setEditingAnswers({})
+                        setShowQAEditor(!showQAEditor)
+                      }}
+                    >
+                      修改回答
+                    </Button>
+                  )}
                   <Divider style={{ margin: '4px 0' }} />
                   <Button
                     loading={assistantBusy}
