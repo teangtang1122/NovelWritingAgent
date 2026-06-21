@@ -1992,7 +1992,7 @@ def _register_all() -> None:
         input_schema={
             "task_type": {"type": "string", "description": "general|cataloging|writing"},
             "user_request": {"type": "string", "description": "User request for the local CLI agent"},
-            "provider": {"type": "string", "description": "Optional local CLI provider id, e.g. claude_cli/codex_cli/opencode_cli"},
+            "provider": {"type": "string", "description": "Optional local CLI provider id, e.g. claude_cli/codex_cli/opencode_cli/mimocode_cli/cursor_cli/kilocode_cli/qwen_code_cli/hermes_cli/openclaw_cli"},
         },
         tool_type="scheduler",
         estimated_cost="local_cli",
@@ -2014,6 +2014,8 @@ def _register_all() -> None:
         draft_novel_blueprint,
         review_novel_blueprint,
         apply_novel_blueprint,
+        list_imported_files,
+        read_imported_file,
     )
     from .tools.mcp_status import (
         get_mcp_permission_status,
@@ -2167,6 +2169,28 @@ def _register_all() -> None:
         risk_level="medium",
         estimated_cost="free",
         handler=apply_novel_blueprint,
+    ))
+
+    _r(ToolDef(
+        name="list_imported_files",
+        description="List all imported files in the working directory. Returns file names, paths, sizes, and modification times.",
+        input_schema={},
+        tool_type="read",
+        estimated_cost="free",
+        handler=list_imported_files,
+    ))
+
+    _r(ToolDef(
+        name="read_imported_file",
+        description="Read the content of a specific imported file from the working directory.",
+        input_schema={
+            "filename": {"type": "string", "description": "Name of the file to read (from list_imported_files)"},
+            "max_size": {"type": "integer", "description": "Max characters to read (default 50000)"},
+        },
+        required=["filename"],
+        tool_type="read",
+        estimated_cost="free",
+        handler=read_imported_file,
     ))
 
     _r(ToolDef(

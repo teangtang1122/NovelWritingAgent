@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Card,
+  Collapse,
   Typography,
   Table,
   Button,
@@ -88,6 +89,12 @@ const PROVIDER_OPTIONS = [
   { value: 'claude_cli', label: 'Claude Code CLI（本机）' },
   { value: 'codex_cli', label: 'Codex CLI（本机）' },
   { value: 'opencode_cli', label: 'opencode CLI（本机）' },
+  { value: 'mimocode_cli', label: 'MiMo Code CLI（本机）' },
+  { value: 'cursor_cli', label: 'Cursor Agent CLI（本机）' },
+  { value: 'kilocode_cli', label: 'Kilo Code CLI（本机）' },
+  { value: 'qwen_code_cli', label: 'Qwen Code CLI（本机）' },
+  { value: 'hermes_cli', label: 'Hermes Agent CLI（本机）' },
+  { value: 'openclaw_cli', label: 'OpenClaw CLI（本机）' },
   { value: 'custom_cli', label: '自定义本机 CLI' },
   { value: '__custom_openai_compatible__', label: '自定义 OpenAI 兼容' },
 ]
@@ -104,6 +111,12 @@ const PROVIDER_LABEL_MAP: Record<string, string> = {
   claude_cli: 'Claude Code CLI',
   codex_cli: 'Codex CLI',
   opencode_cli: 'opencode CLI',
+  mimocode_cli: 'MiMo Code CLI',
+  cursor_cli: 'Cursor Agent CLI',
+  kilocode_cli: 'Kilo Code CLI',
+  qwen_code_cli: 'Qwen Code CLI',
+  hermes_cli: 'Hermes Agent CLI',
+  openclaw_cli: 'OpenClaw CLI',
   custom_cli: '自定义本机 CLI',
 }
 
@@ -116,6 +129,12 @@ const PROVIDER_COLOR_MAP: Record<string, string> = {
   claude_cli: 'purple',
   codex_cli: 'geekblue',
   opencode_cli: 'magenta',
+  mimocode_cli: 'gold',
+  cursor_cli: 'blue',
+  kilocode_cli: 'volcano',
+  qwen_code_cli: 'cyan',
+  hermes_cli: 'purple',
+  openclaw_cli: 'green',
   custom_cli: 'default',
 }
 
@@ -130,7 +149,18 @@ const providerColor = (provider?: string | null) => {
 }
 
 const isCustomProviderSelection = (provider?: string) => provider === CUSTOM_PROVIDER_VALUE
-const LOCAL_CLI_PROVIDERS = ['claude_cli', 'codex_cli', 'opencode_cli', 'custom_cli']
+const LOCAL_CLI_PROVIDERS = [
+  'claude_cli',
+  'codex_cli',
+  'opencode_cli',
+  'mimocode_cli',
+  'cursor_cli',
+  'kilocode_cli',
+  'qwen_code_cli',
+  'hermes_cli',
+  'openclaw_cli',
+  'custom_cli',
+]
 const isLocalCliProvider = (provider?: string) => Boolean(provider && LOCAL_CLI_PROVIDERS.includes(provider))
 
 const resolveProviderForSubmit = (values: any) => (
@@ -156,6 +186,12 @@ const LOCAL_CLI_MODEL_OPTIONS: Record<string, ModelOption[]> = {
   claude_cli: [{ id: 'claude-code', display_name: 'claude-code' }],
   codex_cli: [{ id: 'codex-cli', display_name: 'codex-cli' }],
   opencode_cli: [{ id: 'opencode-cli', display_name: 'opencode-cli' }],
+  mimocode_cli: [{ id: 'mimocode-cli', display_name: 'mimocode-cli' }],
+  cursor_cli: [{ id: 'cursor-agent', display_name: 'cursor-agent' }],
+  kilocode_cli: [{ id: 'kilocode-cli', display_name: 'kilocode-cli' }],
+  qwen_code_cli: [{ id: 'qwen-code-cli', display_name: 'qwen-code-cli' }],
+  hermes_cli: [{ id: 'hermes-agent', display_name: 'hermes-agent' }],
+  openclaw_cli: [{ id: 'openclaw-agent', display_name: 'openclaw-agent' }],
   custom_cli: [{ id: 'custom-cli', display_name: 'custom-cli' }],
 }
 
@@ -163,13 +199,25 @@ const DEFAULT_CLI_COMMANDS: Record<string, string> = {
   claude_cli: 'claude',
   codex_cli: 'codex',
   opencode_cli: 'opencode',
+  mimocode_cli: 'mimo',
+  cursor_cli: 'agent',
+  kilocode_cli: 'kilo',
+  qwen_code_cli: 'qwen',
+  hermes_cli: 'hermes',
+  openclaw_cli: 'openclaw',
   custom_cli: '',
 }
 
 const DEFAULT_CLI_ARGS: Record<string, string> = {
   claude_cli: '["--permission-mode","bypassPermissions","-p","{prompt}"]',
-  codex_cli: '["exec","{prompt}"]',
-  opencode_cli: '["run","{prompt}"]',
+  codex_cli: '["exec","--dangerously-bypass-approvals-and-sandbox","{prompt}"]',
+  opencode_cli: '["run","--dangerously-skip-permissions","{prompt}"]',
+  mimocode_cli: '["run","--dangerously-skip-permissions","{prompt}"]',
+  cursor_cli: '["-p","--force","--approve-mcps","--trust","--output-format","text","{prompt}"]',
+  kilocode_cli: '["run","--auto","{prompt}"]',
+  qwen_code_cli: '["--approval-mode","yolo","--output-format","text","{prompt}"]',
+  hermes_cli: '["--yolo","--oneshot","{prompt}"]',
+  openclaw_cli: '["agent","--local","--json","--message","{prompt}"]',
   custom_cli: '["{prompt}"]',
 }
 
@@ -955,34 +1003,44 @@ function SettingsPage({ embedded = false }: SettingsPageProps = {}) {
             )}
           </Form.Item>
 
-          <Divider style={{ margin: '8px 0 16px' }} />
+          <Collapse
+            ghost
+            size="small"
+            items={[{
+              key: 'advanced',
+              label: '高级设置（输出限制与拆书参数）',
+              children: (
+                <>
+                  <Form.Item
+                    name="max_output_tokens"
+                    label="模型最大输出 tokens"
+                    extra="默认按模型能力上限填充；DeepSeek v4-pro / v4-flash 默认为 384,000，Gemini 默认为 65,536。"
+                    rules={[{ required: true, message: '请填写最大输出 tokens' }]}
+                  >
+                    <InputNumber min={1} max={1000000} style={{ width: '100%' }} />
+                  </Form.Item>
 
-          <Form.Item
-            name="max_output_tokens"
-            label="模型最大输出 tokens"
-            extra="默认按模型能力上限填充；DeepSeek v4-pro / v4-flash 默认为 384,000，Gemini 默认为 65,536。"
-            rules={[{ required: true, message: '请填写最大输出 tokens' }]}
-          >
-            <InputNumber min={1} max={1000000} style={{ width: '100%' }} />
-          </Form.Item>
+                  <Form.Item
+                    name="deconstruct_input_char_limit"
+                    label="拆书合并输入字符上限"
+                    extra="控制每次合并请求最多携带多少分块事实卡片内容。"
+                    rules={[{ required: true, message: '请填写合并输入字符上限' }]}
+                  >
+                    <InputNumber min={1} max={1000000} style={{ width: '100%' }} />
+                  </Form.Item>
 
-          <Form.Item
-            name="deconstruct_input_char_limit"
-            label="拆书合并输入字符上限"
-            extra="控制每次合并请求最多携带多少分块事实卡片内容。"
-            rules={[{ required: true, message: '请填写合并输入字符上限' }]}
-          >
-            <InputNumber min={1} max={1000000} style={{ width: '100%' }} />
-          </Form.Item>
-
-          <Form.Item
-            name="deconstruct_item_char_limit"
-            label="拆书单条内容字符上限"
-            extra="控制单条事件、设定、角色字段的最大长度；超过后才会压缩。"
-            rules={[{ required: true, message: '请填写单条内容字符上限' }]}
-          >
-            <InputNumber min={1} max={1000000} style={{ width: '100%' }} />
-          </Form.Item>
+                  <Form.Item
+                    name="deconstruct_item_char_limit"
+                    label="拆书单条内容字符上限"
+                    extra="控制单条事件、设定、角色字段的最大长度；超过后才会压缩。"
+                    rules={[{ required: true, message: '请填写单条内容字符上限' }]}
+                  >
+                    <InputNumber min={1} max={1000000} style={{ width: '100%' }} />
+                  </Form.Item>
+                </>
+              ),
+            }]}
+          />
 
           {!isLocalCliProvider(modalProvider) && (
           <Form.Item

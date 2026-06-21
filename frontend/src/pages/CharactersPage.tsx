@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert, Button, Descriptions, Divider, Empty, Form, Input, List, Modal,
-  Select, Space, Tag, Timeline, Typography, message,
+  Alert, Button, Collapse, Descriptions, Divider, Empty, Form, Input, List, Modal,
+  Popconfirm, Select, Space, Tag, Timeline, Typography, message,
 } from 'antd'
 import {
   DeleteOutlined, HistoryOutlined, PlusOutlined,
@@ -78,8 +78,11 @@ interface CharacterMergeFormValues {
 interface CharactersPageProps { projectId: string }
 
 const ROLE_OPTIONS = [
-  { value: 'protagonist', label: '主角' }, { value: 'supporting', label: '配角' },
-  { value: 'antagonist', label: '反派' }, { value: 'mentor', label: '导师' }, { value: 'other', label: '其他' },
+  { value: 'protagonist', label: '主角', desc: '故事核心人物，视角承载者' },
+  { value: 'supporting', label: '配角', desc: '协助或衬托主角的重要角色' },
+  { value: 'antagonist', label: '反派', desc: '制造冲突与阻碍的对立面' },
+  { value: 'mentor', label: '导师', desc: '引导主角成长的师长或前辈' },
+  { value: 'other', label: '其他', desc: '路人、工具人、背景角色等' },
 ]
 
 const TONE_OPTIONS = [
@@ -460,7 +463,16 @@ function CharactersPage({ projectId }: CharactersPageProps) {
                 <Input placeholder="角色姓名" maxLength={100} />
               </Form.Item>
               <Form.Item name="role_type" label="角色类型">
-                <Select options={ROLE_OPTIONS} placeholder="选择角色类型" />
+                <Select
+                  options={ROLE_OPTIONS}
+                  placeholder="选择角色类型"
+                  optionRender={(option) => (
+                    <div>
+                      <div>{option.label}</div>
+                      {option.data.desc && <Text type="secondary" style={{ fontSize: 12 }}>{option.data.desc}</Text>}
+                    </div>
+                  )}
+                />
               </Form.Item>
             </div>
             <Form.Item name="aliases" label="别名/称呼">
@@ -473,27 +485,37 @@ function CharactersPage({ projectId }: CharactersPageProps) {
             <Form.Item name="abilities" label="能力">
               <Select mode="tags" tokenSeparators={[',', '，']} placeholder="输入能力后回车" />
             </Form.Item>
-            <Divider orientation="left" plain>当前状态</Divider>
-            <div className="characters-three-col">
-              <Form.Item name="life_status" label="生死状态"><Input placeholder="alive / dead / unknown，或中文描述" /></Form.Item>
-              <Form.Item name="current_location" label="当前位置"><Input placeholder="角色当前所处地点" /></Form.Item>
-              <Form.Item name="realm_or_level" label="境界/等级"><Input placeholder="修为、等级、身份层级" /></Form.Item>
-            </div>
-            <div className="characters-two-col">
-              <Form.Item name="physical_state" label="身体状况"><Input.TextArea rows={3} placeholder="伤势、疾病、体力、异常状态" /></Form.Item>
-              <Form.Item name="mental_state" label="心理状态"><Input.TextArea rows={3} placeholder="情绪、压力、执念、恐惧、决心" /></Form.Item>
-            </div>
-            <div className="characters-two-col">
-              <Form.Item name="current_goal" label="当前目标"><Input.TextArea rows={3} placeholder="本阶段想达成什么" /></Form.Item>
-              <Form.Item name="active_conflict" label="当前冲突"><Input.TextArea rows={3} placeholder="正在面对的矛盾、敌人、阻碍" /></Form.Item>
-            </div>
-            <div className="characters-two-col">
-              <Form.Item name="abilities_state" label="能力当前状态"><Input.TextArea rows={3} placeholder="能力是否受限、增强、失控、冷却" /></Form.Item>
-              <Form.Item name="items_or_assets" label="持有物/资源"><Input.TextArea rows={3} placeholder="法器、线索、资源、伤药、人脉" /></Form.Item>
-            </div>
-            <Form.Item name="is_evolution_tracked" label="动态演进追踪">
-              <Select options={[{ value: true, label: '开启' }, { value: false, label: '关闭' }]} />
-            </Form.Item>
+            <Collapse
+              ghost
+              items={[{
+                key: 'state',
+                label: <span style={{ fontWeight: 500 }}>当前状态 <span style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary)', fontWeight: 400 }}>（可折叠，追踪角色实时变化）</span></span>,
+                children: (
+                  <>
+                    <div className="characters-three-col">
+                      <Form.Item name="life_status" label="生死状态"><Input placeholder="alive / dead / unknown，或中文描述" /></Form.Item>
+                      <Form.Item name="current_location" label="当前位置"><Input placeholder="角色当前所处地点" /></Form.Item>
+                      <Form.Item name="realm_or_level" label="境界/等级"><Input placeholder="修为、等级、身份层级" /></Form.Item>
+                    </div>
+                    <div className="characters-two-col">
+                      <Form.Item name="physical_state" label="身体状况"><Input.TextArea rows={3} placeholder="伤势、疾病、体力、异常状态" /></Form.Item>
+                      <Form.Item name="mental_state" label="心理状态"><Input.TextArea rows={3} placeholder="情绪、压力、执念、恐惧、决心" /></Form.Item>
+                    </div>
+                    <div className="characters-two-col">
+                      <Form.Item name="current_goal" label="当前目标"><Input.TextArea rows={3} placeholder="本阶段想达成什么" /></Form.Item>
+                      <Form.Item name="active_conflict" label="当前冲突"><Input.TextArea rows={3} placeholder="正在面对的矛盾、敌人、阻碍" /></Form.Item>
+                    </div>
+                    <div className="characters-two-col">
+                      <Form.Item name="abilities_state" label="能力当前状态"><Input.TextArea rows={3} placeholder="能力是否受限、增强、失控、冷却" /></Form.Item>
+                      <Form.Item name="items_or_assets" label="持有物/资源"><Input.TextArea rows={3} placeholder="法器、线索、资源、伤药、人脉" /></Form.Item>
+                    </div>
+                    <Form.Item name="is_evolution_tracked" label="动态演进追踪">
+                      <Select options={[{ value: true, label: '开启' }, { value: false, label: '关闭' }]} />
+                    </Form.Item>
+                  </>
+                ),
+              }]}
+            />
           </Form>
 
           {/* ── AI Dialogue Config ── */}
@@ -556,7 +578,7 @@ function CharactersPage({ projectId }: CharactersPageProps) {
                 </Form>
                 <List size="small" style={{ marginTop: 12 }} dataSource={selectedRelationships} locale={{ emptyText: '暂无关系' }}
                   renderItem={(edge) => (
-                    <List.Item actions={[<Button key="remove" type="text" danger onClick={() => removeRelationship(edge.id)}>移除</Button>]}>
+                    <List.Item actions={[<Popconfirm key="remove" title="确定移除此关系？" okText="移除" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={() => removeRelationship(edge.id)}><Button type="text" danger>移除</Button></Popconfirm>]}>
                       <List.Item.Meta
                         title={`${characterName(edge.from)} → ${characterName(edge.to)}：${edge.relationship_type}`}
                         description={edge.description || '无描述'} />

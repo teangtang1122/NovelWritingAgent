@@ -1040,6 +1040,12 @@ class TestLLMGatewayModelParsing(unittest.TestCase):
             "claude_cli",
             "codex_cli",
             "opencode_cli",
+            "mimocode_cli",
+            "cursor_cli",
+            "kilocode_cli",
+            "qwen_code_cli",
+            "hermes_cli",
+            "openclaw_cli",
             "custom_cli",
         }
         self.assertEqual(set(ADAPTER_MAP.keys()), expected)
@@ -1054,6 +1060,12 @@ class TestLLMGatewayModelParsing(unittest.TestCase):
         self.assertFalse(LLMGateway.supports_tool_calling("claude_cli:claude-code"))
         self.assertFalse(LLMGateway.supports_tool_calling("codex_cli:codex-cli"))
         self.assertFalse(LLMGateway.supports_tool_calling("opencode_cli:opencode-cli"))
+        self.assertFalse(LLMGateway.supports_tool_calling("mimocode_cli:mimocode-cli"))
+        self.assertFalse(LLMGateway.supports_tool_calling("cursor_cli:cursor-agent"))
+        self.assertFalse(LLMGateway.supports_tool_calling("kilocode_cli:kilocode-cli"))
+        self.assertFalse(LLMGateway.supports_tool_calling("qwen_code_cli:qwen-code-cli"))
+        self.assertFalse(LLMGateway.supports_tool_calling("hermes_cli:hermes-agent"))
+        self.assertFalse(LLMGateway.supports_tool_calling("openclaw_cli:openclaw-agent"))
 
 
 class TestLLMGatewayChatCompletion(unittest.TestCase):

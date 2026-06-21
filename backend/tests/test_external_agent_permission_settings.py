@@ -68,7 +68,18 @@ class ExternalAgentSettingsSchemaTest(unittest.TestCase):
             "trusted_local_maintenance",
         ])
         self.assertTrue(DEFAULT_TRUSTED_LOCAL_ENABLED)
-        self.assertEqual(DEFAULT_TRUSTED_LOCAL_CLIENTS, ["claude-code", "codex", "opencode"])
+        self.assertEqual(DEFAULT_TRUSTED_LOCAL_CLIENTS, [
+            "claude-code",
+            "codex",
+            "opencode",
+            "mimocode",
+            "cursor",
+            "trae",
+            "kilocode",
+            "qwen-code",
+            "hermes",
+            "openclaw",
+        ])
         self.assertFalse(DEFAULT_REQUIRE_CONFIRMATION_FOR_WRITES)
         self.assertFalse(DEFAULT_REQUIRE_CONFIRMATION_FOR_DESTRUCTIVE)
 

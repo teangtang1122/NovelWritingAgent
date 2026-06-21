@@ -84,11 +84,16 @@ class DraftNovelBlueprintTest(unittest.TestCase):
         self.assertIn("output_schema", result["data"])
         self.assertIn("prompt_pack", result["data"])
 
-    def test_internal_mode_returns_hint(self):
+    def test_internal_mode_is_normalized_to_hybrid(self):
         from app.services.workspace.tools.novel_creation import draft_novel_blueprint
 
         session = MagicMock()
         session.id = "s1"
+        session.user_brief = "克苏鲁规则怪谈"
+        session.genre = "other"
+        session.target_audience = "all"
+        session.platform = "qidian"
+        session.blueprint_json = []
 
         def query_side_effect(model):
             q = MagicMock()
@@ -99,12 +104,20 @@ class DraftNovelBlueprintTest(unittest.TestCase):
         db = MagicMock()
         db.query.side_effect = query_side_effect
 
-        result = asyncio.run(draft_novel_blueprint(db, "p1", {
-            "session_id": "s1",
-            "execution_mode": "internal_llm",
-        }))
-        self.assertEqual(result["status"], "skipped")
-        self.assertIn("external_agent", result["data"]["hint"])
+        with patch(
+            "app.services.workspace.tools.novel_creation._generate_clarifying_questions",
+            return_value=[],
+        ), patch(
+            "app.services.workspace.tools.novel_creation._try_llm_initial_draft",
+            return_value=None,
+        ):
+            result = asyncio.run(draft_novel_blueprint(db, "p1", {
+                "session_id": "s1",
+                "execution_mode": "internal_llm",
+            }))
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["execution_mode"], "hybrid")
+        self.assertEqual(result["data"]["enhancement_mode"], "template_fallback")
 
     def test_template_mode_generates_full_blueprints(self):
         from app.services.workspace.tools.novel_creation import draft_novel_blueprint
@@ -429,6 +442,8 @@ class DraftNovelBlueprintTest(unittest.TestCase):
         for bp in blueprints:
             forbidden_text = " ".join(bp["forbidden_patterns"])
             self.assertNotIn("设计一下主角", forbidden_text)
+            self.assertTrue(bp["protagonist"]["weakness"])
+            self.assertTrue(bp["protagonist"]["opening_pressure"])
 
     def test_template_preserves_unusual_custom_motifs(self):
         from app.services.workspace.tools.novel_creation import draft_novel_blueprint

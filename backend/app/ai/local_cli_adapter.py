@@ -1,4 +1,4 @@
-"""Local CLI adapter for Claude Code, Codex, opencode, and custom CLIs.
+"""Local CLI adapter for supported local coding-agent CLIs.
 
 This adapter treats local coding-agent CLIs as model executors. It is designed
 for short, bounded generation tasks controlled by Moshu, not for exposing
@@ -12,6 +12,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import tempfile
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Optional
@@ -20,12 +21,29 @@ from .base import BaseAdapter
 from ..core.exceptions import LLMError
 
 
-LOCAL_CLI_PROVIDERS = {"claude_cli", "codex_cli", "opencode_cli", "custom_cli"}
+LOCAL_CLI_PROVIDERS = {
+    "claude_cli",
+    "codex_cli",
+    "opencode_cli",
+    "mimocode_cli",
+    "cursor_cli",
+    "kilocode_cli",
+    "qwen_code_cli",
+    "hermes_cli",
+    "openclaw_cli",
+    "custom_cli",
+}
 
 DEFAULT_CLI_COMMANDS: dict[str, str] = {
     "claude_cli": "claude",
     "codex_cli": "codex",
     "opencode_cli": "opencode",
+    "mimocode_cli": "mimo",
+    "cursor_cli": "agent",
+    "kilocode_cli": "kilo",
+    "qwen_code_cli": "qwen",
+    "hermes_cli": "hermes",
+    "openclaw_cli": "openclaw",
     "custom_cli": "",
 }
 
@@ -34,10 +52,14 @@ DEFAULT_CLI_ARGS: dict[str, list[str]] = {
     # interactive permission prompts so file reads and Moshu MCP tool calls can
     # run unattended while Moshu still enforces its own MCP permission boundary.
     "claude_cli": ["--permission-mode", "bypassPermissions", "-p", "{prompt}"],
-    "codex_cli": ["exec", "{prompt}"],
-    # opencode has had CLI surface changes across versions, so keep it
-    # configurable. The UI seeds a conservative default users can edit.
-    "opencode_cli": ["run", "{prompt}"],
+    "codex_cli": ["exec", "--dangerously-bypass-approvals-and-sandbox", "{prompt}"],
+    "opencode_cli": ["run", "--dangerously-skip-permissions", "{prompt}"],
+    "mimocode_cli": ["run", "--dangerously-skip-permissions", "{prompt}"],
+    "cursor_cli": ["-p", "--force", "--approve-mcps", "--trust", "--output-format", "text", "{prompt}"],
+    "kilocode_cli": ["run", "--auto", "{prompt}"],
+    "qwen_code_cli": ["--approval-mode", "yolo", "--output-format", "text", "{prompt}"],
+    "hermes_cli": ["--yolo", "--oneshot", "{prompt}"],
+    "openclaw_cli": ["agent", "--local", "--json", "--message", "{prompt}"],
     "custom_cli": ["{prompt}"],
 }
 
@@ -45,10 +67,24 @@ DEFAULT_CLI_MODELS: dict[str, str] = {
     "claude_cli": "claude-code",
     "codex_cli": "codex-cli",
     "opencode_cli": "opencode-cli",
+    "mimocode_cli": "mimocode-cli",
+    "cursor_cli": "cursor-agent",
+    "kilocode_cli": "kilocode-cli",
+    "qwen_code_cli": "qwen-code-cli",
+    "hermes_cli": "hermes-agent",
+    "openclaw_cli": "openclaw-agent",
     "custom_cli": "custom-cli",
 }
 
-STDIN_PROMPT_PROVIDERS = {"claude_cli", "codex_cli", "opencode_cli"}
+STDIN_PROMPT_PROVIDERS = {
+    "claude_cli",
+    "codex_cli",
+    "opencode_cli",
+    "mimocode_cli",
+    "cursor_cli",
+    "kilocode_cli",
+    "qwen_code_cli",
+}
 WINDOWS_SAFE_ARG_CHARS = 12000
 
 
@@ -217,7 +253,23 @@ class LocalCLIAdapter(BaseAdapter):
 
     async def _run(self, prompt: str, model: str) -> str:
         command = self._command()
-        launch = self._launch(prompt, model)
+        prompt_file: str | None = None
+        launch_prompt = prompt
+        if len(prompt) > WINDOWS_SAFE_ARG_CHARS and self._provider not in STDIN_PROMPT_PROVIDERS:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                suffix=".md",
+                prefix="moshu-cli-prompt-",
+                delete=False,
+            ) as handle:
+                handle.write(prompt)
+                prompt_file = handle.name
+            launch_prompt = (
+                "Read the complete UTF-8 task prompt from this local file and follow it exactly: "
+                f"{prompt_file}"
+            )
+        launch = self._launch(launch_prompt, model)
         try:
             proc = await asyncio.create_subprocess_exec(
                 command,
@@ -228,10 +280,20 @@ class LocalCLIAdapter(BaseAdapter):
                 **hidden_subprocess_kwargs(),
             )
         except OSError as exc:
+            if prompt_file:
+                try:
+                    os.unlink(prompt_file)
+                except OSError:
+                    pass
             raise LLMError(f"启动本机 CLI 失败: {exc}")
 
         stdin_bytes = launch.stdin_text.encode("utf-8") if launch.stdin_text is not None else None
         stdout, stderr = await proc.communicate(input=stdin_bytes)
+        if prompt_file:
+            try:
+                os.unlink(prompt_file)
+            except OSError:
+                pass
         out_text = stdout.decode("utf-8", errors="replace").strip()
         err_text = stderr.decode("utf-8", errors="replace").strip()
         if proc.returncode != 0:

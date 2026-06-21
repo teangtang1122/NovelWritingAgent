@@ -8,6 +8,7 @@ import {
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
   message,
   Modal,
@@ -71,13 +72,13 @@ interface WorldbuildingPageProps {
 
 const NEW_ROW_ID = '__new__'
 
-const DIMENSIONS: Array<{ key: Dimension; label: string; icon: JSX.Element }> = [
-  { key: 'geography', label: '地理', icon: <EnvironmentOutlined /> },
-  { key: 'history', label: '历史', icon: <HistoryOutlined /> },
-  { key: 'factions', label: '势力', icon: <TeamOutlined /> },
-  { key: 'power_system', label: '规则体系', icon: <ThunderboltOutlined /> },
-  { key: 'races', label: '种族', icon: <ApartmentOutlined /> },
-  { key: 'culture', label: '文化', icon: <GlobalOutlined /> },
+const DIMENSIONS: Array<{ key: Dimension; label: string; icon: JSX.Element; tooltip: string }> = [
+  { key: 'geography', label: '地理', icon: <EnvironmentOutlined />, tooltip: '地图、地名、气候、地标、地理特征' },
+  { key: 'history', label: '历史', icon: <HistoryOutlined />, tooltip: '重大事件、朝代更替、传说、历史人物' },
+  { key: 'factions', label: '势力', icon: <TeamOutlined />, tooltip: '组织、门派、国家、家族、阵营' },
+  { key: 'power_system', label: '规则体系', icon: <ThunderboltOutlined />, tooltip: '修炼体系、魔法规则、科技树、超自然法则' },
+  { key: 'races', label: '种族', icon: <ApartmentOutlined />, tooltip: '人类、精灵、兽人等种族及其特征与文化差异' },
+  { key: 'culture', label: '文化', icon: <GlobalOutlined />, tooltip: '语言、习俗、信仰、饮食、服饰、社会制度' },
 ]
 
 const EMPTY_GROUPED = DIMENSIONS.reduce((acc, item) => {
@@ -360,11 +361,13 @@ function WorldbuildingPage({ projectId }: WorldbuildingPageProps) {
             items={DIMENSIONS.map((dimension) => ({
               key: dimension.key,
               label: (
-                <Space size={6}>
-                  {dimension.icon}
-                  {dimension.label}
-                  <Tag>{entriesByDimension[dimension.key]?.length || 0}</Tag>
-                </Space>
+                <Tooltip title={dimension.tooltip}>
+                  <Space size={6}>
+                    {dimension.icon}
+                    {dimension.label}
+                    <Tag>{entriesByDimension[dimension.key]?.length || 0}</Tag>
+                  </Space>
+                </Tooltip>
               ),
               children: (
                 <Table

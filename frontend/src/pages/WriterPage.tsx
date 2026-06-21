@@ -221,7 +221,7 @@ function WriterPage({ projectId }: WriterPageProps) {
       setFromSnapshotId(items[1]?.id || items[0]?.id)
       setToSnapshotId(items[0]?.id)
     } catch {
-      // ignore
+      message.warning('获取版本历史失败')
     }
   }, [projectId])
 

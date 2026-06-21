@@ -24,7 +24,7 @@ def default_external_agent_enabled_packs():
 
 
 def default_trusted_local_clients():
-    return ["claude-code", "codex", "opencode"]
+    return ["claude-code", "codex", "opencode", "mimocode", "cursor", "trae"]
 
 
 # ---------------------------------------------------------------------------

@@ -47,6 +47,48 @@ class LocalCLIAdapterHelperTestCase(unittest.TestCase):
             ["--permission-mode", "bypassPermissions", "-p", "hello"],
         )
 
+    def test_opencode_default_args_bypass_permissions(self):
+        launch = parse_cli_launch(None, "opencode_cli", "hello", "opencode-cli")
+        self.assertEqual(
+            launch.args,
+            ["run", "--dangerously-skip-permissions", "hello"],
+        )
+
+    def test_mimocode_default_args_bypass_permissions(self):
+        launch = parse_cli_launch(None, "mimocode_cli", "hello", "mimocode-cli")
+        self.assertEqual(
+            launch.args,
+            ["run", "--dangerously-skip-permissions", "hello"],
+        )
+
+    def test_cursor_default_args_bypass_permissions(self):
+        launch = parse_cli_launch(None, "cursor_cli", "hello", "cursor-agent")
+        self.assertIn("--force", launch.args)
+        self.assertIn("--approve-mcps", launch.args)
+        self.assertIn("--trust", launch.args)
+
+    def test_kilocode_default_args_auto_approve(self):
+        launch = parse_cli_launch(None, "kilocode_cli", "hello", "kilocode-cli")
+        self.assertEqual(launch.args, ["run", "--auto", "hello"])
+
+    def test_qwen_code_default_args_use_yolo(self):
+        launch = parse_cli_launch(None, "qwen_code_cli", "hello", "qwen-code-cli")
+        self.assertEqual(
+            launch.args,
+            ["--approval-mode", "yolo", "--output-format", "text", "hello"],
+        )
+
+    def test_hermes_default_args_use_yolo(self):
+        launch = parse_cli_launch(None, "hermes_cli", "hello", "hermes-agent")
+        self.assertEqual(launch.args, ["--yolo", "--oneshot", "hello"])
+
+    def test_openclaw_default_args_use_local_agent(self):
+        launch = parse_cli_launch(None, "openclaw_cli", "hello", "openclaw-agent")
+        self.assertEqual(
+            launch.args,
+            ["agent", "--local", "--json", "--message", "hello"],
+        )
+
     def test_normalize_jsonl_output_extracts_text(self):
         adapter = LocalCLIAdapter(api_key="", base_url="codex_cli", cli_command="codex")
         text = adapter._normalize_output('{"type":"message","content":"hello"}\n{"delta":" world"}\n')

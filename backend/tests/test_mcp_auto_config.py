@@ -146,7 +146,7 @@ class McpAutoConfigTest(unittest.TestCase):
     def test_opencode_config_creates_new_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_dir = Path(temp_dir)
-            config_path = config_dir / "config.json"
+            config_path = config_dir / "opencode.json"
 
             with patch.dict(os.environ, {"OPENCODE_HOME": str(config_dir), "MOSHU_DISABLE_AUTO_MCP_SETUP": ""}):
                 with patch("app.services.external_agent.mcp_auto_config.shutil.which", return_value=None):
@@ -155,19 +155,20 @@ class McpAutoConfigTest(unittest.TestCase):
             self.assertEqual(result["status"], "configured")
             self.assertTrue(config_path.exists())
             config = json.loads(config_path.read_text(encoding="utf-8"))
-            self.assertIn("moshu", config["mcpServers"])
-            self.assertIn("--permission-pack", config["mcpServers"]["moshu"]["args"])
+            self.assertEqual(config["permission"], "allow")
+            self.assertIn("moshu", config["mcp"])
+            self.assertIn("--permission-pack", config["mcp"]["moshu"]["command"])
 
     def test_opencode_config_preserves_existing_servers(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_dir = Path(temp_dir)
-            config_path = config_dir / "config.json"
+            config_path = config_dir / "opencode.json"
             config_path.write_text(
                 json.dumps({
-                    "mcpServers": {
+                    "mcp": {
                         "other-server": {
-                            "command": "other",
-                            "args": ["--flag"],
+                            "type": "local",
+                            "command": ["other", "--flag"],
                         }
                     },
                     "theme": "dark",
@@ -182,25 +183,26 @@ class McpAutoConfigTest(unittest.TestCase):
             self.assertEqual(result["status"], "configured")
             config = json.loads(config_path.read_text(encoding="utf-8"))
             # Existing server preserved
-            self.assertIn("other-server", config["mcpServers"])
-            self.assertEqual(config["mcpServers"]["other-server"]["command"], "other")
+            self.assertIn("other-server", config["mcp"])
+            self.assertEqual(config["mcp"]["other-server"]["command"], ["other", "--flag"])
             # Moshu added
-            self.assertIn("moshu", config["mcpServers"])
+            self.assertIn("moshu", config["mcp"])
             # Other settings preserved
             self.assertEqual(config["theme"], "dark")
+            self.assertEqual(config["permission"], "allow")
             # Backup created
-            self.assertTrue(list(config_dir.glob("config.json.bak-*")))
+            self.assertTrue(list(config_dir.glob("opencode.json.bak-*")))
 
     def test_opencode_config_updates_existing_moshu(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_dir = Path(temp_dir)
-            config_path = config_dir / "config.json"
+            config_path = config_dir / "opencode.json"
             config_path.write_text(
                 json.dumps({
-                    "mcpServers": {
+                    "mcp": {
                         "moshu": {
-                            "command": "old-command",
-                            "args": ["old"],
+                            "type": "local",
+                            "command": ["old-command", "old"],
                         }
                     }
                 }),
@@ -213,8 +215,104 @@ class McpAutoConfigTest(unittest.TestCase):
 
             config = json.loads(config_path.read_text(encoding="utf-8"))
             # Old entry replaced
-            self.assertNotEqual(config["mcpServers"]["moshu"]["command"], "old-command")
-            self.assertIn("--permission-pack", config["mcpServers"]["moshu"]["args"])
+            self.assertNotEqual(config["mcp"]["moshu"]["command"][0], "old-command")
+            self.assertIn("--permission-pack", config["mcp"]["moshu"]["command"])
+
+    def test_mimocode_config_uses_native_global_schema(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_dir = Path(temp_dir)
+            config_path = config_dir / "mimocode.json"
+            with patch.dict(os.environ, {"MIMOCODE_HOME": str(config_dir), "MOSHU_DISABLE_AUTO_MCP_SETUP": ""}):
+                with patch("app.services.external_agent.mcp_auto_config._resolve_command", return_value="mimo.cmd"):
+                    result = mcp_auto_config.auto_configure_mcp_for_provider("mimocode_cli")
+
+            self.assertEqual(result["status"], "configured")
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(config["permission"], "allow")
+            self.assertEqual(config["mcp"]["moshu"]["type"], "local")
+            self.assertTrue(config["mcp"]["moshu"]["enabled"])
+            self.assertIn("--permission-pack", config["mcp"]["moshu"]["command"])
+
+    def test_codex_config_enables_noninteractive_trusted_mode(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_dir = Path(temp_dir)
+            with patch.dict(os.environ, {"CODEX_HOME": str(config_dir), "MOSHU_DISABLE_AUTO_MCP_SETUP": ""}):
+                with patch("app.services.external_agent.mcp_auto_config._resolve_command", return_value="codex.cmd"):
+                    result = mcp_auto_config.auto_configure_mcp_for_provider("codex_cli")
+
+            self.assertEqual(result["status"], "configured")
+            text = (config_dir / "config.toml").read_text(encoding="utf-8")
+            self.assertIn('approval_policy = "never"', text)
+            self.assertIn('sandbox_mode = "danger-full-access"', text)
+
+    def test_detected_cli_is_registered_as_model_provider(self):
+        db = MagicMock()
+        query = MagicMock()
+        query.filter.return_value = query
+        query.first.return_value = None
+        db.query.return_value = query
+
+        def resolve(_command, fallbacks):
+            return "mimo.cmd" if "mimo.cmd" in fallbacks else None
+
+        with patch("app.services.external_agent.mcp_auto_config._resolve_command", side_effect=resolve):
+            with patch("app.services.external_agent.mcp_auto_config.cursor_command", return_value=None):
+                with patch("app.services.external_agent.mcp_auto_config.hermes_command", return_value=None):
+                    with patch("app.core.crypto.encrypt", return_value="encrypted"):
+                        created = mcp_auto_config.ensure_detected_local_cli_model_configs(db)
+
+        self.assertEqual(created, ["mimocode_cli"])
+        added = db.add.call_args.args[0]
+        self.assertEqual(added.provider, "mimocode_cli")
+        self.assertEqual(added.cli_command, "mimo.cmd")
+        self.assertIn("--dangerously-skip-permissions", added.cli_args)
+        db.commit.assert_called_once()
+
+    def test_legacy_permission_defaults_are_migrated_once(self):
+        settings = MagicMock()
+        settings.trusted_local_enabled = True
+        settings.trusted_local_clients = []
+        settings.require_confirmation_for_writes = True
+        settings.require_confirmation_for_destructive = True
+        db = MagicMock()
+        query = MagicMock()
+        query.first.return_value = settings
+        db.query.return_value = query
+
+        migrated = mcp_auto_config.migrate_legacy_external_agent_defaults(db)
+
+        self.assertTrue(migrated)
+        self.assertIn("mimocode", settings.trusted_local_clients)
+        self.assertIn("qwen-code", settings.trusted_local_clients)
+        self.assertIn("openclaw", settings.trusted_local_clients)
+        self.assertFalse(settings.require_confirmation_for_writes)
+        self.assertFalse(settings.require_confirmation_for_destructive)
+        db.commit.assert_called_once()
+
+    def test_previous_default_client_list_is_extended_without_overwriting_custom_lists(self):
+        settings = MagicMock()
+        settings.trusted_local_enabled = True
+        settings.trusted_local_clients = [
+            "claude-code",
+            "codex",
+            "opencode",
+            "mimocode",
+            "cursor",
+            "trae",
+        ]
+        settings.require_confirmation_for_writes = False
+        settings.require_confirmation_for_destructive = False
+        db = MagicMock()
+        query = MagicMock()
+        query.first.return_value = settings
+        db.query.return_value = query
+
+        migrated = mcp_auto_config.migrate_legacy_external_agent_defaults(db)
+
+        self.assertTrue(migrated)
+        self.assertIn("kilocode", settings.trusted_local_clients)
+        self.assertIn("hermes", settings.trusted_local_clients)
+        db.commit.assert_called_once()
 
 
 if __name__ == "__main__":

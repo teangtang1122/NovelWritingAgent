@@ -1,6 +1,7 @@
 """REST API for API-free novel creation workflow."""
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -101,3 +102,106 @@ async def refresh_question(payload: RefreshQuestionRequest, db: Session = Depend
         user_brief=payload.user_brief,
     )
     return ApiResponse.success(data=result)
+
+
+class SystemChatRequest(BaseModel):
+    message: str
+    context: dict[str, Any] | None = None  # {blueprints, sessionId, brief, importedFiles, history}
+
+
+@router.post("/novel-creation/system-chat")
+async def system_chat(payload: SystemChatRequest):
+    """General conversation endpoint for system assistant without project context."""
+    from app.services.workspace.tools.novel_creation import system_chat_completion
+    result = await system_chat_completion(
+        message=payload.message,
+        context=payload.context or {},
+    )
+    return ApiResponse.success(data=result)
+
+
+class SaveImportedFileRequest(BaseModel):
+    filename: str
+    content: str
+
+
+@router.post("/novel-creation/save-imported-file")
+async def save_imported_file(payload: SaveImportedFileRequest):
+    """Save an imported file to the working directory for LLM CLI access."""
+    from app.services.content_store import content_root
+    import os
+
+    root = content_root()
+    imported_dir = root / ".imported"
+    imported_dir.mkdir(parents=True, exist_ok=True)
+
+    # Sanitize filename
+    safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', '-', payload.filename)
+    safe_name = safe_name.strip(' .-')[:200]
+
+    # Add timestamp to avoid conflicts
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    name_parts = safe_name.rsplit('.', 1)
+    if len(name_parts) == 2:
+        final_name = f"{name_parts[0]}_{timestamp}.{name_parts[1]}"
+    else:
+        final_name = f"{safe_name}_{timestamp}"
+
+    file_path = imported_dir / final_name
+    file_path.write_text(payload.content, encoding='utf-8')
+
+    return ApiResponse.success(data={
+        "path": str(file_path),
+        "filename": final_name,
+        "size": len(payload.content),
+    })
+
+
+@router.get("/novel-creation/imported-files")
+async def list_imported_files():
+    """List all imported files in the working directory."""
+    from app.services.content_store import content_root
+    from datetime import datetime
+
+    root = content_root()
+    imported_dir = root / ".imported"
+    if not imported_dir.exists():
+        return ApiResponse.success(data={"files": [], "directory": str(imported_dir)})
+
+    files = []
+    for f in sorted(imported_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+        if f.is_file():
+            files.append({
+                "filename": f.name,
+                "path": str(f),
+                "size": f.stat().st_size,
+                "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+            })
+
+    return ApiResponse.success(data={"files": files, "directory": str(imported_dir)})
+
+
+@router.get("/novel-creation/imported-files/{filename}")
+async def read_imported_file(filename: str):
+    """Read the content of a specific imported file."""
+    from app.services.content_store import content_root
+
+    root = content_root()
+    imported_dir = root / ".imported"
+    file_path = imported_dir / filename
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    # Security: prevent path traversal
+    if not file_path.resolve().is_relative_to(imported_dir.resolve()):
+        raise HTTPException(status_code=403, detail="访问被拒绝")
+
+    content = file_path.read_text(encoding='utf-8')
+    return ApiResponse.success(data={
+        "filename": filename,
+        "content": content,
+        "size": len(content),
+        "path": str(file_path),
+    })

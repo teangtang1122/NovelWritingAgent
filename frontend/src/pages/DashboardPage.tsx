@@ -118,6 +118,8 @@ interface NovelBlueprint {
     conflict?: string
     personality?: string
     background?: string
+    weakness?: string
+    opening_pressure?: string
   }
   characters?: Array<{ name?: string; role_type?: string; background?: string }>
   relationships?: Array<{ relationship_type?: string }>
@@ -192,32 +194,6 @@ interface CreationTemplate {
 }
 
 const CREATION_TEMPLATE_KEY = 'moshu:novelCreationTemplates'
-
-const GENRE_OPTIONS = [
-  { label: '仙侠', value: 'xianxia' },
-  { label: '玄幻', value: 'fantasy' },
-  { label: '都市', value: 'urban' },
-  { label: '科幻', value: 'scifi' },
-  { label: '悬疑', value: 'mystery' },
-  { label: '言情', value: 'romance' },
-  { label: '历史', value: 'history' },
-  { label: '其他', value: 'other' },
-]
-
-const AUDIENCE_OPTIONS = [
-  { label: '男频读者', value: 'male' },
-  { label: '女频读者', value: 'female' },
-  { label: '青少年', value: 'young' },
-  { label: '全年龄', value: 'all' },
-]
-
-const PLATFORM_OPTIONS = [
-  { label: '起点', value: 'qidian' },
-  { label: '番茄', value: 'tomato' },
-  { label: '晋江', value: 'jjwxc' },
-  { label: '知乎', value: 'zhihu' },
-  { label: '自出版', value: 'self_publish' },
-]
 
 function parseTags(value?: string) {
   return (value || '')
@@ -703,8 +679,8 @@ function DashboardPage() {
         } : null)
         setSelectedOption(newOptions[0])
       }
-    } catch {
-      // silent fail
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || err.message || '替换选项失败，请重试')
     } finally {
       setIsRefreshing(false)
     }
@@ -842,11 +818,11 @@ function DashboardPage() {
     const displayOptions = currentOptions.length > 0 ? currentOptions : (q.options || [])
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
-        <div style={{ background: '#f8f9fa', borderRadius: 8, padding: 12 }}>
+        <div style={{ background: 'var(--ant-color-fill-tertiary, #f8f9fa)', borderRadius: 8, padding: 12 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
-            <span style={{ fontWeight: 600, color: '#1890ff' }}>Q</span>
+            <span style={{ fontWeight: 600, color: 'var(--ant-color-primary, #1890ff)' }}>Q</span>
             <span>{q.question}</span>
-            {q.purpose && <span style={{ fontSize: 12, color: '#999' }}>{q.purpose}</span>}
+            {q.purpose && <span style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary, #999)' }}>{q.purpose}</span>}
           </div>
           {q.type === 'text' ? (
             <div>
@@ -956,8 +932,8 @@ function DashboardPage() {
     )
   }
 
-  const handleGenerateBlueprints = async (values: NovelBriefValues) => {
-    const userBrief = buildCreationBrief(values)
+  const handleGenerateBlueprints = async (values: NovelBriefValues | { user_brief: string }) => {
+    const userBrief = 'user_brief' in values && !('genre' in values) ? values.user_brief : buildCreationBrief(values as NovelBriefValues)
     setAssistantBusy(true)
     setAssistantRecommendation('')
     setBlueprints([])
@@ -969,7 +945,6 @@ function DashboardPage() {
     try {
       const startRes = await apiClient.post<ApiResponse<NovelStartData>>('/novel-creation/start', {
         mode: 'template',
-        ...values,
         user_brief: userBrief,
       })
       const sessionId = startRes.data.data.session_id
@@ -1024,7 +999,7 @@ function DashboardPage() {
   const handleReviseBlueprints = async (
     revisionMode: 'refine' | 'regenerate',
     overrideFeedback?: string,
-    enhanceWithLlm = false,
+    enhanceWithLlm = true,
   ) => {
     const feedback = (overrideFeedback ?? assistantDraftText).trim()
     if (revisionMode === 'refine' && !feedback && !enhanceWithLlm) {
@@ -1071,13 +1046,16 @@ function DashboardPage() {
       setBlueprints(draftRes.data.data.blueprints || [])
       setAssistantRecommendation(draftRes.data.data.recommendation || '')
       setAssistantDraftText('')
+      const enhancementMode = draftRes.data.data.enhancement_mode
       setAssistantMessages((items) => [
         ...items,
         {
           role: 'assistant',
-          content: revisionMode === 'refine'
-            ? '已在当前基础上调整完成。重点看核心卖点、黄金三章和第一卷压力是否更贴近你的想法。'
-            : '已重新生成整套方案。你可以把新旧方向对比一下，再继续微调或直接创建。',
+          content: enhancementMode === 'template_fallback'
+            ? '模型深化暂时不可用，本轮已保留模板调整结果。你可以稍后再次深度优化。'
+            : revisionMode === 'refine'
+            ? '已用模板保底并由模型深化。重点检查主角动机、弱点、开局压力和黄金三章。'
+            : '已用模板保底并由模型重新生成整套方案。你可以对比新旧方向，再继续微调或直接创建。',
         },
       ])
     } catch (err: any) {
@@ -1273,7 +1251,7 @@ function DashboardPage() {
                 title={
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minWidth: 0 }}>
                     <span className="dashboard-card-title">{project.title}</span>
-                    <Space size={2} onClick={(e) => e.stopPropagation()}>
+                    <Space size={4} onClick={(e) => e.stopPropagation()}>
                       <Button
                         type="text"
                         size="small"
@@ -1335,74 +1313,64 @@ function DashboardPage() {
             />
 
             <Card size="small" title="告诉墨枢你想写什么">
-              <Form
-                form={assistantForm}
-                layout="vertical"
-                onFinish={handleGenerateBlueprints}
-                initialValues={{ genre: 'xianxia', target_audience: 'all', platform: 'qidian' }}
-              >
-                <Form.Item name="genre" label="类型">
-                  <Select options={GENRE_OPTIONS} />
-                </Form.Item>
-                <Form.Item name="target_audience" label="目标读者">
-                  <Select options={AUDIENCE_OPTIONS} />
-                </Form.Item>
-                <Form.Item name="platform" label="发布平台">
-                  <Select options={PLATFORM_OPTIONS} />
-                </Form.Item>
-                {creationTemplates.length > 0 && (
-                  <Form.Item name="template_id" label="套用模板">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <TextArea
+                  placeholder="例如：我想写一本1000章的克苏鲁+修仙+规则怪谈小说..."
+                  autoSize={{ minRows: 3, maxRows: 6 }}
+                  showCount
+                  maxLength={2000}
+                  value={assistantDraftText}
+                  onChange={(e) => setAssistantDraftText(e.target.value)}
+                  onPressEnter={(e) => {
+                    if (!e.shiftKey && assistantDraftText.trim() && !assistantBusy) {
+                      e.preventDefault()
+                      handleGenerateBlueprints({ user_brief: assistantDraftText.trim() })
+                    }
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button
+                    type="primary"
+                    icon={<RobotOutlined />}
+                    loading={assistantBusy}
+                    disabled={!assistantDraftText.trim()}
+                    onClick={() => handleGenerateBlueprints({ user_brief: assistantDraftText.trim() })}
+                    style={{ flex: 1 }}
+                  >
+                    开始对话
+                  </Button>
+                  <Upload
+                    accept=".txt,.docx"
+                    maxCount={1}
+                    showUploadList={false}
+                    beforeUpload={(file) => {
+                      openFileCreate(file as File)
+                      return false
+                    }}
+                  >
+                    <Button icon={<FileAddOutlined />}>导入文件</Button>
+                  </Upload>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button
+                    size="small"
+                    icon={<PlusOutlined />}
+                    onClick={() => openCreateModal()}
+                  >
+                    直接创建空作品
+                  </Button>
+                  {creationTemplates.length > 0 && (
                     <Select
+                      size="small"
                       allowClear
-                      placeholder="选择之前保存的新书模板"
+                      placeholder="套用模板"
+                      style={{ minWidth: 140 }}
                       options={creationTemplates.map((item) => ({ label: item.name, value: item.id }))}
                       onChange={handleTemplateChange}
                     />
-                  </Form.Item>
-                )}
-                <Form.Item
-                  name="user_brief"
-                  label="创作设想"
-                  rules={[{ required: true, message: '请写下你的创作设想' }]}
-                >
-                  <TextArea
-                    placeholder="例如：我想写一本女频修仙文，主角是三岁穿越女娃，核心卖点是科学思维修仙和病毒追杀..."
-                    autoSize={{ minRows: 4, maxRows: 8 }}
-                    showCount
-                    maxLength={1000}
-                  />
-                </Form.Item>
-                <Form.Item name="reference_examples" label="参考作品 / 示例风格（可选）">
-                  <TextArea
-                    placeholder="例如：想要某作品的探索感、某平台的短章钩子、某类主角关系张力..."
-                    autoSize={{ minRows: 2, maxRows: 5 }}
-                    showCount
-                    maxLength={800}
-                  />
-                </Form.Item>
-                <Button type="primary" htmlType="submit" icon={<RobotOutlined />} loading={assistantBusy} block>
-                  生成新书方案
-                </Button>
-              </Form>
-            </Card>
-
-            <Card size="small" title="或者导入已有小说文件">
-              <Paragraph type="secondary" style={{ marginBottom: 12 }}>
-                已有 TXT / DOCX 可先导入，也可以直接创建空作品。
-              </Paragraph>
-              <Space>
-                <Button icon={<PlusOutlined />} onClick={() => openCreateModal()}>
-                  直接创建空作品
-                </Button>
-                <Upload
-                  accept=".txt,.docx"
-                  maxCount={1}
-                  showUploadList={false}
-                  beforeUpload={(file) => openFileCreate(file as File)}
-                >
-                  <Button icon={<FileAddOutlined />}>导入文件</Button>
-                </Upload>
-              </Space>
+                  )}
+                </div>
+              </div>
             </Card>
           </div>
         )}
@@ -1434,8 +1402,12 @@ function DashboardPage() {
                         {blueprint.genre && <Tag>{blueprint.genre}</Tag>}
                         {blueprint.estimated_chapters && <Tag>{blueprint.estimated_chapters} 章预估</Tag>}
                         {blueprint.creation_engine && (
-                          <Tag color={blueprint.creation_engine === 'instant_template' ? 'default' : 'purple'}>
-                            {blueprint.creation_engine === 'instant_template' ? '快速草案' : '深度优化'}
+                          <Tag color={blueprint.creation_engine === 'instant_template' ? 'default' : blueprint.creation_engine === 'template_fallback' ? 'orange' : 'purple'}>
+                            {blueprint.creation_engine === 'instant_template'
+                              ? '快速草案'
+                              : blueprint.creation_engine === 'template_fallback'
+                              ? '模板回退'
+                              : '模型深化'}
                           </Tag>
                         )}
                         {blueprint.protagonist?.name && <Tag color="blue">主角：{blueprint.protagonist.name}</Tag>}
@@ -1458,25 +1430,43 @@ function DashboardPage() {
                           </ul>
                         </div>
                       ) : null}
-                      {blueprint.world_hook && (
-                        <Text type="secondary">世界钩子：{blueprint.world_hook}</Text>
-                      )}
-                      {blueprint.core_conflict && (
-                        <Text type="secondary">核心冲突：{blueprint.core_conflict}</Text>
-                      )}
-                      {blueprint.protagonist?.goal && (
-                        <Text type="secondary">主角目标：{blueprint.protagonist.goal}</Text>
-                      )}
-                      {blueprint.golden_three && (
-                        <div>
-                          <Text strong>黄金三章</Text>
-                          <Space direction="vertical" size={2} style={{ width: '100%', marginTop: 4 }}>
-                            {blueprint.golden_three.chapter_1 && <Text type="secondary">1：{blueprint.golden_three.chapter_1}</Text>}
-                            {blueprint.golden_three.chapter_2 && <Text type="secondary">2：{blueprint.golden_three.chapter_2}</Text>}
-                            {blueprint.golden_three.chapter_3 && <Text type="secondary">3：{blueprint.golden_three.chapter_3}</Text>}
-                          </Space>
-                        </div>
-                      )}
+                      <Collapse
+                        ghost
+                        size="small"
+                        items={[{
+                          key: 'details',
+                          label: <Text type="secondary" style={{ fontSize: 12 }}>查看详情（世界钩子、核心冲突、黄金三章）</Text>,
+                          children: (
+                            <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                              {blueprint.world_hook && (
+                                <Text type="secondary">世界钩子：{blueprint.world_hook}</Text>
+                              )}
+                              {blueprint.core_conflict && (
+                                <Text type="secondary">核心冲突：{blueprint.core_conflict}</Text>
+                              )}
+                              {blueprint.protagonist?.goal && (
+                                <Text type="secondary">主角目标：{blueprint.protagonist.goal}</Text>
+                              )}
+                              {blueprint.protagonist?.weakness && (
+                                <Text type="secondary">主角弱点：{blueprint.protagonist.weakness}</Text>
+                              )}
+                              {blueprint.protagonist?.opening_pressure && (
+                                <Text type="secondary">开局压力：{blueprint.protagonist.opening_pressure}</Text>
+                              )}
+                              {blueprint.golden_three && (
+                                <div>
+                                  <Text strong>黄金三章</Text>
+                                  <Space direction="vertical" size={2} style={{ width: '100%', marginTop: 4 }}>
+                                    {blueprint.golden_three.chapter_1 && <Text type="secondary">1：{blueprint.golden_three.chapter_1}</Text>}
+                                    {blueprint.golden_three.chapter_2 && <Text type="secondary">2：{blueprint.golden_three.chapter_2}</Text>}
+                                    {blueprint.golden_three.chapter_3 && <Text type="secondary">3：{blueprint.golden_three.chapter_3}</Text>}
+                                  </Space>
+                                </div>
+                              )}
+                            </Space>
+                          ),
+                        }]}
+                      />
                       {renderCreativeSlots(blueprint, index)}
                       {blueprint.quality_self_check?.issues?.length ? (
                         <Alert
@@ -1513,11 +1503,11 @@ function DashboardPage() {
 
               <div className="assistant-chat-messages">
                 {showQAEditor && questionHistory.length > 0 && (
-                  <div style={{ background: '#f8f9fa', borderRadius: 8, padding: 12, marginBottom: 8 }}>
+                  <div style={{ background: 'var(--ant-color-fill-tertiary, #f8f9fa)', borderRadius: 8, padding: 12, marginBottom: 8 }}>
                     <div style={{ fontWeight: 600, marginBottom: 8 }}>修改你的回答：</div>
                     {questionHistory.map((qa, i) => (
                       <div key={i} style={{ marginBottom: 8 }}>
-                        <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>{qa.question}</div>
+                        <div style={{ fontSize: 12, color: 'var(--ant-color-text-secondary, #666)', marginBottom: 4 }}>{qa.question}</div>
                         <Input
                           size="small"
                           value={editingAnswers[qa.question] ?? qa.answer}
@@ -1557,7 +1547,7 @@ function DashboardPage() {
                   >
                     {item.content}
                     {item.status === 'running' && elapsedSeconds > 0 && (
-                      <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>⏱ {elapsedSeconds}s</span>
+                      <span style={{ color: 'var(--ant-color-text-tertiary, #999)', fontSize: 12, marginLeft: 8 }}>⏱ {elapsedSeconds}s</span>
                     )}
                     {item.questions && item.questions.length > 0 && renderQuestionCard(item.questions[0])}
                   </div>

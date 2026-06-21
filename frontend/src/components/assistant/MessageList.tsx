@@ -50,19 +50,26 @@ export function MessageList({
               key={`${item.role}-${item.id || index}`}
               className={`workspace-assistant-message workspace-assistant-${item.role}`}
             >
-              <Tag
-                color={
-                  item.role === 'user'
-                    ? 'default'
-                    : item.status === 'error'
-                      ? 'red'
-                      : item.status === 'aborted'
-                        ? 'orange'
-                        : 'blue'
-                }
-              >
-                {item.role === 'user' ? '你' : SCOPE_LABEL}
-              </Tag>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Tag
+                  color={
+                    item.role === 'user'
+                      ? 'default'
+                      : item.status === 'error'
+                        ? 'red'
+                        : item.status === 'aborted'
+                          ? 'orange'
+                          : 'blue'
+                  }
+                >
+                  {item.role === 'user' ? '你' : SCOPE_LABEL}
+                </Tag>
+                {item.created_at && (
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {new Date(item.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                )}
+              </div>
               <Paragraph style={{ marginTop: 6, marginBottom: 6, whiteSpace: 'pre-wrap' }}>
                 {item.content}
               </Paragraph>
@@ -104,7 +111,12 @@ export function MessageList({
         )}
 
         {generating && (
-          <Text type="secondary">AI 助手正在分析{'...'}</Text>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0' }}>
+            <div className="typing-indicator">
+              <span /><span /><span />
+            </div>
+            <Text type="secondary" style={{ fontSize: 12 }}>AI 正在分析</Text>
+          </div>
         )}
 
         {/* Matched skills indicator */}

@@ -80,6 +80,17 @@ DEFAULT_ENABLED_PACKS = [
     "trusted_local_maintenance",
 ]
 DEFAULT_TRUSTED_LOCAL_ENABLED = True
-DEFAULT_TRUSTED_LOCAL_CLIENTS: list[str] = ["claude-code", "codex", "opencode"]
+DEFAULT_TRUSTED_LOCAL_CLIENTS: list[str] = [
+    "claude-code",
+    "codex",
+    "opencode",
+    "mimocode",
+    "cursor",
+    "trae",
+    "kilocode",
+    "qwen-code",
+    "hermes",
+    "openclaw",
+]
 DEFAULT_REQUIRE_CONFIRMATION_FOR_WRITES = False
 DEFAULT_REQUIRE_CONFIRMATION_FOR_DESTRUCTIVE = False

@@ -31,6 +31,12 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapabilities] = {
     "claude_cli": ProviderCapabilities(supports_tools=False, supports_tool_choice=False, supports_streaming_tools=False),
     "codex_cli": ProviderCapabilities(supports_tools=False, supports_tool_choice=False, supports_streaming_tools=False),
     "opencode_cli": ProviderCapabilities(supports_tools=False, supports_tool_choice=False, supports_streaming_tools=False),
+    "mimocode_cli": ProviderCapabilities(supports_tools=False, supports_tool_choice=False, supports_streaming_tools=False),
+    "cursor_cli": ProviderCapabilities(supports_tools=False, supports_tool_choice=False, supports_streaming_tools=False),
+    "kilocode_cli": ProviderCapabilities(supports_tools=False, supports_tool_choice=False, supports_streaming_tools=False),
+    "qwen_code_cli": ProviderCapabilities(supports_tools=False, supports_tool_choice=False, supports_streaming_tools=False),
+    "hermes_cli": ProviderCapabilities(supports_tools=False, supports_tool_choice=False, supports_streaming_tools=False),
+    "openclaw_cli": ProviderCapabilities(supports_tools=False, supports_tool_choice=False, supports_streaming_tools=False),
     "custom_cli": ProviderCapabilities(supports_tools=False, supports_tool_choice=False, supports_streaming_tools=False),
 }
 

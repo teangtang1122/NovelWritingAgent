@@ -106,18 +106,51 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Detailed health check."""
-    return {"status": "healthy", "version": APP_VERSION, "build": "eac-external-agent-nav"}
+    return {"status": "healthy", "version": APP_VERSION, "build": "multi-agent-cli-autoconfig"}
 
 
 @app.on_event("startup")
 async def startup_scheduler():
-    """Start the background scheduler engine."""
+    """Start background services and auto-configure detected local Agent clients."""
     try:
         from .services.scheduler.engine import start_scheduler
         start_scheduler()
     except Exception as exc:
         import logging
         logging.getLogger(__name__).warning("Failed to start scheduler: %s", exc)
+    if "pytest" not in sys.modules:
+        async def _configure_external_agents() -> None:
+            try:
+                import asyncio
+                import logging
+                from .services.external_agent.mcp_auto_config import (
+                    auto_configure_detected_mcp_clients,
+                    ensure_detected_local_cli_model_configs,
+                    migrate_legacy_external_agent_defaults,
+                )
+
+                result = await asyncio.to_thread(
+                    auto_configure_detected_mcp_clients,
+                    permission_pack="auto",
+                )
+                with SessionLocal() as db:
+                    created_providers = ensure_detected_local_cli_model_configs(db)
+                    defaults_migrated = migrate_legacy_external_agent_defaults(db)
+                logging.getLogger(__name__).info(
+                    "External Agent MCP auto-configuration: %s; providers added=%s; defaults migrated=%s",
+                    result.get("detail"),
+                    created_providers,
+                    defaults_migrated,
+                )
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "External Agent MCP auto-configuration failed: %s",
+                    exc,
+                )
+
+        import asyncio
+        asyncio.create_task(_configure_external_agents())
 
 
 if FRONTEND_DIST:

@@ -380,8 +380,8 @@ def main() -> None:
     window = webview.create_window(
         title=f"{APP_NAME}",
         html=SPLASH_HTML,
-        width=1100,
-        height=750,
+        width=1400,
+        height=900,
         min_size=(800, 600),
         text_select=True,
     )

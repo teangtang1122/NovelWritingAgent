@@ -2989,6 +2989,13 @@ async def _evaluate_answers(
     """
     qa_text = "\n".join([f"问：{item['question']}\n答：{item['answer']}" for item in qa_history])
 
+    # Detect vague answers
+    vague_patterns = ["不确定", "暂不确定", "不知道", "你来定", "你决定", "随便", "都行", "没想好", "还没想", "待定", "建议"]
+    has_vague_answer = any(
+        any(p in item["answer"] for p in vague_patterns)
+        for item in qa_history
+    )
+
     system = (
         f"你是资深小说策划编辑。用户想写一本小说，正在回答你的提问。\n"
         f"请严格判断已收集的信息是否足够生成高质量方案。宁可多问也不要信息不足就生成。\n\n"
@@ -3003,6 +3010,7 @@ async def _evaluate_answers(
         f"6. **篇幅**：预估章节数或篇幅（短篇/中篇/长篇/超长篇）\n"
         f"7. **读者**：目标读者群体（男频/女频/年龄层/平台偏好）\n\n"
         f"## 判断规则\n"
+        f"- 如果用户回答了「不确定」「暂不确定」「你来定」「随便」等模糊内容：该维度不算覆盖，必须继续问\n"
         f"- 如果覆盖维度 < 5：必须继续问，优先问缺失的核心维度\n"
         f"- 如果覆盖维度 >= 5但某个维度答案太模糊（如只说了'玄幻'没说具体体系）：继续追问细化\n"
         f"- 如果覆盖维度 >= 5且每个维度都有具体答案：可以生成\n"
@@ -3029,9 +3037,34 @@ async def _evaluate_answers(
         _logger.warning("LLM answer evaluation failed: %s", exc)
         return {"action": "generate", "reason": "LLM评估失败，默认生成"}
 
+    # Force ask_more if there are vague answers
+    if has_vague_answer:
+        # Generate a follow-up question based on the vague dimension
+        vague_items = [item for item in qa_history if any(p in item["answer"] for p in vague_patterns)]
+        last_vague = vague_items[-1] if vague_items else None
+        if last_vague:
+            return {
+                "action": "ask_more",
+                "questions": [{
+                    "question": f"你刚才说对{last_vague['question']}不太确定。让我给你几个方向选择：",
+                    "purpose": "帮你明确创作方向",
+                    "options": _get_genre_specific_suggestions(genre_label, last_vague["question"]),
+                    "type": "single_select",
+                }],
+            }
+
     raw = (result.get("content") or "").strip()
     if not raw:
-        return {"action": "generate", "reason": "LLM返回空，默认生成"}
+        # LLM failed - ask more questions instead of generating with insufficient info
+        return {
+            "action": "ask_more",
+            "questions": [{
+                "question": "还需要确认一些关键信息。你希望故事的基调是什么？",
+                "purpose": "确定故事风格和读者预期",
+                "options": ["热血励志（逆袭打脸、不断突破）", "轻松治愈（日常向、温馨有趣）", "暗黑严肃（深度探讨人性和社会）", "悬疑紧张（层层揭秘、步步惊心）"],
+                "type": "single_select",
+            }],
+        }
 
     parsed = parse_json_object(raw)
     if parsed is None:
@@ -3044,7 +3077,15 @@ async def _evaluate_answers(
         try:
             parsed = json.loads(clean)
         except (json.JSONDecodeError, ValueError):
-            return {"action": "generate", "reason": "LLM解析失败，默认生成"}
+            return {
+                "action": "ask_more",
+                "questions": [{
+                    "question": "还需要确认一些关键信息。你希望故事的基调是什么？",
+                    "purpose": "确定故事风格和读者预期",
+                    "options": ["热血励志（逆袭打脸、不断突破）", "轻松治愈（日常向、温馨有趣）", "暗黑严肃（深度探讨人性和社会）", "悬疑紧张（层层揭秘、步步惊心）"],
+                    "type": "single_select",
+                }],
+            }
 
     if isinstance(parsed, dict) and "action" in parsed:
         if parsed["action"] == "ask_more" and "questions" in parsed:
@@ -3052,6 +3093,58 @@ async def _evaluate_answers(
         return {"action": "generate", "reason": parsed.get("reason", "信息充分")}
 
     return {"action": "generate", "reason": "LLM返回格式异常，默认生成"}
+
+
+def _get_genre_specific_suggestions(genre_label: str, question: str) -> list[str]:
+    """Get genre-specific suggestions for a vague answer."""
+    genre_lower = genre_label.lower()
+
+    if "主角" in question or "身份" in question or "背景" in question:
+        if "玄幻" in genre_lower or "修仙" in genre_lower:
+            return [
+                "废柴逆袭（资质平庸但有奇遇）",
+                "天才少年（天赋异禀但有致命缺陷）",
+                "重生者（带着前世记忆回到过去）",
+                "穿越者（现代人穿越到修仙世界）",
+            ]
+        elif "都市" in genre_lower:
+            return [
+                "普通上班族（意外获得超能力）",
+                "退伍军人（回归都市生活）",
+                "豪门弃子（被家族抛弃后逆袭）",
+                "隐藏身份（表面普通人实则大佬）",
+            ]
+        elif "言情" in genre_lower:
+            return [
+                "独立女性（事业型女主）",
+                "温柔治愈（善良但有底线）",
+                "高冷傲娇（外表冷漠内心炽热）",
+                "活泼开朗（阳光型女主）",
+            ]
+
+    if "基调" in question or "风格" in question:
+        return [
+            "热血励志（逆袭打脸、不断突破）",
+            "轻松治愈（日常向、温馨有趣）",
+            "暗黑严肃（深度探讨人性和社会）",
+            "悬疑紧张（层层揭秘、步步惊心）",
+        ]
+
+    if "冲突" in question or "对手" in question:
+        return [
+            "宗门/家族争斗（势力之间的博弈）",
+            "天道/规则挑战（对抗不公的天道或规则）",
+            "情感纠葛（感情线带来的冲突）",
+            "身世之谜（探寻真相的过程中遭遇阻碍）",
+        ]
+
+    # Default suggestions
+    return [
+        "我来提几个方向供你选择",
+        "让我换个方式问这个问题",
+        "你可以说说你喜欢的小说类型",
+        "或者描述一下你理想中的主角",
+    ]
 
 
 async def _llm_generate_genre_questions(
@@ -3346,7 +3439,7 @@ async def _try_llm_initial_draft(
         for i, (label, desc) in enumerate(variants)
     ]
 
-    _logger.info("Hybrid mode: calling LLM for 3 variants in parallel...")
+    _logger.info("Hybrid mode: calling LLM for 3 variants in parallel (genre=%s)...", genre_label)
     llm_results = await asyncio.gather(
         *[_call_llm_for_single_blueprint(msgs) for msgs in prompts],
         return_exceptions=True,
@@ -3355,10 +3448,15 @@ async def _try_llm_initial_draft(
     result = []
     for i, llm_bp in enumerate(llm_results):
         if isinstance(llm_bp, Exception):
+            _logger.warning("Hybrid mode: variant %d raised exception: %s", i, llm_bp)
             llm_bp = None
+        llm_succeeded = bool(llm_bp and isinstance(llm_bp, dict))
         if not llm_bp or not isinstance(llm_bp, dict):
-            _logger.warning("Hybrid mode: variant %d failed, using template fallback", i)
+            _logger.warning("Hybrid mode: variant %d failed (type=%s), using template fallback for genre=%s",
+                          i, type(llm_bp).__name__, genre_label)
             llm_bp = template_blueprints[i] if i < len(template_blueprints) else template_blueprints[0]
+        else:
+            _logger.info("Hybrid mode: variant %d LLM success, title=%s", i, llm_bp.get("title", "unknown"))
         template_ref = template_blueprints[i] if i < len(template_blueprints) else template_blueprints[0]
         merged = _merge_llm_blueprint(llm_bp, template_ref)
         prot_name = _clean_text(
@@ -3371,7 +3469,7 @@ async def _try_llm_initial_draft(
             genre_label=genre_label,
             protagonist_name=prot_name,
         )
-        validated["creation_engine"] = "template_llm_hybrid"
+        validated["creation_engine"] = "template_llm_hybrid" if llm_succeeded else "template_fallback"
         result.append(validated)
 
     _logger.info("Hybrid mode: generated %d blueprints", len(result))
@@ -3735,6 +3833,81 @@ def _story_concept_profiles(user_brief: str, generation_cycle: int = 0) -> list[
         ]
         return concept_sets[generation_cycle % len(concept_sets)]
 
+    # Genre-specific concept sets
+    normalized_text = normalized
+
+    # 玄幻/修仙 concepts
+    if any(kw in normalized_text for kw in ["玄幻", "修仙", "仙侠", "修炼", "境界"]):
+        xuanhuan_sets = [
+            [
+                {
+                    "name": "废柴逆天",
+                    "title": "我有一座通天塔",
+                    "hook": "被所有人看不起的废柴，意外获得一座可以通往万界的神秘高塔",
+                    "conflict": "主角要在宗门打压、家族内斗和天道考验中生存下来，同时揭开高塔的真正秘密",
+                    "goal": "突破修炼极限，找到失踪的父母，揭开天道不公的真相",
+                    "background": "主角是修仙世家的废物少爷，灵根被毁，父母失踪，被家族抛弃。意外激活体内封印的通天塔，获得跨界修炼的能力。",
+                    "personality": "隐忍、聪明、重情义，表面低调实则心有大志，对背叛者绝不手软",
+                    "opening": "宗门大比，主角被对手当众羞辱，却在最后一刻爆发出超越所有人的力量。",
+                    "advantage": "通天塔可以连接不同修炼体系，让主角融合多种功法，但每次突破都需要付出巨大代价。",
+                    "pressure": "宗门长老觊觎通天塔的秘密，家族想利用他争夺资源，天道则在监视这个不该存在的变数。",
+                    "chapter_1": "宗门大比，主角被嘲笑为废物，却在最后一击中展现出超越境界的实力。",
+                    "chapter_2": "主角发现通天塔的第二层，获得一门失传的功法，但也引来宗门长老的注意。",
+                    "chapter_3": "家族来人要求主角回去参加祭祖大典，主角发现父母的失踪与家族有关。",
+                    "cast": ["天才堂兄", "神秘师父", "青梅竹马", "宗门圣女", "家族长老"],
+                    "worldbuilding": [
+                        ("power_system", "修炼体系", "炼气→筑基→金丹→元婴→化神→渡劫→大乘，每个境界分九层，突破需要悟道和资源。"),
+                        ("factions", "势力格局", "四大宗门争雄，世家大族暗中角力，散修联盟艰难生存，还有隐藏的远古势力。"),
+                        ("history", "万年前的大战", "上古时期人族与妖族大战，留下无数秘境和传承，也埋下了天道不公的隐患。"),
+                    ],
+                },
+                {
+                    "name": "重生修仙",
+                    "title": "重生之我有一本天书",
+                    "hook": "渡劫失败的大能重生回少年时代，带着前世记忆和一本记载未来的天书",
+                    "conflict": "主角要用前世记忆避开所有陷阱，但改变命运的同时也在改变天书的记载",
+                    "goal": "弥补前世遗憾，保护重要的人，找到渡劫失败的真正原因",
+                    "background": "主角前世是修仙界天才，却在渡劫时被最信任的人背叛，陨落后重生回入门之前。",
+                    "personality": "外表温和内心警惕，对敌人冷酷无情，对真心相待的人拼死守护",
+                    "opening": "主角从渡劫失败的噩梦中醒来，发现自己回到了百年前的入门大典。",
+                    "advantage": "前世记忆让他知道所有机缘的位置和陷阱，但天书会随着他的选择而改变。",
+                    "pressure": "前世的仇人已经开始布局，而主角现在的实力远不足以正面对抗。",
+                    "chapter_1": "入门大典，主角避开前世的陷阱，选择了一条被所有人嘲笑的修炼之路。",
+                    "chapter_2": "主角提前获取前世被夺走的机缘，却发现这次有新的变数出现。",
+                    "chapter_3": "前世的仇人找上门来，主角用计谋化解危机，但也暴露了自己的不寻常。",
+                    "cast": ["前世仇人", "被辜负的师姐", "隐藏的盟友", "天道使者", "神秘老者"],
+                    "worldbuilding": [
+                        ("power_system", "天书规则", "天书记录未来，但每次主角改变命运，天书就会更新，代价是主角的记忆会受损。"),
+                        ("factions", "宗门与世家", "修仙界由几大宗门和世家大族把持，资源争夺激烈，散修生存艰难。"),
+                        ("history", "万年前的约定", "人族与天道签订契约，每代天才的命运都被预定，主角的重生打破了这个平衡。"),
+                    ],
+                },
+                {
+                    "name": "凡人修仙",
+                    "title": "凡人也能逆天改命",
+                    "hook": "没有灵根的凡人，靠智慧和毅力在修仙界杀出一条血路",
+                    "conflict": "主角没有天赋，只能用凡人的智慧对抗天才，同时寻找突破资质限制的方法",
+                    "goal": "证明凡人也能修仙，打破天道对资质的限制，为所有凡人开辟一条新路",
+                    "background": "主角是修仙界最底层的凡人，没有灵根，被所有人看不起。偶然发现一本凡人也能修炼的残卷。",
+                    "personality": "坚韧、聪明、不服输，善于利用规则和环境，不与天才正面硬拼",
+                    "opening": "主角在宗门做杂役，被天才弟子欺辱，却意外发现一本被丢弃的残卷。",
+                    "advantage": "残卷记载的修炼方式与主流完全不同，虽然进展缓慢但没有资质限制。",
+                    "pressure": "宗门不允许凡人修炼，天才弟子视他为蝼蚁，残卷的秘密也引来觊觎。",
+                    "chapter_1": "主角被欺辱后意外获得残卷，开始秘密修炼，却发现进展异常缓慢。",
+                    "chapter_2": "主角用凡人的智慧帮助宗门解决了一个难题，获得一次参加外门考核的机会。",
+                    "chapter_3": "外门考核中，主角用独特的方式通过考验，震惊所有人，但也引来嫉妒。",
+                    "cast": ["天才对手", "善良师姐", "神秘老者", "宗门长老", "凡人同伴"],
+                    "worldbuilding": [
+                        ("power_system", "凡人修炼法", "残卷记载的修炼方式不依赖灵根，而是用意志和智慧感悟天地法则，进展缓慢但上限未知。"),
+                        ("factions", "宗门等级", "外门弟子→内门弟子→核心弟子→长老→太上长老，凡人连外门都进不去。"),
+                        ("history", "凡人修仙的传说", "上古时期有凡人成仙的传说，但被修仙界视为异端，相关典籍被销毁。"),
+                    ],
+                },
+            ]
+        ]
+        return xuanhuan_sets[generation_cycle % len(xuanhuan_sets)]
+
+    # Generic sets for other genres
     generic_sets = [
         [
             {
@@ -4762,10 +4935,18 @@ async def draft_novel_blueprint(
         )
         if revision_mode == "refine":
             detail = f"Refined {len(blueprints)} blueprint options from current direction"
-            recommendation = "已按反馈在当前方向上调整三套方案；请优先查看需求覆盖率，仍感觉方向不对时可以全部重新生成。"
+            recommendation = (
+                "已用模板与模型按反馈调整三套方案；请重点检查主角动机、弱点、开局压力和黄金三章。"
+                if llm_succeeded
+                else "模型深化暂时不可用，已保留模板调整结果；可以稍后再次深度优化。"
+            )
         elif revision_mode == "regenerate":
             detail = f"Regenerated {len(blueprints)} blueprint options"
-            recommendation = "已按反馈重新生成三套方案；建议先比较标题、核心冲突、黄金三章和创意槽是否符合预期。"
+            recommendation = (
+                "已用模板与模型重新生成三套方案；建议比较标题、核心冲突、主角压力和黄金三章。"
+                if llm_succeeded
+                else "模型深化暂时不可用，已用模板重新生成三套方案；可以稍后再次深度优化。"
+            )
         elif llm_succeeded:
             detail = f"Generated {len(blueprints)} hybrid blueprint options (template + LLM)"
             recommendation = "已用模板+LLM混合引擎生成三套方案；每套方案的标题、角色和世界观都经过创意优化，优先选择最打动你的一套。"
@@ -4781,7 +4962,13 @@ async def draft_novel_blueprint(
                 "execution_mode": execution_mode,
                 "revision_mode": revision_mode,
                 "enhance_with_llm": enhance_with_llm,
-                "enhancement_mode": "template_llm_hybrid" if llm_succeeded else "instant_template",
+                "enhancement_mode": (
+                    "template_llm_hybrid"
+                    if llm_succeeded
+                    else "template_fallback"
+                    if should_try_llm
+                    else "instant_template"
+                ),
                 "feedback": feedback,
                 "compiled_brief": compiled,
                 "coverage_summary": [
@@ -5452,3 +5639,169 @@ async def refresh_question_options(
         return {"question": question, "options": new_options[:1]}
 
     return {"question": question, "options": []}
+
+
+async def system_chat_completion(
+    *,
+    message: str,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    """General conversation for system assistant without project context.
+
+    Uses LLM to understand user intent and respond naturally.
+    Context may include: blueprints, sessionId, brief, importedFiles, history.
+    """
+    # Build context description
+    context_parts = []
+
+    blueprints = context.get("blueprints")
+    if blueprints and len(blueprints) > 0:
+        titles = [bp.get("title", "未知") for bp in blueprints[:3]]
+        context_parts.append(f"当前有{len(blueprints)}个新书方案：{'、'.join(titles)}")
+
+    session_id = context.get("sessionId")
+    if session_id:
+        context_parts.append("有一个活跃的创作会话")
+
+    brief = context.get("brief")
+    if brief:
+        context_parts.append(f"用户的创作设想：{brief[:200]}")
+
+    imported_files = context.get("importedFiles")
+    if not isinstance(imported_files, list):
+        legacy_imported_file = context.get("importedFile")
+        imported_files = [legacy_imported_file] if isinstance(legacy_imported_file, dict) else []
+    if imported_files:
+        file_descriptions = [
+            f"{item.get('name', '未知')}（{item.get('length', 0)}字）"
+            for item in imported_files[:3]
+            if isinstance(item, dict)
+        ]
+        if file_descriptions:
+            context_parts.append(f"用户刚导入了文件：{'、'.join(file_descriptions)}")
+
+    history = context.get("history")
+    history_text = ""
+    if history and len(history) > 0:
+        recent = history[-6:]  # Last 3 turns
+        history_text = "\n".join([f"{'用户' if h.get('role') == 'user' else '墨枢'}：{h.get('content', '')[:200]}" for h in recent])
+
+    context_desc = "\n".join(context_parts) if context_parts else "当前没有任何特殊上下文。"
+
+    system = (
+        f"你是墨枢，一个专业的小说创作助手。你正在和用户进行系统级对话（没有绑定具体作品）。\n\n"
+        f"## 当前上下文\n{context_desc}\n\n"
+        f"## 近期对话\n{history_text}\n\n"
+        f"## 你的能力\n"
+        f"1. 帮用户创建新小说项目（通过新书立项流程）\n"
+        f"2. 管理已有作品列表\n"
+        f"3. 导入文件为新作品\n"
+        f"4. 基于参考文件写新书\n"
+        f"5. 回答关于小说创作的问题\n\n"
+        f"## 回复原则\n"
+        f"- 根据上下文理解用户的真实意图，不要死板地匹配关键词\n"
+        f"- 如果用户在表达不满或困惑，理解他们的情绪并给出有帮助的回应\n"
+        f"- 如果用户问了一个问题，直接回答\n"
+        f"- 如果用户想做某件事，告诉他们怎么操作（或直接帮他们做）\n"
+        f"- 回复简洁自然，不要用机器人式的固定格式\n"
+        f"- 如果不确定用户意图，可以反问确认\n\n"
+        f"## 输出格式\n"
+        f"直接回复用户的消息，不要JSON，不要Markdown代码块。"
+    )
+
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": message},
+    ]
+
+    try:
+        result = await LLMGateway.chat_completion(
+            messages=messages,
+            temperature=0.7,
+            max_tokens=800,
+            timeout=30,
+            retry=0,
+        )
+        reply = (result.get("content") or "").strip()
+        if not reply:
+            reply = "抱歉，我没有理解你的意思。你可以告诉我你想写什么类型的小说，或者直接说「查看我的作品列表」。"
+    except Exception as exc:
+        _logger.warning("System chat failed: %s", exc)
+        reply = "抱歉，出了点问题。你可以直接说「我想写一本新书」来开始创作。"
+
+    return {"reply": reply}
+
+
+async def list_imported_files(
+    db: Session,
+    project_id: str,
+    args: dict[str, Any],
+) -> dict:
+    """List all imported files in the working directory."""
+    from app.services.content_store import content_root
+    from datetime import datetime
+
+    root = content_root()
+    imported_dir = root / ".imported"
+    if not imported_dir.exists():
+        return {
+            "tool": "list_imported_files",
+            "status": "ok",
+            "data": {"files": [], "directory": str(imported_dir)},
+        }
+
+    files = []
+    for f in sorted(imported_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+        if f.is_file():
+            files.append({
+                "filename": f.name,
+                "path": str(f),
+                "size": f.stat().st_size,
+                "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+            })
+
+    return {
+        "tool": "list_imported_files",
+        "status": "ok",
+        "data": {"files": files, "directory": str(imported_dir)},
+    }
+
+
+async def read_imported_file(
+    db: Session,
+    project_id: str,
+    args: dict[str, Any],
+) -> dict:
+    """Read the content of a specific imported file."""
+    from app.services.content_store import content_root
+
+    filename = _clean_text(args.get("filename"))
+    if not filename:
+        return {"tool": "read_imported_file", "status": "skipped", "detail": "filename is required", "data": None}
+
+    root = content_root()
+    imported_dir = root / ".imported"
+    file_path = imported_dir / filename
+
+    if not file_path.exists():
+        return {"tool": "read_imported_file", "status": "skipped", "detail": "文件不存在", "data": None}
+
+    # Security: prevent path traversal
+    if not file_path.resolve().is_relative_to(imported_dir.resolve()):
+        return {"tool": "read_imported_file", "status": "skipped", "detail": "访问被拒绝", "data": None}
+
+    max_size = _as_int(args.get("max_size"), 50000)  # Default 50KB
+    content = file_path.read_text(encoding='utf-8')
+    if len(content) > max_size:
+        content = content[:max_size] + f"\n...(文件已截断，共{len(content)}字)"
+
+    return {
+        "tool": "read_imported_file",
+        "status": "ok",
+        "data": {
+            "filename": filename,
+            "content": content,
+            "size": len(content),
+            "path": str(file_path),
+        },
+    }

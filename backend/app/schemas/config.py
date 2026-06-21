@@ -8,7 +8,18 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 PROVIDER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
-LOCAL_CLI_PROVIDER_IDS = {"claude_cli", "codex_cli", "opencode_cli", "custom_cli"}
+LOCAL_CLI_PROVIDER_IDS = {
+    "claude_cli",
+    "codex_cli",
+    "opencode_cli",
+    "mimocode_cli",
+    "cursor_cli",
+    "kilocode_cli",
+    "qwen_code_cli",
+    "hermes_cli",
+    "openclaw_cli",
+    "custom_cli",
+}
 
 
 def validate_provider_id(provider: str) -> str:

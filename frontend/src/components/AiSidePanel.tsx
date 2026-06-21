@@ -14,22 +14,22 @@ interface AiSidePanelProps {
 }
 
 function AiSidePanel({ collapsed, onToggle, width, onResizeHandle, dragging, children }: AiSidePanelProps) {
-  if (collapsed) return null
-
   return (
     <aside
-      className={`ai-side-panel${dragging ? ' ai-side-panel-dragging' : ''}`}
-      style={{ width }}
+      className={`ai-side-panel${collapsed ? ' ai-side-panel-collapsed' : ''}${dragging ? ' ai-side-panel-dragging' : ''}`}
+      style={{ width: collapsed ? 0 : width }}
     >
-      <div className="ai-side-resize-handle" onMouseDown={onResizeHandle} />
-      <div className="ai-side-head">
-        <Title level={5} style={{ margin: 0 }}>
-          <RobotOutlined /> 项目助手
-        </Title>
-        <Button type="text" size="small" icon={<MenuFoldOutlined />} onClick={onToggle} />
-      </div>
-      <div className="ai-side-body">
-        {children}
+      <div className="ai-side-panel-inner" style={{ width }}>
+        <div className="ai-side-resize-handle" onMouseDown={onResizeHandle} />
+        <div className="ai-side-head">
+          <Title level={5} style={{ margin: 0 }}>
+            <RobotOutlined /> 项目助手
+          </Title>
+          <Button type="text" size="small" icon={<MenuFoldOutlined />} onClick={onToggle} />
+        </div>
+        <div className="ai-side-body">
+          {children}
+        </div>
       </div>
     </aside>
   )

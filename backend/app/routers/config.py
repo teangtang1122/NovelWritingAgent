@@ -72,6 +72,12 @@ PROVIDER_LABELS: dict[str, str] = {
     "claude_cli": "Claude Code CLI",
     "codex_cli": "Codex CLI",
     "opencode_cli": "opencode CLI",
+    "mimocode_cli": "MiMo Code CLI",
+    "cursor_cli": "Cursor Agent CLI",
+    "kilocode_cli": "Kilo Code CLI",
+    "qwen_code_cli": "Qwen Code CLI",
+    "hermes_cli": "Hermes Agent CLI",
+    "openclaw_cli": "OpenClaw CLI",
     "custom_cli": "Custom Local CLI",
 }
 

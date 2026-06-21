@@ -213,7 +213,7 @@ def start_local_cli_agent_worker(
     if not cfg:
         return {
             "status": "skipped",
-            "detail": "未找到本机 CLI 模型配置，请先在系统设置中配置 claude_cli/codex_cli/opencode_cli",
+            "detail": "未找到本机 CLI 模型配置，请先在系统设置中配置任一受支持的本机 Agent CLI",
             "data": None,
         }
     provider = cfg.provider

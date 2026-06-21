@@ -119,7 +119,7 @@ build-exe.bat -OneDir
 powershell -ExecutionPolicy Bypass -File .\setup-external-agent-mcp.ps1
 ```
 
-脚本会自动检测 Claude Code / Codex，并写入对应 MCP 配置。也可以手动配置：
+Moshu 启动时会自动检测 Claude Code、Codex、OpenCode、MiMo Code、Cursor、Trae、Kilo Code、Qwen Code、Hermes Agent 和 OpenClaw，并合并对应 MCP 配置。发布包中的脚本用于手动重试或预览：
 
 ```json
 {

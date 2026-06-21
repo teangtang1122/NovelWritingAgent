@@ -12,6 +12,7 @@ import {
   Card,
   Collapse,
   Empty,
+  Modal,
   Input,
   InputNumber,
   Popover,
@@ -22,10 +23,12 @@ import {
   Tag,
   Tooltip,
   Typography,
+  Upload,
   message,
 } from 'antd'
 import {
   DeleteOutlined,
+  FileAddOutlined,
   FolderOpenOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -107,6 +110,8 @@ interface NovelBlueprint {
     conflict?: string
     personality?: string
     background?: string
+    weakness?: string
+    opening_pressure?: string
   }
   characters?: unknown[]
   relationships?: unknown[]
@@ -135,6 +140,7 @@ interface NovelStartData {
 interface NovelDraftData {
   blueprints: NovelBlueprint[]
   recommendation?: string
+  enhancement_mode?: 'instant_template' | 'template_llm_hybrid' | 'template_fallback'
   questions?: Array<{ question: string; purpose?: string; options?: string[] }>
   original_brief?: string
   hint?: string
@@ -148,6 +154,48 @@ type AssistantMode = 'fast' | 'quality'
 
 const PROJECT_STORAGE_KEY = 'moshu.gui.assistant.projectId'
 const SIDEBAR_STORAGE_KEY = 'moshu.gui.assistant.sidebarCollapsed'
+const CREATION_TEMPLATE_KEY = 'moshu:novelCreationTemplates'
+
+interface CreationTemplate {
+  id: string
+  name: string
+  brief: string
+  creative_slots?: Record<string, string | string[]>
+}
+
+function slotValueToText(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value.join('；')
+  return value || ''
+}
+
+function slotDraftToFeedback(slots: Record<string, string | string[]>): string {
+  const labels: Record<string, string> = {
+    story_engine: '故事发动机',
+    genre_fusion: '类型融合',
+    protagonist_design: '主角设计',
+    world_rules: '世界规则',
+    conflict_engine: '冲突发动机',
+    reader_promise: '读者承诺',
+    scale_plan: '篇幅规划',
+    custom_motifs: '创意要素',
+    avoid_list: '禁用/避免',
+    reference_examples: '参考样例',
+  }
+  return Object.entries(slots)
+    .map(([key, value]) => `${labels[key] || key}：${slotValueToText(value)}`)
+    .filter((line) => line.trim().length > 2)
+    .join('\n')
+}
+
+function readCreationTemplates(): CreationTemplate[] {
+  try {
+    const raw = localStorage.getItem(CREATION_TEMPLATE_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
 
 function shouldUseNovelCreation(text: string, hasActiveProject: boolean) {
   const normalized = text.trim()
@@ -190,6 +238,8 @@ function formatBlueprintSummary(blueprints: NovelBlueprint[]) {
       metrics ? `规模：${metrics}` : '',
       bp.logline ? `一句话：${bp.logline}` : '',
       bp.protagonist?.goal ? `主角目标：${bp.protagonist.goal}` : '',
+      bp.protagonist?.weakness ? `主角弱点：${bp.protagonist.weakness}` : '',
+      bp.protagonist?.opening_pressure ? `开局压力：${bp.protagonist.opening_pressure}` : '',
       bp.golden_three?.chapter_1 ? `首章钩子：${bp.golden_three.chapter_1}` : '',
     ].filter(Boolean).join('\n')
   }).join('\n\n')
@@ -226,9 +276,15 @@ function GuiAssistantChat() {
   const [otherText, setOtherText] = useState('')
   const [showQAEditor, setShowQAEditor] = useState(false)
   const [editingAnswers, setEditingAnswers] = useState<Record<string, string>>({})
+  const [pendingFiles, setPendingFiles] = useState<Array<{ name: string; content: string }>>([])
 
   const { modelOptions, defaultModel, loading: modelsLoading } = useModelOptions()
   const [model, setModel] = useState<string | undefined>()
+  // Creative slots editor state
+  const [slotEditorOpen, setSlotEditorOpen] = useState(false)
+  const [slotBlueprintIndex, setSlotBlueprintIndex] = useState<number | null>(null)
+  const [slotDraft, setSlotDraft] = useState<Record<string, string | string[]>>({})
+  const [creationTemplates, setCreationTemplates] = useState<CreationTemplate[]>([])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -244,6 +300,11 @@ function GuiAssistantChat() {
     }, 1000)
     return () => clearInterval(interval)
   }, [runningStartTime])
+
+  // Load creation templates on mount
+  useEffect(() => {
+    setCreationTemplates(readCreationTemplates())
+  }, [])
 
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId),
@@ -374,19 +435,28 @@ function GuiAssistantChat() {
     setSystemBlueprints([])
   }
 
-  const deleteConversation = async (convId: string) => {
-    try {
-      if (activeProjectId) {
-        await apiClient.delete(`/projects/${activeProjectId}/ai/assistant/conversations/${convId}`)
-      } else {
-        await apiClient.delete(`/ai/system-assistant/conversations/${convId}`)
-      }
-      setConversations((prev) => prev.filter((item) => item.id !== convId))
-      if (activeConvId === convId) startNewConversation()
-      message.success('对话已删除')
-    } catch (err: any) {
-      message.error(err.message || '删除对话失败')
-    }
+  const deleteConversation = (convId: string) => {
+    Modal.confirm({
+      title: '删除对话',
+      content: '确定要删除这条对话记录吗？删除后无法恢复。',
+      okText: '删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          if (activeProjectId) {
+            await apiClient.delete(`/projects/${activeProjectId}/ai/assistant/conversations/${convId}`)
+          } else {
+            await apiClient.delete(`/ai/system-assistant/conversations/${convId}`)
+          }
+          setConversations((prev) => prev.filter((item) => item.id !== convId))
+          if (activeConvId === convId) startNewConversation()
+          message.success('对话已删除')
+        } catch (err: any) {
+          message.error(err.message || '删除对话失败')
+        }
+      },
+    })
   }
 
   const appendAssistantText = (text: string, replace = false) => {
@@ -510,7 +580,7 @@ function GuiAssistantChat() {
     }
   }
 
-  const handleSystemAssistantMessage = async (text: string) => {
+  const handleSystemAssistantMessage = async (text: string, originalText?: string) => {
     let finalReply = ''
     let finalStatus: ChatMessage['status'] = 'completed'
     let persistedSessionId = systemSessionId
@@ -524,7 +594,7 @@ function GuiAssistantChat() {
 
     setMessages((prev) => [
       ...prev,
-      { role: 'user', content: text, status: 'completed', created_at: new Date().toISOString() },
+      { role: 'user', content: originalText || text, status: 'completed', created_at: new Date().toISOString() },
       { role: 'assistant', content: '正在处理...', status: 'running', created_at: new Date().toISOString() },
     ])
     setInputValue('')
@@ -564,11 +634,11 @@ function GuiAssistantChat() {
         return
       }
 
-      if (shouldUseNovelCreation(text, Boolean(activeProjectId))) {
+      if (shouldUseNovelCreation(originalText || text, Boolean(activeProjectId))) {
         setLastAssistantMessage('收到，正在分析你的需求...', 'running')
         const startRes = await apiClient.post<ApiResponse<NovelStartData>>('/novel-creation/start', {
           mode: 'template',
-          user_brief: text,
+          user_brief: text, // This includes file content if imported
           genre: '',
           target_audience: '',
           platform: '',
@@ -701,14 +771,19 @@ function GuiAssistantChat() {
           user_brief: systemBrief || text,
           feedback: text,
           revision_mode: revisionMode,
-          enhance_with_llm: false,
+          enhance_with_llm: true,
         })
-        const blueprints = draftRes.data.data.blueprints || []
+        const draftData = draftRes.data.data
+        const blueprints = draftData.blueprints || []
         setSystemBlueprints(blueprints)
         persistedBlueprints = blueprints
+        const engineMessage = draftData.enhancement_mode === 'template_fallback'
+          ? '模型深化暂时不可用，本轮已应用模板调整结果。'
+          : '本轮已用模板保底并由模型深化。'
         finish(
           [
             revisionMode === 'regenerate' ? '已重新生成 3 个方案。' : '已在当前方案基础上调整完成。',
+            engineMessage,
             '你可以继续修改，或回复“使用第1个创建”。',
             '',
             formatBlueprintSummary(blueprints),
@@ -730,17 +805,22 @@ function GuiAssistantChat() {
         return
       }
 
-      finish(
-        [
-          '我现在可以作为系统助手工作，不需要先进入某个作品。',
-          '你可以直接说：',
-          '1. “我想写1000章，克苏鲁+修仙+规则怪谈”',
-          '2. “使用第1个创建”',
-          '3. “查看我的作品列表”',
-          '',
-          activeProjectId ? '当前也已绑定作品，可以继续让我管理章节、大纲、角色和世界观。' : '当前未绑定作品，我会优先帮你创建新小说项目。',
-        ].join('\n'),
-      )
+      // LLM-powered natural conversation fallback
+      try {
+        const chatRes = await apiClient.post<ApiResponse<{ reply: string }>>('/novel-creation/system-chat', {
+          message: text,
+          context: {
+            blueprints: systemBlueprints,
+            sessionId: systemSessionId,
+            brief: systemBrief,
+            importedFiles: pendingFiles.map(f => ({ name: f.name, length: f.content.length })),
+            history: messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
+          },
+        })
+        finish(chatRes.data.data.reply)
+      } catch {
+        finish('抱歉，出了点问题。你可以直接说”我想写一本新书”来开始创作。')
+      }
     } catch (err: any) {
       finish(err.message || '处理失败', 'error')
       message.error(err.message || '处理失败')
@@ -757,12 +837,175 @@ function GuiAssistantChat() {
     }
   }
 
+  const handleFileImport = async (file: File) => {
+    try {
+      // Read file client-side
+      const text = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = () => reject(new Error('文件读取失败'))
+        reader.readAsText(file, 'utf-8')
+      })
+
+      // Add to pending files list (don't send yet)
+      setPendingFiles((prev) => [...prev, { name: file.name, content: text }])
+      message.success(`已添加文件「${file.name}」（${text.length}字）`)
+    } catch {
+      message.error('文件读取失败，请确认文件格式正确后重试。')
+    }
+  }
+
+  const removePendingFile = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const renderPendingFiles = () => {
+    if (pendingFiles.length === 0) return null
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '4px 0' }}>
+        {pendingFiles.map((f, i) => (
+          <Tag
+            key={i}
+            closable
+            onClose={() => removePendingFile(i)}
+            color="blue"
+          >
+            📎 {f.name} ({f.content.length}字)
+          </Tag>
+        ))}
+      </div>
+    )
+  }
+
+  // Import file directly as a new project (skip novel creation flow)
+  const handleFileImportAsProject = async (file: { name: string; content: string }, userText: string) => {
+    setMessages((prev) => [...prev, { role: 'user', content: userText }])
+    setMessages((prev) => [...prev, { role: 'assistant', content: '正在创建作品并导入文件...', status: 'running' }])
+    setStreaming(true)
+    setInputValue('')
+
+    try {
+      // Create a new project
+      const title = file.name.replace(/\.(txt|docx)$/i, '')
+      const createRes = await apiClient.post<ApiResponse<{ project_id: string }>>('/projects', {
+        title: title,
+        description: `从文件「${file.name}」导入`,
+        tags: '导入',
+      })
+      const projectId = createRes.data.data.project_id
+
+      // Import the file content as chapters
+      // Split by chapter markers
+      const chapterPattern = /^(第[一二三四五六七八九十百千\d]+[章节回卷]|Chapter\s+\d+)/m
+      const parts = file.content.split(chapterPattern).filter(Boolean)
+
+      // If no chapter markers found, treat the whole file as one chapter
+      const chapters = []
+      if (parts.length <= 1) {
+        chapters.push({ title: '正文', content: file.content })
+      } else {
+        for (let i = 0; i < parts.length; i += 2) {
+          const title = parts[i]?.trim() || `第${Math.floor(i / 2) + 1}章`
+          const content = parts[i + 1]?.trim() || ''
+          if (content) {
+            chapters.push({ title, content })
+          }
+        }
+      }
+
+      // Create chapters via API
+      for (let i = 0; i < chapters.length; i++) {
+        const ch = chapters[i]
+        await apiClient.post(`/projects/${projectId}/chapters`, {
+          title: ch.title,
+          content: ch.content,
+          order: i,
+        })
+      }
+
+      await fetchProjects()
+      setActiveProjectId(projectId)
+      localStorage.setItem(PROJECT_STORAGE_KEY, projectId)
+
+      setMessages((prev) => {
+        const next = [...prev]
+        const last = next[next.length - 1]
+        if (last?.role === 'assistant' && last?.status === 'running') {
+          last.content = `已创建作品「${title}」并导入 ${chapters.length} 章（${file.content.length}字）。已切换到该作品上下文，可以继续编辑。`
+          last.status = 'completed'
+        }
+        return [...next]
+      })
+      setStreaming(false)
+    } catch {
+      setMessages((prev) => {
+        const next = [...prev]
+        const last = next[next.length - 1]
+        if (last?.role === 'assistant' && last?.status === 'running') {
+          last.content = '导入失败，请重试。'
+          last.status = 'error'
+        }
+        return [...next]
+      })
+      setStreaming(false)
+    }
+  }
+
   const sendMessage = async () => {
     const text = inputValue.trim()
-    if (!text || streaming) return
+    // Allow sending if there are pending files (even without text)
+    if ((!text && pendingFiles.length === 0) || streaming) return
+    // If only files without text, use a default message
+    const effectiveText = text || '请帮我处理这些文件'
+
+    // Detect if user wants to import files as a new project
+    const isImportAsProject = pendingFiles.length > 0 && /导入|作为新作品|创建为新作品|导入为新作品/.test(text)
+
+    if (isImportAsProject && pendingFiles.length === 1) {
+      await handleFileImportAsProject(pendingFiles[0], text)
+      setPendingFiles([])
+      return
+    }
+
+    // Build message with file context
+    let messageWithContext = effectiveText
+    const fileNames = pendingFiles.map(f => f.name) // Save before clearing
+    if (pendingFiles.length > 0) {
+      // Save files to backend working directory
+      const savedPaths: string[] = []
+      for (const f of pendingFiles) {
+        try {
+          const res = await apiClient.post<ApiResponse<{ path: string }>>('/novel-creation/save-imported-file', {
+            filename: f.name,
+            content: f.content,
+          })
+          savedPaths.push(res.data.data.path)
+        } catch {
+          // If save fails, include content inline
+          savedPaths.push('')
+        }
+      }
+
+      // Build context with file references
+      const fileContexts = pendingFiles.map((f, i) => {
+        const pathNote = savedPaths[i] ? ` (已保存到: ${savedPaths[i]})` : ''
+        return `[参考文件${i + 1}：${f.name}${pathNote}]\n${f.content.slice(0, 4000)}${f.content.length > 4000 ? '\n...(已截断)' : ''}`
+      })
+
+      messageWithContext = [
+        ...fileContexts,
+        '',
+        `用户指令：${effectiveText}`,
+      ].join('\n\n')
+      setPendingFiles([])
+    }
+
+    // Build display text (includes file names if files were attached)
+    const displayText = text || (fileNames.length > 0 ? `📎 ${fileNames.join(', ')}` : '')
+
     const continuesSystemCreation = systemBlueprints.length > 0 && !/(写|续写|重写|查看|打开).{0,8}第?\d+\s*章/.test(text)
     if (!activeProjectId || shouldUseNovelCreation(text, Boolean(activeProjectId)) || continuesSystemCreation) {
-      await handleSystemAssistantMessage(text)
+      await handleSystemAssistantMessage(messageWithContext, displayText)
       return
     }
 
@@ -853,6 +1096,20 @@ function GuiAssistantChat() {
   const stopGeneration = () => {
     abortRef.current?.abort()
     setStreaming(false)
+    setRunningStartTime(null)
+    setMessages((prev) => {
+      const next = [...prev]
+      const last = next[next.length - 1]
+      if (last?.role === 'assistant' && last?.status === 'running') {
+        last.status = 'aborted'
+        if (!last.content || last.content === '正在处理...' || last.content === '思考中...' || last.content === '正在分析需求...') {
+          last.content = '已停止生成。'
+        } else {
+          last.content += '\n\n（已停止生成）'
+        }
+      }
+      return [...next]
+    })
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1270,6 +1527,101 @@ function GuiAssistantChat() {
     )
   }
 
+  // ── Creative Slots Editor ──
+  const openSlotEditor = (index: number) => {
+    const bp = systemBlueprints[index]
+    if (!bp) return
+    setSlotBlueprintIndex(index)
+    setSlotDraft({ ...(bp.creative_slots || {}) } as Record<string, string | string[]>)
+    setSlotEditorOpen(true)
+  }
+
+  const closeSlotEditor = () => {
+    setSlotEditorOpen(false)
+    setSlotBlueprintIndex(null)
+    setSlotDraft({})
+  }
+
+  const submitSlotEditor = async () => {
+    const feedback = `请按以下创意槽调整当前方案：\n${slotDraftToFeedback(slotDraft)}`
+    closeSlotEditor()
+    await handleSystemAssistantMessage(feedback)
+  }
+
+  const saveBlueprintAsTemplate = (blueprint: NovelBlueprint) => {
+    const nextTemplate: CreationTemplate = {
+      id: Date.now().toString(),
+      name: blueprint.title || '未命名模板',
+      brief: [
+        blueprint.premise || '',
+        blueprint.core_conflict ? `核心冲突：${blueprint.core_conflict}` : '',
+        blueprint.protagonist?.name ? `主角：${blueprint.protagonist.name}` : '',
+      ].filter(Boolean).join('\n'),
+      creative_slots: blueprint.creative_slots as Record<string, string | string[]> | undefined,
+    }
+    const next = [nextTemplate, ...creationTemplates].slice(0, 12)
+    localStorage.setItem(CREATION_TEMPLATE_KEY, JSON.stringify(next))
+    setCreationTemplates(next)
+    message.success('已保存为新书创作模板')
+  }
+
+  const renderSlotEditorModal = () => {
+    if (!slotEditorOpen) return null
+    const SLOT_LABELS: [string, string][] = [
+      ['story_engine', '故事发动机'],
+      ['genre_fusion', '类型融合'],
+      ['protagonist_design', '主角设计'],
+      ['world_rules', '世界规则'],
+      ['conflict_engine', '冲突发动机'],
+      ['reader_promise', '读者承诺'],
+      ['scale_plan', '篇幅规划'],
+      ['custom_motifs', '创意要素'],
+      ['avoid_list', '禁用/避免'],
+      ['reference_examples', '参考样例'],
+    ]
+    return (
+      <div style={{
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+        background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <div style={{
+          background: '#fff', borderRadius: 8, padding: 24, width: 600,
+          maxHeight: '80vh', overflow: 'auto',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+            <Text strong>
+              编辑创意槽{slotBlueprintIndex !== null ? ` · 方案 ${slotBlueprintIndex + 1}` : ''}
+            </Text>
+            <Button size="small" onClick={closeSlotEditor}>✕</Button>
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              这里改的是创作方向，不会直接覆盖原方案。确认后，助手会把这些槽位作为反馈重新调整方案。
+            </Text>
+          </div>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            {SLOT_LABELS.map(([key, label]) => (
+              <div key={key}>
+                <Text strong style={{ fontSize: 13 }}>{label}</Text>
+                <Input.TextArea
+                  value={slotValueToText(slotDraft[key])}
+                  onChange={(e) => setSlotDraft((prev) => ({ ...prev, [key]: e.target.value }))}
+                  autoSize={{ minRows: 2, maxRows: 5 }}
+                  style={{ marginTop: 4 }}
+                />
+              </div>
+            ))}
+          </Space>
+          <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+            <Button onClick={closeSlotEditor}>取消</Button>
+            <Button type="primary" onClick={submitSlotEditor}>按创意槽调整</Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const renderBlueprintCards = () => {
     if (!systemBlueprints.length) return null
     return (
@@ -1350,6 +1702,8 @@ function GuiAssistantChat() {
                             {bp.world_hook && <Text>世界钩子：{bp.world_hook}</Text>}
                             {bp.core_conflict && <Text>核心冲突：{bp.core_conflict}</Text>}
                             {bp.protagonist?.goal && <Text>主角目标：{bp.protagonist.goal}</Text>}
+                            {bp.protagonist?.weakness && <Text>主角弱点：{bp.protagonist.weakness}</Text>}
+                            {bp.protagonist?.opening_pressure && <Text>开局压力：{bp.protagonist.opening_pressure}</Text>}
                             {bp.protagonist?.background && <Text type="secondary">主角背景：{bp.protagonist.background}</Text>}
                             {bp.golden_three && (
                               <div>
@@ -1404,6 +1758,21 @@ function GuiAssistantChat() {
                   >
                     使用这个创建作品
                   </Button>
+                  <Space size={4}>
+                    <Button
+                      size="small"
+                      onClick={() => openSlotEditor(index)}
+                      disabled={streaming}
+                    >
+                      编辑创意槽
+                    </Button>
+                    <Button
+                      size="small"
+                      onClick={() => saveBlueprintAsTemplate(bp)}
+                    >
+                      保存为模板
+                    </Button>
+                  </Space>
                 </Space>
               </Card>
             )
@@ -1588,7 +1957,12 @@ function GuiAssistantChat() {
             <Button onClick={() => setInputValue('帮我创建一本新的小说，克苏鲁+规则怪谈，至少要能写1000章的创意')}>
               新书立项
             </Button>
-            <Popover trigger="click" title="助手设置" content={settingsContent}>
+            <Popover
+              trigger="click"
+              title="助手设置"
+              content={settingsContent}
+              onOpenChange={(open) => { if (open) fetchProjects() }}
+            >
               <Button icon={<SettingOutlined />}>助手设置</Button>
             </Popover>
             <Button icon={<PlusOutlined />} onClick={startNewConversation}>
@@ -1677,11 +2051,12 @@ function GuiAssistantChat() {
               </Button>
             ))}
           </div>
+          {renderPendingFiles()}
           <Input.TextArea
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="输入消息...（Enter 发送，Shift+Enter 换行）"
+            placeholder={pendingFiles.length > 0 ? '描述你想怎么处理这些文件...' : '输入消息...（Enter 发送，Shift+Enter 换行）'}
             autoSize={{ minRows: 2, maxRows: 6 }}
             disabled={streaming}
           />
@@ -1691,18 +2066,32 @@ function GuiAssistantChat() {
                 停止生成
               </Button>
             ) : (
-              <Button
-                type="primary"
-                icon={<SendOutlined />}
-                onClick={sendMessage}
-                disabled={!inputValue.trim()}
-              >
-                发送
-              </Button>
+              <>
+                <Upload
+                  accept=".txt,.docx"
+                  maxCount={1}
+                  showUploadList={false}
+                  beforeUpload={(file) => {
+                    handleFileImport(file as File)
+                    return false
+                  }}
+                >
+                  <Button icon={<FileAddOutlined />} title="导入文件作为参考" />
+                </Upload>
+                <Button
+                  type="primary"
+                  icon={<SendOutlined />}
+                  onClick={sendMessage}
+                  disabled={!inputValue.trim() && pendingFiles.length === 0}
+                >
+                  发送
+                </Button>
+              </>
             )}
           </div>
         </div>
       </main>
+      {renderSlotEditorModal()}
     </div>
   )
 }

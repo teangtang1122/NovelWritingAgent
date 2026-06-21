@@ -15,6 +15,7 @@ from typing import Any, TextIO
 from app.mcp.adapter import list_mcp_tools, is_tool_allowed, get_tool_def, execute_tool
 from app.mcp.prompts import list_prompts, render_prompt
 from app.mcp.schemas import McpToolResult, make_text_result, make_json_result
+from app.version import APP_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "moshu"
-SERVER_VERSION = "0.1.0"  # TODO: pull from app version
+SERVER_VERSION = APP_VERSION
 
 # JSON-RPC error codes
 PARSE_ERROR = -32700

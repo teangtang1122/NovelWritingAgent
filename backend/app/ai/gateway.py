@@ -34,6 +34,12 @@ ADAPTER_MAP: dict[str, type[BaseAdapter]] = {
     "claude_cli": LocalCLIAdapter,
     "codex_cli": LocalCLIAdapter,
     "opencode_cli": LocalCLIAdapter,
+    "mimocode_cli": LocalCLIAdapter,
+    "cursor_cli": LocalCLIAdapter,
+    "kilocode_cli": LocalCLIAdapter,
+    "qwen_code_cli": LocalCLIAdapter,
+    "hermes_cli": LocalCLIAdapter,
+    "openclaw_cli": LocalCLIAdapter,
     "custom_cli": LocalCLIAdapter,
 }
 

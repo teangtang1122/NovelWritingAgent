@@ -10,6 +10,7 @@ interface ComposerProps {
   generating: boolean
   selectedText?: string
   showSelectionTag: boolean
+  messageCount?: number
   onInputChange: (value: string) => void
   onSend: () => void
   onStop: () => void
@@ -21,11 +22,14 @@ export function Composer({
   generating,
   selectedText,
   showSelectionTag,
+  messageCount,
   onInputChange,
   onSend,
   onStop,
   onCloseSelectionTag,
 }: ComposerProps) {
+  const contextLimit = 8
+  const showContextHint = messageCount !== undefined && messageCount > contextLimit
   return (
     <>
       {selectedText && selectedText.trim() && showSelectionTag && (
@@ -51,7 +55,14 @@ export function Composer({
           }}
         />
         <div className="workspace-assistant-actions">
-          <Text type="secondary" style={{ fontSize: 11 }}>Enter 发送，Shift+Enter 换行</Text>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Text type="secondary" style={{ fontSize: 11 }}>Enter 发送，Shift+Enter 换行</Text>
+            {showContextHint && (
+              <Text type="secondary" style={{ fontSize: 11 }} title="仅最近 8 条消息会作为 AI 上下文">
+                上下文：最近 {contextLimit} 条
+              </Text>
+            )}
+          </div>
           {generating ? (
             <Button danger icon={<StopOutlined />} onClick={onStop}>
               停止

@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { Button, Layout, Menu, Tooltip } from 'antd'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../stores'
 import {
   BarChartOutlined,
@@ -68,14 +68,18 @@ function AiPanelColumn({ aiCollapsed, setAiCollapsed }: { aiCollapsed: boolean; 
     initialWidth: Math.min(560, Math.max(280, window.innerWidth * 0.24)),
   })
   const { selectedOutlineNodeId, selectedCharacterId, selectedText, selectedTextChapterId, triggerRefresh } = useAiPanelContext()
+  // Keep chat mounted once opened to avoid re-fetching on toggle
+  const [hasBeenOpened, setHasBeenOpened] = useState(!aiCollapsed)
+
+  useEffect(() => {
+    if (!aiCollapsed) setHasBeenOpened(true)
+  }, [aiCollapsed])
 
   useEffect(() => {
     if (!aiModel && defaultModel) {
       setAiModel(defaultModel)
     }
   }, [aiModel, defaultModel])
-
-  if (aiCollapsed) return null
 
   return (
     <AiSidePanel
@@ -85,29 +89,48 @@ function AiPanelColumn({ aiCollapsed, setAiCollapsed }: { aiCollapsed: boolean; 
       onResizeHandle={onAiResize}
       dragging={aiDragging}
     >
-      <WorkspaceAssistantChat
-        projectId={projectId!}
-        scope="project"
-        selectedOutlineNodeId={selectedOutlineNodeId}
-        selectedCharacterId={selectedCharacterId}
-        selectedText={selectedText}
-        selectedTextChapterId={selectedTextChapterId}
-        model={aiModel}
-        defaultModel={defaultModel}
-        modelOptions={modelOptions}
-        modelsLoading={modelsLoading}
-        onModelChange={setAiModel}
-        onApplied={triggerRefresh}
-      />
+      {hasBeenOpened && (
+        <WorkspaceAssistantChat
+          projectId={projectId!}
+          scope="project"
+          selectedOutlineNodeId={selectedOutlineNodeId}
+          selectedCharacterId={selectedCharacterId}
+          selectedText={selectedText}
+          selectedTextChapterId={selectedTextChapterId}
+          model={aiModel}
+          defaultModel={defaultModel}
+          modelOptions={modelOptions}
+          modelsLoading={modelsLoading}
+          onModelChange={setAiModel}
+          onApplied={triggerRefresh}
+        />
+      )}
     </AiSidePanel>
   )
+}
+
+function usePersistedState(key: string, defaultValue: boolean): [boolean, (v: boolean | ((prev: boolean) => boolean)) => void] {
+  const [state, setState] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem(`moshu_${key}`)
+      return stored !== null ? stored === 'true' : defaultValue
+    } catch { return defaultValue }
+  })
+  const setPersisted = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
+    setState(prev => {
+      const next = typeof v === 'function' ? v(prev) : v
+      try { localStorage.setItem(`moshu_${key}`, String(next)) } catch {}
+      return next
+    })
+  }, [key])
+  return [state, setPersisted]
 }
 
 function ProjectWorkspace() {
   const { projectId } = useParams<{ projectId: string }>()
   const [activeKey, setActiveKey] = useState<MenuKey>('writer')
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [aiCollapsed, setAiCollapsed] = useState(true)
+  const [sidebarCollapsed, setSidebarCollapsed] = usePersistedState('sidebar_collapsed', false)
+  const [aiCollapsed, setAiCollapsed] = usePersistedState('ai_panel_collapsed', true)
   const navigate = useNavigate()
   const { projects, getProject } = useAppStore()
 
@@ -135,6 +158,7 @@ function ProjectWorkspace() {
         { key: 'world', icon: <GlobalOutlined />, label: '世界观' },
       ],
     },
+    ...(sidebarCollapsed ? [{ type: 'divider' as const }] : []),
     {
       type: 'group' as const,
       label: sidebarCollapsed ? '' : '工具',
@@ -145,6 +169,7 @@ function ProjectWorkspace() {
         { key: 'visualization', icon: <ApartmentOutlined />, label: '可视化' },
       ],
     },
+    ...(sidebarCollapsed ? [{ type: 'divider' as const }] : []),
     {
       type: 'group' as const,
       label: sidebarCollapsed ? '' : '设置',
@@ -221,10 +246,9 @@ function ProjectWorkspace() {
             )}
             <Button
               type="text"
-              size="small"
               icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               onClick={() => setSidebarCollapsed((value) => !value)}
-              style={{ opacity: 0.65 }}
+              style={{ opacity: 0.75 }}
             />
           </div>
           <Menu
@@ -256,7 +280,7 @@ function ProjectWorkspace() {
                 type="link"
                 icon={<HomeOutlined />}
                 onClick={() => navigate('/dashboard')}
-                style={{ padding: 0, fontSize: 13, opacity: 0.7 }}
+                style={{ padding: '0 4px', fontSize: 13, opacity: 0.7 }}
               >
                 作品管理
               </Button>
@@ -265,7 +289,7 @@ function ProjectWorkspace() {
                 type="link"
                 onClick={() => setActiveKey('writer')}
                 style={{
-                  padding: 0,
+                  padding: '0 4px',
                   fontWeight: 600,
                   fontSize: 13,
                   overflow: 'hidden',

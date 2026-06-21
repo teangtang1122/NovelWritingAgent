@@ -1,6 +1,7 @@
-# Claude Code / Codex MCP Client Setup Guide
+# External Agent MCP Client Setup Guide
 
-> This guide shows how to connect Claude Code or Codex to Moshu through MCP, enabling the external Agent to read project data and report progress to the Moshu web UI.
+> This guide covers Claude Code, Codex, OpenCode, MiMo Code, Cursor, Trae,
+> Kilo Code, Qwen Code, Hermes Agent, and OpenClaw.
 
 By default, Moshu MCP can run without binding to a single project. In that mode,
 external agents should first call `list_projects`, then pass the selected
@@ -10,15 +11,22 @@ external agents should first call `list_projects`, then pass the selected
 
 - Moshu installed (from source or packaged exe)
 - A Moshu project created with some content
-- Claude Code or Codex installed
+- At least one supported local Agent client installed
 
 ## Quick Start
 
 ### Option 0: Automatic Windows Setup
 
-If you are on Windows, use the setup script first. It detects Claude Code and
-Codex, finds `Moshu.exe` when available, falls back to the source MCP entrypoint,
-and writes the correct client configuration.
+Moshu now performs this setup automatically on startup. It detects supported
+clients, finds the packaged exe or source MCP entrypoint, merges only the
+`moshu` entry, and preserves unrelated client configuration. The script below
+is a fallback and dry-run tool.
+
+The automatic setup also applies each client's non-interactive trusted mode:
+Cursor approves MCPs, Kilo uses `permission=allow`, Qwen Code uses
+`approvalMode=yolo`, Hermes auto-accepts hooks, and OpenClaw uses its `yolo`
+exec policy. Trae is configured as an IDE MCP client but is not exposed as a
+headless model provider.
 
 From a GitHub Release, place `setup-external-agent-mcp.ps1` next to `Moshu.exe`
 and run:
@@ -91,10 +99,11 @@ can see all projects through `list_projects`.
 - `internal_llm`: explicit opt-in pack for tools that spend Moshu's configured model API, such as `chapter_writer` and `start_cataloging_job`.
 - `trusted_local_maintenance`: exposes destructive tools such as delete/merge. It does **not** imply `internal_llm`.
 
-For normal local Claude Code/Codex use, `project_management` is the practical
-default: it can list all projects, create new projects, write content, manage
-skills, and export data, while destructive tools and internal LLM tools remain
-outside the pack.
+For local desktop clients, use `--permission-pack auto`. Moshu defaults to
+trusted local maintenance, including project reads, writes, management, and
+maintenance while still excluding secret-management and internal model-spend
+tools. Select `internal_llm` only when the user explicitly wants to spend the
+model API configured inside Moshu.
 
 Default rule for external agents: do your own reading, reasoning, cataloging,
 and writing unless the user explicitly says to use Moshu's internal API/model
