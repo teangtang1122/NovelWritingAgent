@@ -6,7 +6,7 @@
     Verifies the packaged exe path that normal users use:
     1. Build package (optional, skip with -SkipBuild)
     2. Start Moshu.exe
-    3. Configure MCP with setup-external-agent-mcp.ps1 -DryRun
+    3. Verify the source-only MCP auto-configuration fallback
     4. Import a small TXT file via MCP
     5. Run external no-API cataloging sample
     6. Verify data appears in UI/API
@@ -79,15 +79,11 @@ if (-not (Test-Path $exePath)) {
 $exeSize = (Get-Item $exePath).Length / 1MB
 Write-Host "  Moshu.exe found: $([math]::Round($exeSize, 1)) MB" -ForegroundColor Green
 
-# Step 3: Check MCP setup script
-Write-Host "[3/6] Checking MCP setup script..." -ForegroundColor Yellow
-$setupScript = Join-Path $projectRoot "release\setup-external-agent-mcp.ps1"
-if (-not (Test-Path $setupScript)) {
-    Write-Host "  setup-external-agent-mcp.ps1 not found in release, checking scripts..." -ForegroundColor Yellow
-    $setupScript = Join-Path $projectRoot "scripts\setup-external-agent-mcp.ps1"
-}
+# Step 3: Check source-only MCP troubleshooting script
+Write-Host "[3/6] Checking automatic MCP configuration fallback..." -ForegroundColor Yellow
+$setupScript = Join-Path $projectRoot "scripts\setup-external-agent-mcp.ps1"
 if (Test-Path $setupScript) {
-    Write-Host "  MCP setup script found: $setupScript" -ForegroundColor Green
+    Write-Host "  Source troubleshooting script found: $setupScript" -ForegroundColor Green
     
     # Run dry-run to verify it works
     Write-Host "  Running dry-run..." -ForegroundColor Yellow
@@ -99,7 +95,7 @@ if (Test-Path $setupScript) {
         Write-Host "  Output: $dryRunOutput" -ForegroundColor Gray
     }
 } else {
-    Write-Host "  WARNING: MCP setup script not found" -ForegroundColor Yellow
+    Write-Host "  WARNING: Source troubleshooting script not found" -ForegroundColor Yellow
 }
 
 # Step 4: Start Moshu.exe

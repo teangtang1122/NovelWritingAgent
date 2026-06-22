@@ -2,7 +2,9 @@ param(
   [string]$Repo = "teangtang1122/NovelWritingAgent",
   [ValidateSet("public", "private")]
   [string]$Visibility = "private",
-  [string]$Tag = "v0.1.1"
+  [string]$Tag = "v0.1.1",
+  [string]$CommitMessage = "",
+  [switch]$SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,9 +16,6 @@ $ExePath = Join-Path $Root "release\$AppName.exe"
 $LegacyExePath = Join-Path $Root "release\$LegacyAppName.exe"
 $ManifestPath = Join-Path $Root "release\update.json"
 $ShaPath = Join-Path $Root "release\sha256.txt"
-$SetupMcpScriptName = "setup-external-agent-mcp.ps1"
-$SetupMcpScriptSource = Join-Path $Root "scripts\$SetupMcpScriptName"
-$SetupMcpScriptPath = Join-Path $Root "release\$SetupMcpScriptName"
 
 function Require-Command {
   param([string]$Name, [string]$Hint)
@@ -34,12 +33,6 @@ try {
     git init -b main
   }
 
-  $status = git status --porcelain
-  if ($status) {
-    git add .
-    git commit -m "Update Moshu"
-  }
-
   $remote = git remote get-url origin 2>$null
   if (-not $remote) {
     git remote add origin "https://github.com/$Repo.git"
@@ -47,24 +40,18 @@ try {
 
   gh repo view $Repo 1>$null 2>$null
   if ($LASTEXITCODE -ne 0) {
-    gh repo create $Repo "--$Visibility" --source . --remote origin --push
-  } else {
-    git push -u origin main
+    gh repo create $Repo "--$Visibility" --source . --remote origin
   }
 
-  if (-not (git tag --list $Tag)) {
-    git tag -a $Tag -m "Moshu $Tag"
+  if (-not $SkipBuild) {
+    & (Join-Path $Root "build-exe.bat")
   }
-  git push origin $Tag
 
   if (-not (Test-Path $ExePath)) {
-    & (Join-Path $Root "build-exe.bat")
+    throw "Release executable not found. Run build-exe.bat or publish without -SkipBuild."
   }
   if (-not (Test-Path $LegacyExePath)) {
     Copy-Item -LiteralPath $ExePath -Destination $LegacyExePath -Force
-  }
-  if ((Test-Path $SetupMcpScriptSource) -and (-not (Test-Path $SetupMcpScriptPath))) {
-    Copy-Item -LiteralPath $SetupMcpScriptSource -Destination $SetupMcpScriptPath -Force
   }
 
   $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $ExePath).Hash.ToLowerInvariant()
@@ -72,11 +59,21 @@ try {
     "$sha  $AppName.exe",
     "$sha  $LegacyAppName.exe"
   )
-  if (Test-Path $SetupMcpScriptPath) {
-    $setupSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $SetupMcpScriptPath).Hash.ToLowerInvariant()
-    $shaLines += "$setupSha  $SetupMcpScriptName"
-  }
   Set-Content -LiteralPath $ShaPath -Encoding UTF8 -Value $shaLines
+
+  $status = git status --porcelain
+  if ($status) {
+    if (-not $CommitMessage) {
+      $CommitMessage = "release: Moshu $Tag"
+    }
+    git add .
+    git commit -m $CommitMessage
+  }
+
+  if (-not (git tag --list $Tag)) {
+    git tag -a $Tag -m "Moshu $Tag"
+  }
+  git push -u origin main --follow-tags
 
   $PreviousErrorActionPreference = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
@@ -87,9 +84,6 @@ try {
     gh release create $Tag -R $Repo --title $Tag --notes "Moshu $Tag"
   }
   $assets = @($ExePath, $LegacyExePath, $ShaPath, $ManifestPath)
-  if (Test-Path $SetupMcpScriptPath) {
-    $assets += $SetupMcpScriptPath
-  }
   gh release upload $Tag -R $Repo @assets --clobber
 } finally {
   Pop-Location
