@@ -548,19 +548,24 @@ async def test_connection(payload: ConnectionTestRequest):
             cli_args=payload.cli_args or _default_cli_args(payload.provider),
         )
         model = payload.model or DEFAULT_CLI_MODELS.get(payload.provider, f"{payload.provider}-default")
-        result = await asyncio.wait_for(
-            adapter.chat_completion(
-                messages=[
-                    {"role": "system", "content": "你是连接测试执行器。"},
-                    {"role": "user", "content": "只回复：连接成功"},
-                ],
-                model=model,
-                temperature=0,
-                max_tokens=32,
-                extra_body={"local_cli_cwd": str(resolve_content_root())},
-            ),
-            timeout=DEFAULT_LOCAL_CLI_TIMEOUT,
-        )
+        try:
+            result = await asyncio.wait_for(
+                adapter.chat_completion(
+                    messages=[
+                        {"role": "system", "content": "你是连接测试执行器。"},
+                        {"role": "user", "content": "只回复：连接成功"},
+                    ],
+                    model=model,
+                    temperature=0,
+                    max_tokens=32,
+                    extra_body={"local_cli_cwd": str(resolve_content_root())},
+                ),
+                timeout=DEFAULT_LOCAL_CLI_TIMEOUT,
+            )
+        except asyncio.TimeoutError as exc:
+            raise LLMError(
+                f"{_provider_label(payload.provider)} 在 {DEFAULT_LOCAL_CLI_TIMEOUT} 秒内未响应"
+            ) from exc
         if not (result.get("content") or "").strip():
             raise LLMError(f"{_provider_label(payload.provider)} returned an empty response")
         return ApiResponse.success(

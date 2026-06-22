@@ -31,6 +31,7 @@ Test design principles:
 """
 
 import os
+import asyncio
 import json
 import unittest
 from unittest.mock import AsyncMock, patch, MagicMock
@@ -1673,6 +1674,32 @@ class TestConfigLLMIntegration(unittest.TestCase):
             self.assertTrue(deepseek_cfg.is_global_default)
         finally:
             db.close()
+
+
+class TestLocalCLIConnectionTimeout(unittest.TestCase):
+    def test_timeout_returns_provider_specific_llm_error(self):
+        from app.core.exceptions import LLMError
+        from app.routers.config import test_connection
+        from app.schemas.config import ConnectionTestRequest
+
+        payload = ConnectionTestRequest(
+            provider="codex_cli",
+            cli_command="codex",
+            cli_args='["exec", "{prompt}"]',
+            model="codex-cli",
+        )
+        with patch("app.routers.config._validate_cli_command"), patch(
+            "app.routers.config.LocalCLIAdapter"
+        ) as adapter_cls, patch(
+            "app.routers.config.asyncio.wait_for",
+            new=AsyncMock(side_effect=asyncio.TimeoutError),
+        ):
+            adapter_cls.return_value.chat_completion = MagicMock(return_value=None)
+            with self.assertRaises(LLMError) as caught:
+                asyncio.run(test_connection(payload))
+
+        self.assertIn("Codex CLI", caught.exception.message)
+        self.assertIn("180", caught.exception.message)
 
 
 if __name__ == "__main__":
