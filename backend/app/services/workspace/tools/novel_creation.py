@@ -19,6 +19,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from ....ai.gateway import LLMGateway
+from ....ai.local_cli_adapter import DEFAULT_LOCAL_CLI_TIMEOUT, is_local_cli_provider
 from ....core.json_repair import parse_json_object
 
 _logger = logging.getLogger(__name__)
@@ -5760,12 +5761,14 @@ async def system_chat_completion(
     ]
 
     try:
+        provider = LLMGateway.provider_for_model(model)
+        request_timeout = DEFAULT_LOCAL_CLI_TIMEOUT if is_local_cli_provider(provider) else 30
         result = await LLMGateway.chat_completion(
             messages=messages,
             model=model,
             temperature=0.7,
             max_tokens=800,
-            timeout=30,
+            timeout=request_timeout,
             retry=0,
             extra_body=_novel_creation_cli_context(model),
         )

@@ -35,6 +35,8 @@ LOCAL_CLI_PROVIDERS = {
     "custom_cli",
 }
 
+DEFAULT_LOCAL_CLI_TIMEOUT = 180
+
 DEFAULT_CLI_COMMANDS: dict[str, str] = {
     "claude_cli": "claude",
     "codex_cli": "codex",

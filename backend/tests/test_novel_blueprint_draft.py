@@ -178,6 +178,7 @@ class SystemAssistantModelOverrideTest(unittest.TestCase):
 
         self.assertEqual(result["reply"], "你好，我正在使用 Codex CLI。")
         self.assertEqual(completion_mock.await_args.kwargs["model"], selected_model)
+        self.assertEqual(completion_mock.await_args.kwargs["timeout"], 180)
         self.assertEqual(
             completion_mock.await_args.kwargs["extra_body"],
             {"local_cli_cwd": r"D:\novels"},

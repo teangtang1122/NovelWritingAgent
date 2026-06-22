@@ -26,6 +26,7 @@ from ..ai.local_cli_adapter import (
     DEFAULT_CLI_ARGS,
     DEFAULT_CLI_COMMANDS,
     DEFAULT_CLI_MODELS,
+    DEFAULT_LOCAL_CLI_TIMEOUT,
     is_local_cli_provider,
     local_cli_model_options,
 )
@@ -558,7 +559,7 @@ async def test_connection(payload: ConnectionTestRequest):
                 max_tokens=32,
                 extra_body={"local_cli_cwd": str(resolve_content_root())},
             ),
-            timeout=60,
+            timeout=DEFAULT_LOCAL_CLI_TIMEOUT,
         )
         if not (result.get("content") or "").strip():
             raise LLMError(f"{_provider_label(payload.provider)} returned an empty response")
