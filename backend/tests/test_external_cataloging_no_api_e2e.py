@@ -761,6 +761,77 @@ class ExternalCatalogingE2ETest(unittest.TestCase):
         applied = _run(apply_pending_cataloging(self.db, self.project.id, {"job_id": job_id}))
         self.assertEqual(applied["status"], "ok")
 
+    def test_provider_fields_and_changes_candidate_shapes_are_applied(self):
+        from app.services.workspace.tools.external_cataloging import (
+            save_external_cataloging_candidates,
+            save_external_cataloging_facts,
+            start_external_cataloging_job,
+        )
+        from app.services.workspace.tools.cataloging import apply_pending_cataloging
+
+        started = _run(start_external_cataloging_job(self.db, self.project.id, {}))
+        job_id = started["data"]["job_id"]
+        run = (
+            self.db.query(CatalogingChapterRun)
+            .filter(CatalogingChapterRun.job_id == job_id)
+            .order_by(CatalogingChapterRun.chapter_order)
+            .first()
+        )
+        _run(save_external_cataloging_facts(
+            self.db,
+            self.project.id,
+            {
+                "job_id": job_id,
+                "chapter_id": run.chapter_id,
+                "facts": [{"name": "Alice", "description": "A careful traveler."}],
+            },
+        ))
+        staged = _run(save_external_cataloging_candidates(
+            self.db,
+            self.project.id,
+            {
+                "job_id": job_id,
+                "chapter_id": run.chapter_id,
+                "candidates": [
+                    {"candidate_type": "chapter_summary", "fields": {"summary": "Alice finds a wolf."}},
+                    {
+                        "candidate_type": "outline_create",
+                        "target_name": "Chapter 1",
+                        "fields": {"node_type": "chapter", "summary": "Alice enters the forest."},
+                    },
+                    {
+                        "candidate_type": "character_create",
+                        "target_name": "Alice",
+                        "fields": {
+                            "name": "Alice",
+                            "appearance": "Red coat",
+                            "background": "A careful traveler.",
+                        },
+                    },
+                    {
+                        "candidate_type": "character_update",
+                        "target_name": "Alice",
+                        "changes": ["mental_state:alert", "current_location:forest"],
+                    },
+                    {
+                        "candidate_type": "worldbuilding_create",
+                        "target_name": "Iron Wolf",
+                        "fields": {"category": "creature", "description": "A fast low-level beast."},
+                    },
+                ],
+            },
+        ))
+        self.assertTrue(staged["data"]["candidate_set_complete"])
+        applied = _run(apply_pending_cataloging(self.db, self.project.id, {"job_id": job_id}))
+        self.assertEqual(applied["status"], "ok")
+        failures = [
+            event for event in applied["data"]["events"]
+            if event["type"] == "candidate_apply_failed"
+        ]
+        self.assertEqual(failures, [])
+        alice = self.db.query(Character).filter(Character.project_id == self.project.id, Character.name == "Alice").one()
+        self.assertEqual(alice.current_location, "forest")
+
 
 if __name__ == "__main__":
     unittest.main()

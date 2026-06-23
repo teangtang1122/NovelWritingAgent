@@ -104,14 +104,28 @@ def _normalize_candidate_input(candidate: dict[str, Any]) -> tuple[dict[str, Any
         else None
     )
     normalized_payload = dict(payload or candidate)
-    # Map character_name to name if name is not present
-    if "character_name" in candidate and "name" not in candidate:
-        candidate["name"] = candidate["character_name"]
+    fields = candidate.get("fields") or normalized_payload.get("fields")
+    if isinstance(fields, dict):
+        normalized_payload.update(fields)
+    changes = candidate.get("changes") or normalized_payload.get("changes")
+    if isinstance(changes, dict):
+        normalized_payload.update(changes)
+    elif isinstance(changes, list):
+        for change in changes:
+            if not isinstance(change, str):
+                continue
+            separator = "：" if "：" in change else ":" if ":" in change else ""
+            if not separator:
+                continue
+            key, value = change.split(separator, 1)
+            if key.strip() and value.strip():
+                normalized_payload[key.strip()] = value.strip()
 
     for key in [
         "name", "title", "summary", "content", "dimension", "aliases",
         "source_name", "target_name", "character_a", "character_b",
         "relationship_type", "chapter_id", "outline_node_id", "id",
+        "target_id", "entry_title", "summary_text", "node_type", "parent_title",
     ]:
         if key in candidate and key not in normalized_payload:
             normalized_payload[key] = candidate[key]
@@ -135,6 +149,63 @@ def _normalize_candidate_input(candidate: dict[str, Any]) -> tuple[dict[str, Any
 
     item_type = _canonical_candidate_type(raw_type, action)
     operation = _operation_for(item_type, action)
+    target_id = (
+        normalized_payload.get("id")
+        or normalized_payload.get("target_id")
+        or candidate.get("target_id")
+    )
+    if target_id:
+        normalized_payload["id"] = target_id
+        normalized_payload["target_id"] = target_id
+
+    if item_type.startswith("character_") and item_type != "character_relationship":
+        name = (
+            normalized_payload.get("name")
+            or normalized_payload.get("character_name")
+            or candidate.get("name")
+            or candidate.get("character_name")
+            or candidate.get("target_name")
+        )
+        if name:
+            normalized_payload["name"] = name
+    if item_type.startswith("worldbuilding_"):
+        title = (
+            normalized_payload.get("title")
+            or normalized_payload.get("entry_title")
+            or candidate.get("title")
+            or candidate.get("entry_title")
+            or candidate.get("target_name")
+        )
+        if title:
+            normalized_payload["title"] = title
+        if not normalized_payload.get("content"):
+            normalized_payload["content"] = (
+                normalized_payload.get("description")
+                or normalized_payload.get("event_description")
+                or ""
+            )
+        category = str(
+            normalized_payload.get("dimension")
+            or normalized_payload.get("category")
+            or ""
+        ).strip().lower()
+        if category in {"creature", "species", "race", "妖兽", "生物"}:
+            normalized_payload["dimension"] = "races"
+        elif category in {"item", "technique", "artifact", "magic", "power", "物品", "技术", "功法"}:
+            normalized_payload["dimension"] = "power_system"
+        elif category in {"location", "place", "geography", "地点", "地理"}:
+            normalized_payload["dimension"] = "geography"
+        elif category in {"faction", "organization", "sect", "势力", "组织", "宗门"}:
+            normalized_payload["dimension"] = "factions"
+    if item_type.startswith("outline_") and not normalized_payload.get("title"):
+        normalized_payload["title"] = candidate.get("target_name") or ""
+    if item_type == "chapter_summary" and not normalized_payload.get("summary"):
+        normalized_payload["summary"] = (
+            normalized_payload.get("summary_text")
+            or normalized_payload.get("content")
+            or ""
+        )
+
     normalized_payload["item_type"] = item_type
     normalized_payload["operation"] = operation
     normalized_payload["type"] = item_type
