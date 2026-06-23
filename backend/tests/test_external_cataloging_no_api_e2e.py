@@ -504,7 +504,7 @@ class ExternalCatalogingE2ETest(unittest.TestCase):
             save_external_cataloging_facts,
             start_external_cataloging_job,
         )
-        from app.services.workspace.tools.cataloging import apply_pending_cataloging
+        from app.services.workspace.tools.cataloging import apply_pending_cataloging, list_cataloging_facts
 
         project_id = self.project.id
         started = _run(start_external_cataloging_job(self.db, project_id, {}))
@@ -542,6 +542,27 @@ class ExternalCatalogingE2ETest(unittest.TestCase):
                 },
             ))
             self.assertEqual(saved["status"], "ok")
+
+            other_fact = CatalogingFact(
+                job_id=job_id,
+                chapter_run_id=second_run.id,
+                project_id=project_id,
+                chapter_id=second_run.chapter_id,
+                fact_type="chapter_overview",
+                raw_payload=json.dumps({"summary": "second"}),
+            )
+            self.db.add(other_fact)
+            self.db.commit()
+            scoped_facts = _run(list_cataloging_facts(
+                self.db,
+                project_id,
+                {"job_id": job_id},
+            ))
+            self.assertEqual(scoped_facts["data"]["total"], 1)
+            self.assertEqual(
+                scoped_facts["data"]["items"][0]["chapter_run_id"],
+                first_run.id,
+            )
 
             saved = _run(save_external_cataloging_candidates(
                 self.db,

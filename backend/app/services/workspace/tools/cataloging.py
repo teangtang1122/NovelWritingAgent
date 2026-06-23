@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -45,6 +46,18 @@ def _get_job(db: Session, project_id: str, args: dict[str, Any]) -> CatalogingJo
     if project_id and job.project_id != project_id:
         return None
     return job
+
+
+def _managed_cataloging_run_id(job: CatalogingJob) -> str:
+    if os.environ.get("MOSHU_MANAGED_AGENT_KIND", "").strip().lower() != "cataloging":
+        return ""
+    bound_project = os.environ.get("MOSHU_MANAGED_CATALOGING_PROJECT_ID", "").strip()
+    bound_job = os.environ.get("MOSHU_MANAGED_CATALOGING_JOB_ID", "").strip()
+    if bound_project and bound_project != job.project_id:
+        return ""
+    if bound_job and bound_job != job.id:
+        return ""
+    return os.environ.get("MOSHU_MANAGED_CATALOGING_CHAPTER_RUN_ID", "").strip()
 
 
 async def start_cataloging_job(db: Session, project_id: str, args: dict[str, Any]) -> dict:
@@ -151,8 +164,9 @@ async def list_cataloging_candidates(db: Session, project_id: str, args: dict[st
     if not job:
         return {"tool": "list_cataloging_candidates", "status": "skipped", "detail": "未找到建档任务"}
     query = db.query(CatalogingCandidate).filter(CatalogingCandidate.job_id == job.id)
-    if args.get("chapter_run_id"):
-        query = query.filter(CatalogingCandidate.chapter_run_id == str(args.get("chapter_run_id")))
+    chapter_run_id = _managed_cataloging_run_id(job) or str(args.get("chapter_run_id") or "").strip()
+    if chapter_run_id:
+        query = query.filter(CatalogingCandidate.chapter_run_id == chapter_run_id)
     if args.get("status"):
         query = query.filter(CatalogingCandidate.status == str(args.get("status")))
     if args.get("item_type"):
@@ -166,8 +180,9 @@ async def list_cataloging_facts(db: Session, project_id: str, args: dict[str, An
     if not job:
         return {"tool": "list_cataloging_facts", "status": "skipped", "detail": "未找到建档任务"}
     query = db.query(CatalogingFact).filter(CatalogingFact.job_id == job.id)
-    if args.get("chapter_run_id"):
-        query = query.filter(CatalogingFact.chapter_run_id == str(args.get("chapter_run_id")))
+    chapter_run_id = _managed_cataloging_run_id(job) or str(args.get("chapter_run_id") or "").strip()
+    if chapter_run_id:
+        query = query.filter(CatalogingFact.chapter_run_id == chapter_run_id)
     if args.get("fact_type"):
         query = query.filter(CatalogingFact.fact_type == str(args.get("fact_type")))
     items = query.order_by(CatalogingFact.sort_order.asc(), CatalogingFact.created_at.asc()).all()
