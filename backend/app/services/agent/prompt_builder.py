@@ -76,10 +76,11 @@ def build_system_prompt(
     Returns ONLY the system prompt string; user message construction is the
     caller's responsibility.
     """
+    scoped_tool_names = kwargs.get("tool_names")
     mode_prompt = pack.build_system_prompt(**kwargs)
     if skill_prompts:
         mode_prompt = f"{mode_prompt}\n\n{skill_prompts}"
-    tool_policy = build_tool_policy_section(pack)
+    tool_policy = "" if scoped_tool_names is not None else build_tool_policy_section(pack)
     if tool_policy:
         mode_prompt = f"{mode_prompt}\n\n{tool_policy}"
 
@@ -167,13 +168,17 @@ def compose_chapter_writer_messages(
     plot_design: dict | None = None,
     roleplay_results: list[dict] | None = None,
     requirements: str = "",
+    writing_directives: str = "",
 ) -> list[dict[str, str]]:
     """Compose chapter writer messages from a chapter pack.
 
     Returns ``[system_message, user_message]`` ready for
     ``LLMGateway.chat_completion()``.
     """
-    system_prompt = pack.build_system_prompt(style_context=style_context)
+    system_prompt = pack.build_system_prompt(
+        style_context=style_context,
+        writing_directives=writing_directives,
+    )
 
     user_parts: list[str] = []
     if requirements:

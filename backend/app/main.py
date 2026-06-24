@@ -16,7 +16,7 @@ from .core.exceptions import (
 from .database.backup import backup_sqlite_database
 from .database.session import Base, SessionLocal, engine
 from .database.migrations import ensure_runtime_schema
-from .routers import projects, config, worldbuilding, characters, outline, chapters, ai_writer, stats, export, deconstruct, importer, cataloging, agent, skill, scheduler, mcp, external_agent, external_agent_global, tools, novel_creation, system_assistant
+from .routers import projects, config, worldbuilding, characters, outline, chapters, ai_writer, stats, export, deconstruct, importer, cataloging, agent, skill, scheduler, mcp, external_agent, external_agent_global, tools, novel_creation, system_assistant, local_models
 from .services.content_store import migrate_legacy_projects_to_files
 from .services.workspace.run_log import mark_interrupted_assistant_runs
 from .version import APP_VERSION
@@ -93,6 +93,7 @@ app.include_router(external_agent_global.router, prefix="/api/v1")
 app.include_router(tools.router, prefix="/api/v1")
 app.include_router(novel_creation.router, prefix="/api/v1")
 app.include_router(system_assistant.router, prefix="/api/v1")
+app.include_router(local_models.router, prefix="/api/v1")
 
 
 @app.get("/")
@@ -118,6 +119,15 @@ async def startup_scheduler():
     except Exception as exc:
         import logging
         logging.getLogger(__name__).warning("Failed to start scheduler: %s", exc)
+    try:
+        from .services.local_runtime.model_jobs import resume_incomplete_downloads
+        from .services.local_runtime.training import resume_incomplete_training_jobs
+
+        resume_incomplete_downloads()
+        resume_incomplete_training_jobs()
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Failed to resume local AI jobs: %s", exc)
     if "pytest" not in sys.modules:
         async def _configure_external_agents() -> None:
             try:
@@ -151,6 +161,13 @@ async def startup_scheduler():
 
         import asyncio
         asyncio.create_task(_configure_external_agents())
+
+
+@app.on_event("shutdown")
+async def shutdown_local_runtime():
+    from .services.local_runtime import get_runtime_manager
+
+    get_runtime_manager().stop()
 
 
 if FRONTEND_DIST:

@@ -371,7 +371,7 @@ class APIConfig(Base):
     default_model = Column(String(100), nullable=False)
     is_global_default = Column(Boolean, default=False)
     base_url_override = Column(String(500), nullable=True)
-    provider_type = Column(String(20), nullable=False, default="api")  # api/local_cli
+    provider_type = Column(String(20), nullable=False, default="api")  # api/local_cli/local_runtime
     cli_command = Column(String(500), nullable=True)
     cli_args = Column(Text, nullable=True)  # JSON array or shell-like argument string
     max_output_tokens = Column(Integer, nullable=True)
@@ -520,13 +520,167 @@ class SystemAssistantConversation(Base):
     blueprint_json = Column(JSON, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-
     messages = relationship(
         "SystemAssistantMessage",
         back_populates="conversation",
         cascade="all, delete-orphan",
     )
 
+
+# ---------------------------------------------------------------------------
+# Local model runtime, downloads, adapters, and training jobs
+# ---------------------------------------------------------------------------
+class LocalModel(Base):
+    __tablename__ = "local_models"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    model_key = Column(String(120), nullable=False, unique=True)
+    display_name = Column(String(200), nullable=False)
+    family = Column(String(100), nullable=False, default="qwen3")
+    parameter_size = Column(String(30), nullable=True)
+    quantization = Column(String(50), nullable=True)
+    context_length = Column(Integer, nullable=False, default=8192)
+    file_path = Column(Text, nullable=True)
+    file_size = Column(Integer, nullable=True)
+    sha256 = Column(String(64), nullable=True)
+    license_name = Column(String(100), nullable=True)
+    source = Column(String(50), nullable=True)
+    source_urls = Column(JSON, nullable=True)
+    min_ram_gb = Column(Integer, nullable=True)
+    recommended_vram_gb = Column(Integer, nullable=True)
+    status = Column(String(30), nullable=False, default="available")
+    installed_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_local_models_status", "status"),
+    )
+
+
+class LocalRuntimeInstallation(Base):
+    __tablename__ = "local_runtime_installations"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    runtime_key = Column(String(80), nullable=False, unique=True, default="llama_cpp")
+    version = Column(String(80), nullable=True)
+    backend = Column(String(30), nullable=False, default="cpu")
+    executable_path = Column(Text, nullable=True)
+    install_path = Column(Text, nullable=True)
+    status = Column(String(30), nullable=False, default="not_installed")
+    port = Column(Integer, nullable=True)
+    pid = Column(Integer, nullable=True)
+    active_model_id = Column(String(36), ForeignKey("local_models.id", ondelete="SET NULL"), nullable=True)
+    last_error = Column(Text, nullable=True)
+    last_health_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ModelDownloadTask(Base):
+    __tablename__ = "model_download_tasks"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    kind = Column(String(30), nullable=False, default="model")
+    target_key = Column(String(120), nullable=False)
+    source_url = Column(Text, nullable=True)
+    destination_path = Column(Text, nullable=False)
+    status = Column(String(30), nullable=False, default="queued")
+    downloaded_bytes = Column(Integer, nullable=False, default=0)
+    total_bytes = Column(Integer, nullable=True)
+    sha256 = Column(String(64), nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_model_download_tasks_status", "status"),
+    )
+
+
+class ModelAdapter(Base):
+    __tablename__ = "model_adapters"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=True)
+    base_model_key = Column(String(120), nullable=False)
+    name = Column(String(200), nullable=False)
+    adapter_type = Column(String(30), nullable=False, default="lora")
+    scope = Column(String(30), nullable=False, default="private")
+    file_path = Column(Text, nullable=False)
+    base_model_sha256 = Column(String(64), nullable=True)
+    weight = Column(Float, nullable=False, default=1.0)
+    enabled = Column(Boolean, nullable=False, default=True)
+    is_default_for_writing = Column(Boolean, nullable=False, default=False)
+    metrics_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_model_adapters_project", "project_id"),
+        Index("ix_model_adapters_base_model", "base_model_key"),
+    )
+
+
+class LocalModelTaskSetting(Base):
+    __tablename__ = "local_model_task_settings"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    task_type = Column(String(30), nullable=False, unique=True)
+    model_key = Column(String(120), nullable=False)
+    adapter_ids = Column(JSON, nullable=True)
+    context_length = Column(Integer, nullable=True)
+    allow_api_fallback = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TrainingDataset(Base):
+    __tablename__ = "training_datasets"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=True)
+    name = Column(String(200), nullable=False)
+    source_config_json = Column(JSON, nullable=True)
+    file_path = Column(Text, nullable=False)
+    sample_count = Column(Integer, nullable=False, default=0)
+    train_count = Column(Integer, nullable=False, default=0)
+    eval_count = Column(Integer, nullable=False, default=0)
+    stats_json = Column(JSON, nullable=True)
+    rights_confirmed = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TrainingJob(Base):
+    __tablename__ = "training_jobs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=True)
+    dataset_id = Column(String(36), ForeignKey("training_datasets.id", ondelete="SET NULL"), nullable=True)
+    base_model_key = Column(String(120), nullable=False)
+    name = Column(String(200), nullable=False)
+    status = Column(String(30), nullable=False, default="queued")
+    progress = Column(Float, nullable=False, default=0.0)
+    current_step = Column(Integer, nullable=False, default=0)
+    total_steps = Column(Integer, nullable=True)
+    config_json = Column(JSON, nullable=True)
+    metrics_json = Column(JSON, nullable=True)
+    checkpoint_path = Column(Text, nullable=True)
+    output_path = Column(Text, nullable=True)
+    log_path = Column(Text, nullable=True)
+    pid = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_training_jobs_status", "status"),
+        Index("ix_training_jobs_project", "project_id"),
+    )
 
 class SystemAssistantMessage(Base):
     __tablename__ = "system_assistant_messages"

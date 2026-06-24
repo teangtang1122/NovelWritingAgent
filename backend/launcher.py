@@ -143,7 +143,7 @@ def _pick_content_root(home: Path) -> Path | None:
         root = tkinter.Tk()
         root.withdraw()
         messagebox.showinfo(
-            "Moshu 2.1",
+            "Moshu 2.5",
             "请选择一个空文件夹作为小说文件镜像目录。\n数据库仍是权威数据源，旧数据会导出为可读镜像，方便 Claude/Codex 读取。",
         )
         while True:
@@ -158,7 +158,7 @@ def _pick_content_root(home: Path) -> Path | None:
                 root.destroy()
                 return path
             messagebox.showwarning(
-                "Moshu 2.1",
+                "Moshu 2.5",
                 "请选择空目录，避免和已有文件混在一起。\n\n可以新建一个空文件夹后再选择。",
             )
     except Exception as exc:
@@ -184,6 +184,10 @@ def _prepare_data_environment() -> Path:
         content_root = str(home / "projects")
     os.environ.setdefault("MOSHU_HOME", str(home))
     os.environ.setdefault("MOSHU_CONTENT_ROOT", str(Path(content_root).expanduser().resolve()))
+    model_root = os.environ.get("MOSHU_MODEL_ROOT") or launcher_settings.get("model_root")
+    if not model_root:
+        model_root = str(home / "models")
+    os.environ.setdefault("MOSHU_MODEL_ROOT", str(Path(model_root).expanduser().resolve()))
     os.environ.setdefault("MOSHU_KEY_FILE", str(home / ".crypto_key"))
     os.environ.setdefault("NOVEL_AGENT_HOME", str(home))
     os.environ.setdefault("NOVEL_AGENT_KEY_FILE", str(home / ".crypto_key"))

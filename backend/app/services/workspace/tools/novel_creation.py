@@ -29,7 +29,11 @@ def _novel_creation_cli_context(model: str | None) -> dict[str, Any] | None:
     """Keep local CLI planning calls inside the user's novel data directory."""
     from app.services.content_store import content_root
 
-    return LLMGateway.local_cli_extra_body(model, cwd=str(content_root()))
+    return LLMGateway.local_cli_extra_body(
+        model,
+        cwd=str(content_root()),
+        base={"moshu_task_type": "planning"},
+    )
 
 
 GENRE_LABELS = {
@@ -5762,7 +5766,12 @@ async def system_chat_completion(
 
     try:
         provider = LLMGateway.provider_for_model(model)
-        request_timeout = DEFAULT_LOCAL_CLI_TIMEOUT if is_local_cli_provider(provider) else 30
+        if is_local_cli_provider(provider):
+            request_timeout = DEFAULT_LOCAL_CLI_TIMEOUT
+        elif provider == "local_llama_cpp":
+            request_timeout = 120
+        else:
+            request_timeout = 30
         result = await LLMGateway.chat_completion(
             messages=messages,
             model=model,
@@ -5776,8 +5785,10 @@ async def system_chat_completion(
         if not reply:
             reply = "抱歉，我没有理解你的意思。你可以告诉我你想写什么类型的小说，或者直接说「查看我的作品列表」。"
     except Exception as exc:
-        _logger.warning("System chat failed: %s", exc)
+        _logger.warning("System chat failed: %s", exc, exc_info=True)
         detail = str(exc).strip()
+        if not detail:
+            detail = f"({type(exc).__name__})"
         if len(detail) > 500:
             detail = detail[:500] + "..."
         reply = (

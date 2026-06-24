@@ -20,6 +20,7 @@ def build_chapter_writer_messages(
     plot_design: dict | None = None,
     roleplay_results: list[dict] | None = None,
     requirements: str = "",
+    writing_directives: str = "",
 ) -> list[dict[str, str]]:
     """Backward-compatible wrapper — delegates to the pack system (quality mode).
 
@@ -37,4 +38,5 @@ def build_chapter_writer_messages(
         plot_design=plot_design,
         roleplay_results=roleplay_results,
         requirements=requirements,
+        writing_directives=writing_directives,
     )

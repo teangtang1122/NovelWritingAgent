@@ -97,6 +97,7 @@ async def suggest_conflicts(
             temperature=temperature,
             timeout=120,
             retry=1,
+            extra_body={"moshu_task_type": "evaluation", "moshu_project_id": project_id},
         )
     except Exception as exc:
         return {"tool": "suggest_conflicts", "status": "error", "detail": f"LLM 调用失败：{exc}", "data": []}
@@ -199,6 +200,7 @@ async def detect_character_changes(
             temperature=temperature,
             timeout=120,
             retry=1,
+            extra_body={"moshu_task_type": "evaluation", "moshu_project_id": project_id},
         )
     except Exception as exc:
         return {"tool": "detect_character_changes", "status": "error", "detail": f"LLM 调用失败：{exc}", "data": []}
@@ -355,6 +357,7 @@ async def detect_worldbuilding_conflicts(
             temperature=temperature,
             timeout=120,
             retry=1,
+            extra_body={"moshu_task_type": "evaluation", "moshu_project_id": project_id},
         )
     except Exception as exc:
         return {"tool": "detect_worldbuilding_conflicts", "status": "error", "detail": f"LLM 调用失败：{exc}", "data": []}
@@ -464,6 +467,7 @@ async def detect_new_worldbuilding(
             temperature=temperature,
             timeout=120,
             retry=1,
+            extra_body={"moshu_task_type": "evaluation", "moshu_project_id": project_id},
         )
     except Exception as exc:
         return {"tool": "detect_new_worldbuilding", "status": "error", "detail": f"LLM 调用失败：{exc}", "data": []}
@@ -571,6 +575,7 @@ async def evaluate_chapter(
             temperature=0.2,
             timeout=120,
             retry=1,
+            extra_body={"moshu_task_type": "evaluation", "moshu_project_id": project_id},
         )
     except Exception as exc:
         return {"tool": "evaluate_chapter", "status": "error", "detail": f"LLM 调用失败：{exc}", "data": {}}

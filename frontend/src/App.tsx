@@ -8,6 +8,7 @@ const ProjectWorkspace = lazy(() => import('./pages/ProjectWorkspace'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const ExternalAgentPage = lazy(() => import('./pages/ExternalAgentPage'))
 const GuiPage = lazy(() => import('./pages/GuiPage'))
+const ModelCenterPage = lazy(() => import('./pages/ModelCenterPage'))
 
 const { Content } = Layout
 
@@ -142,6 +143,7 @@ function App() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/external-agent" element={<ExternalAgentPage />} />
             <Route path="/gui" element={<GuiPage />} />
+            <Route path="/models" element={<ModelCenterPage />} />
             <Route path="*" element={<WildcardRedirect />} />
           </Routes>
         </Suspense>

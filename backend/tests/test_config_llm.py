@@ -322,6 +322,20 @@ class TestAPIConfigCreateAPI(unittest.TestCase):
         self.assertEqual(data["cli_command"], "claude")
         self.assertEqual(data["cli_args"], '["-p","{prompt}"]')
 
+    def test_create_local_runtime_provider_without_api_key(self):
+        response = self.client.post(
+            f"{API_PREFIX}/config/models",
+            json={
+                "provider": "local_llama_cpp",
+                "provider_type": "local_runtime",
+                "default_model": "qwen3-8b-q4",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        self.assertEqual(payload["provider"], "local_llama_cpp")
+        self.assertEqual(payload["provider_type"], "local_runtime")
+
     # ------------------------------------------------------------------
     # TC-09: Create with missing required fields
     # ------------------------------------------------------------------
@@ -1048,6 +1062,7 @@ class TestLLMGatewayModelParsing(unittest.TestCase):
             "hermes_cli",
             "openclaw_cli",
             "custom_cli",
+            "local_llama_cpp",
         }
         self.assertEqual(set(ADAPTER_MAP.keys()), expected)
 

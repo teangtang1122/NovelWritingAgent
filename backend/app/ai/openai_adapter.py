@@ -1,7 +1,9 @@
 """OpenAI adapter using the official openai SDK."""
 import json as _json
 from typing import AsyncGenerator, Optional
+from urllib.parse import urlparse
 
+import httpx
 from openai import AsyncOpenAI, APIError, APITimeoutError, APIConnectionError, AuthenticationError
 
 from .base import BaseAdapter
@@ -24,10 +26,20 @@ def create_openai_compatible_client(api_key: str, base_url: Optional[str] = None
     kwargs = {"api_key": api_key}
     if base_url:
         kwargs["base_url"] = base_url
+        if _is_loopback_url(base_url):
+            kwargs["http_client"] = httpx.AsyncClient(trust_env=False)
     client = AsyncOpenAI(**kwargs)
     if base_url:
         return OpenAIClientProxy(client, base_url)
     return client
+
+
+def _is_loopback_url(base_url: str) -> bool:
+    try:
+        host = urlparse(base_url).hostname
+    except Exception:
+        return False
+    return host in {"127.0.0.1", "localhost", "::1"}
 
 
 def _extract_tool_calls(message) -> list[dict] | None:
@@ -79,6 +91,8 @@ class OpenAIAdapter(BaseAdapter):
                 kwargs["tools"] = tools
             if tool_choice is not None:
                 kwargs["tool_choice"] = tool_choice
+            if extra_body:
+                kwargs["extra_body"] = extra_body
 
             response = await client.chat.completions.create(**kwargs)
             choice = response.choices[0]
@@ -114,13 +128,16 @@ class OpenAIAdapter(BaseAdapter):
         """Text-only streaming — no tool calls surfaced. Use stream_chat_completion_with_tools for tools."""
         client = self._get_client()
         try:
-            stream = await client.chat.completions.create(
+            kwargs = dict(
                 model=model,
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 stream=True,
             )
+            if extra_body:
+                kwargs["extra_body"] = extra_body
+            stream = await client.chat.completions.create(**kwargs)
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content
                 if delta:
@@ -160,6 +177,8 @@ class OpenAIAdapter(BaseAdapter):
                 kwargs["tools"] = tools
             if tool_choice is not None:
                 kwargs["tool_choice"] = tool_choice
+            if extra_body:
+                kwargs["extra_body"] = extra_body
 
             stream = await client.chat.completions.create(**kwargs)
             # Track tool call accumulation across chunks

@@ -89,6 +89,7 @@ async def roleplay_character(
             max_tokens=int(args.get("max_tokens") or 2000),
             timeout=120,
             retry=1,
+            extra_body={"moshu_task_type": "writing", "moshu_project_id": project_id},
         )
     except Exception as exc:
         return {"tool": "roleplay_character", "status": "error", "detail": f"LLM 调用失败：{exc}", "data": {}}
@@ -186,6 +187,7 @@ async def dialogue_battle(
                     max_tokens=int(args.get("max_tokens") or 2000),
                     timeout=120,
                     retry=1,
+                    extra_body={"moshu_task_type": "writing", "moshu_project_id": project_id},
                 )
                 char_content = str(result.get("content") or "")[:3000]
                 dialogue_history.append({

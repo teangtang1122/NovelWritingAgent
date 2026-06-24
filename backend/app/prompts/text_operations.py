@@ -7,18 +7,59 @@ from .dialogue_prompts import build_dialogue_system_prompt
 from .chapter_prompts import CHAPTER_ENDING_HOOK_TYPES
 
 
+def _build_scoped_text_operation_system(
+    *,
+    role: str,
+    operation_rules: str,
+    writing_directives: str,
+    style_context: str,
+    extra_context: str = "",
+) -> str:
+    return (
+        f"你是一位资深中文小说{role}。你只输出处理后的正文，不输出解释、标题、清单、Markdown 或元评论。\n\n"
+        f"{writing_directives.strip()}\n\n"
+        f"【本次任务硬规则】\n{operation_rules}\n\n"
+        "【通用写法】\n"
+        "- 保持既定叙事视角、人物状态、时间顺序和事实因果。\n"
+        "- 用动作、对白、选择和后果承载情绪，少用抽象心理标签。\n"
+        "- 删除总结腔、解释腔和AI味虚词；避免连续比喻、成语堆砌和装饰性环境描写。\n"
+        "- 场景细节必须服务剧情、人物、压力或信息释放。\n\n"
+        f"【风格设定】\n{style_context}"
+        + (f"\n\n{extra_context}" if extra_context.strip() else "")
+    )
+
+
 def build_rewrite_messages(
     *,
     style_context: str,
     style_instruction: str,
     prompt: str | None,
     text: str,
+    writing_directives: str = "",
 ) -> list[dict[str, str]]:
+    if writing_directives.strip():
+        system_prompt = _build_scoped_text_operation_system(
+            role="改写编辑",
+            operation_rules=(
+                "- 保留原文事实、视角、人物目的、事件顺序和核心情绪。\n"
+                "- 只优化表达、节奏、句式和细节密度，不新增重大剧情、角色关系或设定。\n"
+                "- 改写后应像原文的更好版本，不像另一个故事。"
+            ),
+            writing_directives=writing_directives,
+            style_context=style_context,
+        )
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"{style_instruction}\n{prompt or '请改写以下文本：'}\n\n原文：\n{text}"},
+        ]
+
     anti_ai_rules = build_anti_ai_system_prompt()
     craft_rules = build_craft_system_prompt()
     dialogue_rules = build_dialogue_system_prompt()
+    directive_section = f"{writing_directives.strip()}\n\n" if writing_directives.strip() else ""
     system_prompt = (
         "你是一位资深小说文字编辑，专精于文本改写——在不改变核心意思的前提下，重新组织语言、调整表达方式、提升文字质感。\n\n"
+        f"{directive_section}"
         "【改写原则】\n"
         "1. 核心意思必须完整保留：事件、情感走向、角色言行的事实层面不得改变。\n"
         "2. 改变的是表达方式：句式结构、词汇选择、描写角度、详略比例。\n"
@@ -52,13 +93,32 @@ def build_expand_messages(
     style_context: str,
     prompt: str | None,
     text: str,
+    writing_directives: str = "",
 ) -> list[dict[str, str]]:
+    if writing_directives.strip():
+        system_prompt = _build_scoped_text_operation_system(
+            role="扩写编辑",
+            operation_rules=(
+                "- 原文已有句子、事件和信息必须保留；扩写是加法，不是替换。\n"
+                "- 新增内容要自然嵌入原文结构，优先补动作反应链、阻力、选择和后果。\n"
+                "- 不凭空增加原文没有的新角色、重大事件或世界观设定。"
+            ),
+            writing_directives=writing_directives,
+            style_context=style_context,
+        )
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"{prompt or '请扩写以下文本，增加更多细节：'}\n\n原文：\n{text}"},
+        ]
+
     anti_ai_rules = build_anti_ai_system_prompt()
     expansion_guidance = build_expansion_guidance_prompt()
     craft_rules = build_craft_system_prompt()
     dialogue_rules = build_dialogue_system_prompt()
+    directive_section = f"{writing_directives.strip()}\n\n" if writing_directives.strip() else ""
     system_prompt = (
         "你是一位资深小说扩写编辑，专精于在不改变原文骨架的前提下增加血肉——让场景更丰满、角色更立体、情感更深刻。\n\n"
+        f"{directive_section}"
         "【扩写原则】\n"
         "1. 原文中的每一句话、每一个事件、每一处描写必须全部保留。扩写是「加法」不是「替换」。\n"
         "2. 新增内容应自然地融入原文结构，而非集中堆砌在某一段落末尾。\n"
@@ -95,12 +155,32 @@ def build_continue_messages(
     summaries: str,
     prompt: str | None,
     text: str,
+    writing_directives: str = "",
 ) -> list[dict[str, str]]:
+    if writing_directives.strip():
+        system_prompt = _build_scoped_text_operation_system(
+            role="续写师",
+            operation_rules=(
+                "- 从原文最后一个动作、问题或情绪无缝接下去，不重述上文。\n"
+                "- 不跳时间、不换视角、不重置人物状态；除非大纲要求，不凭空切场景。\n"
+                "- 续写必须推进一个新变化：发现、决定、冲突升级、关系变化或代价落地。"
+            ),
+            writing_directives=writing_directives,
+            style_context=style_context,
+            extra_context=f"【当前大纲】\n{outline_context}\n\n【前文摘要】\n{summaries}",
+        )
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"{prompt or '请从以下文本结尾处继续写：'}\n\n上文：\n{text}\n\n请接着写下去："},
+        ]
+
     anti_ai_rules = build_anti_ai_system_prompt()
     craft_rules = build_craft_system_prompt()
     dialogue_rules = build_dialogue_system_prompt()
+    directive_section = f"{writing_directives.strip()}\n\n" if writing_directives.strip() else ""
     system_prompt = (
         "你是一位资深小说续写师，专精于从给定文本的结尾处无缝衔接，让读者察觉不到作者切换的痕迹。\n\n"
+        f"{directive_section}"
         "【续写原则】\n"
         "1. 从原文结尾处最后一个场景、最后一句对话、最后一个动作的自然延伸处开始写，不跳时间、不切场景（除非原文结尾本身就是场景结束的节点）。\n"
         "2. 严格承接上文：已出场角色的行为逻辑、情感状态、当前位置必须一致。已发生的剧情事实不可篡改或忽略。\n"
@@ -130,4 +210,3 @@ def build_continue_messages(
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"{prompt or '请从以下文本结尾处继续写：'}\n\n上文：\n{text}\n\n请接着写下去："},
     ]
-

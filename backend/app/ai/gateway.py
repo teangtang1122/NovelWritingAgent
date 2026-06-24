@@ -7,7 +7,7 @@ from typing import Optional, TypeVar
 
 from ..core.crypto import decrypt
 from ..core.exceptions import LLMError, NotFoundError
-from ..database.models import APIConfig
+from ..database.models import APIConfig, LocalModelTaskSetting
 from ..database.session import SessionLocal
 from .anthropic_adapter import AnthropicAdapter
 from .base import BaseAdapter
@@ -25,6 +25,7 @@ from .local_cli_adapter import (
     effective_local_cli_model,
     is_local_cli_provider,
 )
+from .local_runtime_adapter import LocalRuntimeAdapter
 from .openai_adapter import OpenAIAdapter
 from .qwen_adapter import QwenAdapter
 
@@ -45,6 +46,7 @@ ADAPTER_MAP: dict[str, type[BaseAdapter]] = {
     "hermes_cli": LocalCLIAdapter,
     "openclaw_cli": LocalCLIAdapter,
     "custom_cli": LocalCLIAdapter,
+    "local_llama_cpp": LocalRuntimeAdapter,
 }
 
 DEFAULT_TIMEOUT = 120
@@ -120,13 +122,30 @@ class LLMGateway:
         # config layer requires a custom base URL before they can be saved.
         return OpenAIAdapter
 
+    @staticmethod
+    def _model_for_task(model: Optional[str], extra_body: Optional[dict]) -> Optional[str]:
+        if model or not extra_body:
+            return model
+        task_type = str(extra_body.get("moshu_task_type") or "").strip()
+        if not task_type:
+            return model
+        db = SessionLocal()
+        try:
+            setting = db.query(LocalModelTaskSetting).filter(
+                LocalModelTaskSetting.task_type == task_type
+            ).first()
+            return f"local_llama_cpp:{setting.model_key}" if setting else model
+        finally:
+            db.close()
+
     @classmethod
     def provider_for_model(cls, model: Optional[str] = None) -> str:
         provider, _ = cls._parse_model(model)
         return provider
 
     @classmethod
-    def model_identity(cls, model: Optional[str] = None) -> tuple[str, str]:
+    def model_identity(cls, model: Optional[str] = None, extra_body: Optional[dict] = None) -> tuple[str, str]:
+        model = cls._model_for_task(model, extra_body)
         provider, model_name = cls._parse_model(model)
         if is_local_cli_provider(provider):
             model_name = effective_local_cli_model(provider, model_name)
@@ -210,6 +229,7 @@ class LLMGateway:
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str | dict] = None,
     ) -> dict:
+        model = cls._model_for_task(model, extra_body)
         provider, model_name = cls._parse_model(model)
         config = cls._load_config(provider)
         adapter_cls = cls._get_adapter(provider)
@@ -274,6 +294,7 @@ class LLMGateway:
         retry: int = MAX_RETRIES,
         extra_body: Optional[dict] = None,
     ) -> AsyncGenerator[str, None]:
+        model = cls._model_for_task(model, extra_body)
         provider, model_name = cls._parse_model(model)
         config = cls._load_config(provider)
         adapter_cls = cls._get_adapter(provider)

@@ -25,6 +25,7 @@ from ....services.rag.context_packer import ContextBudget, PackedContext, Pinned
 from ....services.rag.indexer import project_has_chunks, reindex_project_types
 from ....services.rag.retriever import search_chunks
 from ....prompts.style_prompts import build_style_context
+from ....prompts.writing_task_prompts import build_writing_directives
 from ..generated_drafts import store_chapter_draft
 
 
@@ -122,6 +123,16 @@ async def chapter_writer(
 
     # --- Style context ---
     style_ctx = build_style_context(project, include_anti_ai=False)
+    writing_directives = build_writing_directives(
+        project_title=project.title or "",
+        project_description=project.description or "",
+        project_tags=project.tags,
+        outline_context=outline_ctx,
+        world_context=world_ctx,
+        requirements=requirements,
+        plot_design=plot_design,
+        roleplay_results=roleplay_results,
+    )
 
     # --- Character details: name + alias resolution + RAG fallback ---
     char_detail_text, resolved_aliases, char_rag_used = _build_character_details_with_rag(
@@ -145,6 +156,7 @@ async def chapter_writer(
         plot_design=plot_design,
         roleplay_results=roleplay_results,
         requirements=requirements,
+        writing_directives=writing_directives,
     )
 
     model = str(args.get("model") or "") or None
@@ -157,6 +169,10 @@ async def chapter_writer(
             max_tokens=6000,
             timeout=180,
             retry=1,
+            extra_body={
+                "moshu_task_type": "writing",
+                "moshu_project_id": project_id,
+            },
         )
     except Exception as exc:
         return {

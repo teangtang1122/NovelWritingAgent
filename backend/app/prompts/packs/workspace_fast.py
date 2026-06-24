@@ -14,6 +14,7 @@ def _build_system(
     scope: str,
     outline_batch_count: int,
     auto_apply: bool,
+    tool_names: list[str] | set[str] | None = None,
 ) -> str:
     """Compatibility wrapper: fast workspace control uses quality rules too."""
     from .workspace_quality import PACK as WORKSPACE_QUALITY_PACK
@@ -22,6 +23,7 @@ def _build_system(
         scope=scope,
         outline_batch_count=outline_batch_count,
         auto_apply=auto_apply,
+        tool_names=tool_names,
     )
 
 

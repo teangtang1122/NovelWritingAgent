@@ -71,9 +71,10 @@ from ..services.style_rules import (
     _repair_forbidden_sentence_text,
 )
 from ..services.workspace.tool_schemas import (
-    ALL_TOOL_SCHEMAS,
     SEARCH_TOOL_NAMES,
     WRITE_TOOL_NAMES,
+    build_workspace_tool_schemas,
+    select_workspace_tool_names,
 )
 from ..services.workspace.registry import registry
 from ..services.workspace import (
@@ -1265,12 +1266,19 @@ async def workspace_assistant_stream(
                 for m in related_memories if m.id not in seen_ids
             ]
             memory_context = format_memory_context(all_mem)
+            workspace_tool_names = select_workspace_tool_names(
+                scope=payload.scope,
+                message=payload.message,
+                selected_text=bool(payload.selected_text and payload.selected_text.strip()),
+            )
+            workspace_tool_schemas = build_workspace_tool_schemas(workspace_tool_names)
 
             system_prompt = build_system_prompt(
                 get_workspace_pack(payload.assistant_mode),
                 scope=payload.scope,
                 outline_batch_count=payload.outline_batch_count,
                 auto_apply=payload.auto_apply,
+                tool_names=workspace_tool_names,
             )
 
             # --- Skill selection and injection ---
@@ -1283,6 +1291,7 @@ async def workspace_assistant_stream(
                     scope=payload.scope,
                     outline_batch_count=payload.outline_batch_count,
                     auto_apply=payload.auto_apply,
+                    tool_names=workspace_tool_names,
                 )
             if skill_info:
                 yield _sse_event({
@@ -1347,7 +1356,7 @@ async def workspace_assistant_stream(
                             timeout=300,
                             retry=1,
                             extra_body=local_cli_extra_body,
-                            tools=ALL_TOOL_SCHEMAS,
+                            tools=workspace_tool_schemas,
                             tool_choice="auto",
                         )
                         async for chunk in stream_gen:

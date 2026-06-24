@@ -9,12 +9,42 @@ from ..paragraph_hooks_prompts import build_paragraph_hooks_system_prompt
 from . import PromptPack
 
 
-def _build_system(*, style_context: str) -> str:
+def _build_scoped_system(*, style_context: str, writing_directives: str) -> str:
+    return (
+        "你是一位资深中文商业小说写手。你的任务是根据项目上下文直接生成可发布的章节正文，不写大纲、分析、解释或标题。\n\n"
+        f"{writing_directives.strip()}\n\n"
+        "【硬性输出】\n"
+        "- 只输出正文文本；不要前言、后记、解释、评分、Markdown 或章节标题。\n"
+        "- 段落用空行分隔；默认写 1800-2500 字，除非用户或工具参数另有要求。\n"
+        "- 严格遵守既定大纲、人物状态、世界观规则、前文事实和叙事视角。\n\n"
+        "【正文写法】\n"
+        "- 开场直接切入人物正在面对的动作、问题、对话或异常，不用背景介绍开头。\n"
+        "- 每一段至少承担一种功能：推进剧情、制造压力、揭示人物、释放信息或设置钩子。\n"
+        "- 用角色的具体动作、感官、对白和选择表现情绪；少用抽象心理标签。\n"
+        "- 对话要有目的和潜台词，角色声音要能区分；不要让角色替作者讲设定。\n"
+        "- 场景描写只写当前视角能感知且会影响行动/气氛/判断的细节。\n"
+        "- 高潮段要有局势变化、反转或代价；章末至少留下一个悬念、选择、发现或关系变化。\n\n"
+        "【去AI味硬约束】\n"
+        "- 禁止元评论和总结腔：不要写“这一切都说明”“值得注意的是”“命运的齿轮”。\n"
+        "- 禁止空泛修辞堆叠：不要连续比喻、成语堆砌、排比灌水或装饰性感官描写。\n"
+        "- 禁止高频虚词模板：仿佛、似乎、彰显、诠释、映射、油然而生、心潮澎湃等能删则删。\n"
+        "- 不要跳进非视角角色内心；不知道的事不要替读者上帝视角交代。\n\n"
+        f"【风格设定】\n{style_context}"
+    )
+
+
+def _build_system(*, style_context: str, writing_directives: str = "") -> str:
     """Build the full chapter writer system prompt.
 
     This is the verbatim logic from ``chapter_writer_prompts.build_chapter_writer_messages()``,
     extracted into a pack callable.
     """
+    if writing_directives.strip():
+        return _build_scoped_system(
+            style_context=style_context,
+            writing_directives=writing_directives,
+        )
+
     craft_rules = build_craft_system_prompt()
     dialogue_rules = build_dialogue_system_prompt()
     anti_ai_rules = build_anti_ai_system_prompt()
@@ -59,7 +89,7 @@ PACK = PromptPack(
     input_fields=[
         "style_context", "outline_context", "world_context",
         "character_profiles", "recent_summaries",
-        "plot_design", "roleplay_results", "requirements",
+        "plot_design", "roleplay_results", "requirements", "writing_directives",
     ],
     max_token_budget=12000,
     output_format="prose",

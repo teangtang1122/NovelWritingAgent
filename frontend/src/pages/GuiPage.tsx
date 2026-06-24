@@ -10,6 +10,7 @@ import {
   BookOutlined,
   CodeOutlined,
   ExportOutlined,
+  HddOutlined,
   RobotOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
@@ -18,15 +19,17 @@ import SettingsPage from './SettingsPage'
 import ExternalAgentPage from './ExternalAgentPage'
 import GuiAssistantChat from '../components/GuiAssistantChat'
 import TerminalPage from './TerminalPage'
+import ModelCenterPage from './ModelCenterPage'
 import TabCache from '../components/TabCache'
 import ThemeSwitcher from '../themes/ThemeSwitcher'
 
 const { Sider, Content } = Layout
 const { Title } = Typography
 
-type GuiTab = 'settings' | 'external-agent' | 'ai-chat' | 'terminal'
+type GuiTab = 'settings' | 'external-agent' | 'ai-chat' | 'models' | 'terminal'
 
 const MENU_ITEMS = [
+  { key: 'models', icon: <HddOutlined />, label: '本地 AI' },
   { key: 'ai-chat', icon: <RobotOutlined />, label: 'AI 助手' },
   { key: 'settings', icon: <SettingOutlined />, label: '系统设置' },
   { key: 'external-agent', icon: <ApiOutlined />, label: '外部 Agent' },
@@ -34,6 +37,7 @@ const MENU_ITEMS = [
 ]
 
 const TAB_RENDERERS = {
+  models: () => <ModelCenterPage embedded />,
   'ai-chat': () => <GuiAssistantChat />,
   settings: () => <SettingsPage embedded />,
   'external-agent': () => <ExternalAgentPage embedded />,

@@ -137,6 +137,7 @@ async def outline_writer(
             max_tokens=4000,
             timeout=120,
             retry=1,
+            extra_body={"moshu_task_type": "planning", "moshu_project_id": project_id},
             tools=[OUTLINE_NODES_TOOL],
             tool_choice="required",
         )

@@ -274,6 +274,7 @@ async def design_plot(
             temperature=temperature,
             timeout=120,
             retry=1,
+            extra_body={"moshu_task_type": "planning", "moshu_project_id": project_id},
             tools=[PLOT_DESIGN_TOOL],
             tool_choice="required",
         )

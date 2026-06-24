@@ -48,11 +48,14 @@ def _build_compact_dialogue() -> str:
     )
 
 
-def _build_system(*, style_context: str) -> str:
+def _build_system(*, style_context: str, writing_directives: str = "") -> str:
     """Compatibility wrapper: fast chapter writing uses quality rules too."""
     from .chapter_quality import PACK as CHAPTER_QUALITY_PACK
 
-    return CHAPTER_QUALITY_PACK.build_system_prompt(style_context=style_context)
+    return CHAPTER_QUALITY_PACK.build_system_prompt(
+        style_context=style_context,
+        writing_directives=writing_directives,
+    )
 
 
 PACK = PromptPack(
@@ -62,7 +65,7 @@ PACK = PromptPack(
     description="Compatibility fast chapter writer — delegates to quality writing rules",
     input_fields=[
         "style_context", "outline_context", "world_context",
-        "character_profiles", "recent_summaries",
+        "character_profiles", "recent_summaries", "writing_directives",
     ],
     max_token_budget=6000,
     output_format="prose",

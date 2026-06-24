@@ -38,6 +38,7 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapabilities] = {
     "hermes_cli": ProviderCapabilities(supports_tools=False, supports_tool_choice=False, supports_streaming_tools=False),
     "openclaw_cli": ProviderCapabilities(supports_tools=False, supports_tool_choice=False, supports_streaming_tools=False),
     "custom_cli": ProviderCapabilities(supports_tools=False, supports_tool_choice=False, supports_streaming_tools=False),
+    "local_llama_cpp": ProviderCapabilities(),
 }
 
 

@@ -53,6 +53,13 @@ class RuntimeMigrationTestCase(unittest.TestCase):
             "chapter_worldbuilding",
             "worldbuilding_versions",
             "worldbuilding_timeline",
+            "local_models",
+            "local_runtime_installations",
+            "model_download_tasks",
+            "model_adapters",
+            "local_model_task_settings",
+            "training_datasets",
+            "training_jobs",
         }:
             self.assertIn(table_name, table_names)
 

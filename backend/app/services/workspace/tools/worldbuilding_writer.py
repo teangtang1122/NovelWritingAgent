@@ -75,6 +75,7 @@ async def worldbuilding_writer(
             max_tokens=3000,
             timeout=120,
             retry=1,
+            extra_body={"moshu_task_type": "planning", "moshu_project_id": project_id},
             tools=[WORLDBUILDING_ENTRY_TOOL],
             tool_choice="required",
         )

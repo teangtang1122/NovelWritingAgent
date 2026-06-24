@@ -81,12 +81,15 @@ PROVIDER_LABELS: dict[str, str] = {
     "hermes_cli": "Hermes Agent CLI",
     "openclaw_cli": "OpenClaw CLI",
     "custom_cli": "Custom Local CLI",
+    "local_llama_cpp": "Moshu Local AI",
 }
 
 DEEPSEEK_SUPPORTED_MODELS = {"deepseek-v4-pro", "deepseek-v4-flash"}
 DEEPSEEK_MODEL_ALIASES = {"deepseek-v3": "deepseek-v4-flash"}
 LOCAL_CLI_PROVIDER_TYPE = "local_cli"
 LOCAL_CLI_PLACEHOLDER_KEY = "__local_cli__"
+LOCAL_RUNTIME_PROVIDER_TYPE = "local_runtime"
+LOCAL_RUNTIME_PLACEHOLDER_KEY = "__local_runtime__"
 
 
 def _app_home() -> Path:
@@ -270,6 +273,8 @@ def _provider_label(provider: str) -> str:
 def _normalize_provider_type(provider: str, provider_type: str | None = None) -> str:
     if provider_type:
         return provider_type
+    if provider == "local_llama_cpp":
+        return LOCAL_RUNTIME_PROVIDER_TYPE
     return LOCAL_CLI_PROVIDER_TYPE if is_local_cli_provider(provider) else "api"
 
 
@@ -283,7 +288,7 @@ def _default_cli_args(provider: str) -> str | None:
 
 
 def _resolve_base_url(provider: str, base_url_override: str | None) -> str:
-    if is_local_cli_provider(provider):
+    if is_local_cli_provider(provider) or provider == "local_llama_cpp":
         return ""
     if base_url_override:
         return base_url_override.rstrip("/")
@@ -299,6 +304,8 @@ def _is_anthropic_provider(provider: str) -> bool:
 def _normalize_model_for_provider(provider: str, model: str, *, strict: bool = True) -> str:
     if is_local_cli_provider(provider):
         return model or DEFAULT_CLI_MODELS.get(provider, f"{provider}-default")
+    if provider == "local_llama_cpp":
+        return model
     if provider == "gemini":
         return model.removeprefix("models/")
     if provider != "deepseek":
@@ -313,6 +320,17 @@ def _normalize_model_for_provider(provider: str, model: str, *, strict: bool = T
 def _normalize_model_list_for_provider(provider: str, models: list[dict]) -> list[dict]:
     if is_local_cli_provider(provider):
         return models or local_cli_model_options(provider)
+    if provider == "local_llama_cpp":
+        from ..services.local_runtime.model_jobs import ensure_catalog_rows
+        from ..database.session import SessionLocal
+        from ..database.models import LocalModel
+
+        ensure_catalog_rows()
+        with SessionLocal() as db:
+            return [
+                {"id": item.model_key, "display_name": item.display_name}
+                for item in db.query(LocalModel).order_by(LocalModel.recommended_vram_gb.asc()).all()
+            ]
     if provider == "gemini":
         normalized: dict[str, dict] = {}
         for model in models:
@@ -357,6 +375,8 @@ def _config_payload(cfg: APIConfig, include_masked_key: bool = False) -> dict:
     if include_masked_key:
         if is_local_cli_provider(cfg.provider):
             data["api_key_masked"] = "Local CLI"
+        elif cfg.provider == "local_llama_cpp":
+            data["api_key_masked"] = "Local runtime"
         else:
             masked = "not configured"
             try:
@@ -400,6 +420,7 @@ def create_or_update_model_config(payload: APIConfigCreate, db: Session = Depend
 
     provider_type = _normalize_provider_type(payload.provider, payload.provider_type)
     is_cli = provider_type == LOCAL_CLI_PROVIDER_TYPE or is_local_cli_provider(payload.provider)
+    is_runtime = provider_type == LOCAL_RUNTIME_PROVIDER_TYPE or payload.provider == "local_llama_cpp"
 
     if is_cli:
         api_key = LOCAL_CLI_PLACEHOLDER_KEY
@@ -412,6 +433,11 @@ def create_or_update_model_config(payload: APIConfigCreate, db: Session = Depend
         else:
             _validate_cli_command(cli_command)
         cli_args = payload.cli_args or _default_cli_args(payload.provider)
+    elif is_runtime:
+        api_key = LOCAL_RUNTIME_PLACEHOLDER_KEY
+        base_url_override = None
+        cli_command = None
+        cli_args = None
     else:
         if not payload.api_key:
             raise ValidationError("API Key is required for API providers")
@@ -428,7 +454,7 @@ def create_or_update_model_config(payload: APIConfigCreate, db: Session = Depend
     if existing:
         existing.api_key_encrypted = encrypted_key
         existing.default_model = default_model
-        existing.provider_type = LOCAL_CLI_PROVIDER_TYPE if is_cli else "api"
+        existing.provider_type = LOCAL_CLI_PROVIDER_TYPE if is_cli else LOCAL_RUNTIME_PROVIDER_TYPE if is_runtime else "api"
         existing.base_url_override = base_url_override
         existing.cli_command = cli_command
         existing.cli_args = cli_args
@@ -446,7 +472,7 @@ def create_or_update_model_config(payload: APIConfigCreate, db: Session = Depend
         provider=payload.provider,
         api_key_encrypted=encrypted_key,
         default_model=default_model,
-        provider_type=LOCAL_CLI_PROVIDER_TYPE if is_cli else "api",
+        provider_type=LOCAL_CLI_PROVIDER_TYPE if is_cli else LOCAL_RUNTIME_PROVIDER_TYPE if is_runtime else "api",
         base_url_override=base_url_override,
         cli_command=cli_command,
         cli_args=cli_args,
@@ -523,6 +549,8 @@ async def _list_anthropic_models(api_key: str, base_url: str) -> list[dict]:
 async def list_provider_models(payload: ModelListRequest):
     if is_local_cli_provider(payload.provider):
         models = local_cli_model_options(payload.provider, payload.cli_command)
+    elif payload.provider == "local_llama_cpp":
+        models = []
     else:
         if not payload.api_key:
             raise ValidationError("API Key is required")
@@ -571,6 +599,22 @@ async def test_connection(payload: ConnectionTestRequest):
         return ApiResponse.success(
             data={"model": model, "reply": result["content"].strip()[:200]},
             message=f"{_provider_label(payload.provider)} real conversation succeeded",
+        )
+    if payload.provider == "local_llama_cpp":
+        model = payload.model
+        if not model:
+            raise ValidationError("请选择已安装的本地模型")
+        result = await LLMGateway.chat_completion(
+            messages=[{"role": "user", "content": "只回复：连接成功"}],
+            model=f"local_llama_cpp:{model}",
+            temperature=0,
+            max_tokens=32,
+            retry=0,
+            timeout=180,
+        )
+        return ApiResponse.success(
+            data={"model": model, "reply": (result.get("content") or "")[:200]},
+            message="本地模型连接成功",
         )
 
     if not payload.api_key:

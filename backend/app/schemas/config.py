@@ -20,6 +20,7 @@ LOCAL_CLI_PROVIDER_IDS = {
     "openclaw_cli",
     "custom_cli",
 }
+LOCAL_RUNTIME_PROVIDER_IDS = {"local_llama_cpp"}
 
 
 def validate_provider_id(provider: str) -> str:
@@ -36,7 +37,7 @@ class APIConfigCreate(BaseModel):
     api_key: Optional[str] = Field(None, description="API key; not required for local CLI providers")
     default_model: str = Field(..., min_length=1, max_length=100, description="Default model name")
     base_url_override: Optional[str] = Field(None, max_length=500, description="Custom API endpoint")
-    provider_type: Optional[str] = Field(None, max_length=20, description="api or local_cli")
+    provider_type: Optional[str] = Field(None, max_length=20, description="api, local_cli, or local_runtime")
     cli_command: Optional[str] = Field(None, max_length=500, description="Local CLI command")
     cli_args: Optional[str] = Field(
         None,
@@ -54,8 +55,12 @@ class APIConfigCreate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_api_key_for_api_provider(self):
-        provider_type = self.provider_type or ("local_cli" if self.provider in LOCAL_CLI_PROVIDER_IDS else "api")
-        if provider_type != "local_cli" and not (self.api_key or "").strip():
+        provider_type = self.provider_type or (
+            "local_cli" if self.provider in LOCAL_CLI_PROVIDER_IDS
+            else "local_runtime" if self.provider in LOCAL_RUNTIME_PROVIDER_IDS
+            else "api"
+        )
+        if provider_type == "api" and not (self.api_key or "").strip():
             raise ValueError("API Key is required for API providers")
         return self
 
@@ -88,7 +93,7 @@ class ModelListRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_api_key_for_api_provider(self):
-        if self.provider not in LOCAL_CLI_PROVIDER_IDS and not (self.api_key or "").strip():
+        if self.provider not in LOCAL_CLI_PROVIDER_IDS | LOCAL_RUNTIME_PROVIDER_IDS and not (self.api_key or "").strip():
             raise ValueError("API Key is required for API providers")
         return self
 
@@ -110,6 +115,6 @@ class ConnectionTestRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_api_key_for_api_provider(self):
-        if self.provider not in LOCAL_CLI_PROVIDER_IDS and not (self.api_key or "").strip():
+        if self.provider not in LOCAL_CLI_PROVIDER_IDS | LOCAL_RUNTIME_PROVIDER_IDS and not (self.api_key or "").strip():
             raise ValueError("API Key is required for API providers")
         return self

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from ...ai.gateway import LLMGateway
 from ...ai.local_cli_adapter import is_local_cli_provider
-from ...database.models import APIConfig
+from ...database.models import APIConfig, LocalModelTaskSetting
 from ...database.session import SessionLocal
 from .constants import CHEAP_MODEL_BY_PROVIDER
 
@@ -13,6 +13,11 @@ def default_cataloging_model(model_override: str | None = None) -> str | None:
         return model_override
     db = SessionLocal()
     try:
+        task_setting = db.query(LocalModelTaskSetting).filter(
+            LocalModelTaskSetting.task_type == "cataloging"
+        ).first()
+        if task_setting:
+            return f"local_llama_cpp:{task_setting.model_key}"
         config = db.query(APIConfig).filter(APIConfig.is_global_default == True).first()
         if not config:
             return None
@@ -29,9 +34,9 @@ def cataloging_extra_body(
     attachments: list[str] | None = None,
 ) -> dict | None:
     provider = (model or "").split(":", 1)[0].lower()
-    base: dict | None = None
+    base: dict | None = {"moshu_task_type": "cataloging"}
     if provider == "deepseek":
-        base = {"thinking": {"type": "disabled"}}
+        base["thinking"] = {"type": "disabled"}
     if is_local_cli_provider(provider):
         return LLMGateway.local_cli_extra_body(
             model,
