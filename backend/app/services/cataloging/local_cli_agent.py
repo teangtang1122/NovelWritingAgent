@@ -41,6 +41,7 @@ from app.services.external_agent.run_service import add_event, create_run, updat
 from app.services.cataloging.candidate_io import candidate_to_dict
 from app.services.cataloging.fact_store import fact_to_dict
 from app.services.cataloging.orchestrator import job_to_dict, run_to_dict, sse_event
+from app.services.cataloging import orchestrator as cataloging_orchestrator
 
 
 _COORDINATORS: dict[str, asyncio.Task] = {}
@@ -371,18 +372,34 @@ def _task_text(
 4. 禁止再次领取或处理下一章；下一章必须由墨枢启动全新的 CLI 回合。
 """
     else:
-        phase = "facts" if stage == "full" else "candidates"
-        fact_steps = """
+        if stage == "full":
+            stage_steps = f"""
+## 本轮唯一任务：只保存事实，不生成候选
+0. 立即调用 `report_agent_plan`，上报本轮计划：读取控制状态、领取 facts 阶段章节、读取章节文件、保存事实、验证进度。
+1. 调用 `get_next_external_cataloging_chapter`：
+   - `project_id="{job.project_id}"`
+   - `job_id="{job.id}"`
+   - `phase="facts"`
+   - `include_content=false`
+   - `include_prompt_pack=false`
+   - `include_context_indexes=false`
+   - `run_id="{agent_run_id}"`
+2. 工具返回的 chapter_id 必须是 `{chapter.id}`。若不一致，立即停止并说明阻塞。
 3. 调用 `report_agent_progress` 说明正在读取章节文件；随后裸读章节文件。
-4. 按共享提示词抽取不限数量的事实；调用
-   `save_external_cataloging_facts` 保存。事实必须充分覆盖章节，不得为了缩短 JSON 而漏信息。
-5. 调用 `report_agent_progress` 说明事实已保存、开始结合档案生成候选。
-""" if stage == "full" else """
+4. 按共享提示词抽取不限数量的事实；调用 `save_external_cataloging_facts` 保存。
+   事实必须充分覆盖章节，不得为了缩短 JSON 而漏信息。
+5. 调用 `verify_external_cataloging_progress`，然后结束本轮。
+6. 本轮禁止调用 `save_external_cataloging_candidates`、`apply_pending_cataloging`，
+   禁止处理下一章；候选阶段必须由墨枢启动下一次 CLI 回合。
+"""
+        else:
+            phase = "candidates"
+            fact_steps = """
 3. 本章事实已经保存。调用 `report_agent_progress` 说明正在恢复第二阶段。
 4. 调用 `list_cataloging_facts`，使用本任务中的 chapter_run_id
    读取事实，再结合相关角色、世界观和大纲镜像生成候选。
 """
-        stage_steps = f"""
+            stage_steps = f"""
 ## 本轮执行步骤
 0. 立即调用 `report_agent_plan`，上报本轮将读取文件、保存结构化结果并验证进度。
 1. 调用 `get_next_external_cataloging_chapter`：
@@ -504,6 +521,81 @@ def _turn_has_no_saved_progress(stage: str, status: str) -> bool:
     if stage == "apply":
         return status == "awaiting_confirmation"
     return False
+
+
+async def _consume_cataloging_events(generator: Any) -> None:
+    async for _event in generator:
+        pass
+
+
+async def _run_direct_jsonl_cataloging_fallback(
+    db: Session,
+    *,
+    job: CatalogingJob,
+    run: CatalogingChapterRun,
+    agent_run_id: str,
+    stage: str,
+    stdout_tail: str = "",
+    stderr_tail: str = "",
+) -> tuple[bool, str]:
+    """Fallback when a managed CLI turn exits without calling MCP writes.
+
+    The selected CLI model is still used through LLMGateway, but Moshu receives
+    JSONL directly and writes through the normal internal parser instead of
+    relying on the CLI agent to call MCP tools.
+    """
+    add_event(
+        db,
+        agent_run_id,
+        "chapter_agent_fallback",
+        status="running",
+        message="本机 CLI 未通过 MCP 保存，改用同一模型的直连 JSONL 建档兜底",
+        payload_json=json.dumps({
+            "job_id": job.id,
+            "chapter_id": run.chapter_id,
+            "chapter_run_id": run.id,
+            "stage": stage,
+            "stdout_tail": stdout_tail[-1500:],
+            "stderr_tail": stderr_tail[-1500:],
+        }, ensure_ascii=False),
+    )
+    db.commit()
+    try:
+        if stage in {"full", "candidates"}:
+            await _consume_cataloging_events(cataloging_orchestrator._extract_run(db, job, run))
+            db.refresh(job)
+            db.refresh(run)
+            if run.status == "failed":
+                return False, run.error or "直连 JSONL 建档未生成可用候选"
+            if job.execution_mode == "auto":
+                await _consume_cataloging_events(cataloging_orchestrator._apply_run(db, job, run))
+        elif stage == "apply":
+            await _consume_cataloging_events(cataloging_orchestrator._apply_run(db, job, run))
+        else:
+            return False, f"未知建档阶段：{stage}"
+        db.refresh(job)
+        db.refresh(run)
+        if run.status == "failed":
+            return False, run.error or "直连 JSONL 建档失败"
+        add_event(
+            db,
+            agent_run_id,
+            "chapter_agent_fallback_completed",
+            status="ok",
+            message="直连 JSONL 建档兜底已完成当前章节",
+            payload_json=json.dumps({
+                "job_id": job.id,
+                "chapter_id": run.chapter_id,
+                "chapter_run_id": run.id,
+                "stage": stage,
+                "chapter_status": run.status,
+            }, ensure_ascii=False),
+        )
+        db.commit()
+        return True, ""
+    except Exception as exc:
+        db.rollback()
+        return False, str(exc)
 
 
 async def _run_cli_turn(
@@ -747,8 +839,21 @@ async def _coordinate_cataloging(job_id: str, provider: str) -> None:
                     run.status = "failed"
                     run.error = stderr[-2000:] or stdout[-2000:] or f"CLI exit code {returncode}"
                 elif _turn_has_no_saved_progress(stage, run.status):
+                    ok, fallback_error = await _run_direct_jsonl_cataloging_fallback(
+                        db,
+                        job=job,
+                        run=run,
+                        agent_run_id=agent_run_id,
+                        stage=stage,
+                        stdout_tail=stdout,
+                        stderr_tail=stderr,
+                    )
+                    if ok:
+                        no_save_attempts.pop(run.id, None)
+                        db.commit()
+                        continue
                     run.status = "failed"
-                    run.error = "本机 CLI 未通过 MCP 保存本章事实或候选"
+                    run.error = f"本机 CLI 未通过 MCP 保存本章事实或候选；直连 JSONL 兜底也失败：{fallback_error}"
                 if run.status == "failed":
                     job.status = "paused_on_failure"
                     job.blocked_chapter_id = run.chapter_id

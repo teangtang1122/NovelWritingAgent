@@ -246,10 +246,66 @@ class DraftNovelBlueprintTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["title"], "LLM Success")
-        self.assertEqual(result[0]["creation_engine"], "template_llm_hybrid")
+        self.assertEqual(result[0]["creation_engine"], "llm_original")
         self.assertEqual(diagnostics["success_count"], 1)
         self.assertTrue(diagnostics["failure_reasons"])
         self.assertEqual(call_mock.await_count, 5)
+
+    def test_initial_draft_does_not_inherit_template_content(self):
+        from app.services.workspace.tools.novel_creation import _try_llm_initial_draft
+
+        session = SimpleNamespace(
+            id="session-no-template-bleed",
+            genre="xianxia",
+            target_audience="all",
+            platform="qidian",
+        )
+        template = _usable_blueprint("Template Title")
+        template["subtitle"] = "TEMPLATE_SUBTITLE"
+        template["protagonist"]["name"] = "Template Hero"
+        llm_blueprint = _compact_original_blueprint("Fresh Original")
+
+        with patch(
+            "app.services.workspace.tools.novel_creation._call_llm_for_single_blueprint",
+            new=AsyncMock(side_effect=[llm_blueprint, None, None, None, None]),
+        ):
+            result = asyncio.run(_try_llm_initial_draft(
+                session=session,
+                template_blueprints=[template, template, template],
+                user_brief="modern person enters a cultivation world",
+                model="claude_cli:claude-code",
+                diagnostics={},
+            ))
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0]["title"], "Fresh Original")
+        self.assertEqual(result[0]["subtitle"], "")
+        self.assertEqual(result[0]["protagonist"]["name"], "Lin Yuan")
+        self.assertNotEqual(result[0]["protagonist"]["name"], "Template Hero")
+
+    def test_clarifying_questions_are_llm_first_for_known_genre(self):
+        from app.services.workspace.tools.novel_creation import _generate_clarifying_questions
+
+        llm_questions = [{
+            "question": "修炼体系的代价是什么？",
+            "purpose": "决定升级压力和爽点兑现方式",
+            "options": ["损耗寿元", "欠下宗门债", "污染心神"],
+            "type": "single_select",
+        }]
+        with patch(
+            "app.services.workspace.tools.novel_creation._llm_generate_genre_questions",
+            new=AsyncMock(return_value=llm_questions),
+        ) as llm_mock:
+            result = asyncio.run(_generate_clarifying_questions(
+                user_brief="我要写玄幻修仙",
+                genre_label="玄幻/修仙",
+                target_audience="男频",
+                platform="起点",
+                model="claude_cli:claude-code",
+            ))
+
+        self.assertEqual(result[0]["question"], "修炼体系的代价是什么？")
+        self.assertTrue(llm_mock.await_args.kwargs["ref_questions"])
 
     def test_draft_returns_one_structurally_usable_llm_blueprint(self):
         from app.services.workspace.tools.novel_creation import draft_novel_blueprint
@@ -743,11 +799,12 @@ class SystemAssistantModelOverrideTest(unittest.TestCase):
 
         qa_history = [
             {"question": "故事的核心冲突是什么？", "answer": "理想与现实的矛盾"},
-            {"question": "你想写什么类型的小说？", "answer": "玄幻/修仙"},
+            {"question": "你想写什么类型的小说？", "answer": "玄幻/修仙（修炼体系、境界突破、热血战斗）"},
             {"question": "主角最核心的身份、能力或处境是什么？", "answer": "现代人穿越到异世界"},
         ]
 
         slots = _qa_slot_summary(qa_history)
+        self.assertIn("玄幻/修仙", slots["genre"])
         self.assertEqual(slots["protagonist"], "现代人穿越到异世界")
         self.assertNotIn("power_system", slots)
         result = _deterministic_answer_evaluation(genre_label="玄幻/修仙", qa_history=qa_history)

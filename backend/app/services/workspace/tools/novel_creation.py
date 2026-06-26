@@ -2325,9 +2325,9 @@ async def _generate_clarifying_questions(
     """Generate 3-5 clarifying questions based on genre and what the user already provided.
 
     Strategy:
-    1. Try genre-specific template questions (instant)
-    2. If no template match, call LLM to generate genre-specific questions (fast)
-    3. If LLM fails, fall back to generic questions
+    1. Let the selected LLM design genre-specific questions from principles.
+    2. Provide built-in genre questions only as reference/fallback material.
+    3. If LLM fails, fall back to local reference/generic questions.
     Skips questions the user already answered in their brief.
     """
     text = _clean_text(user_brief).lower()
@@ -2960,6 +2960,25 @@ async def _generate_clarifying_questions(
     is_combination = len(genre_parts) >= 2
 
     questions = []
+    seen_questions: set[str] = set()
+
+    def append_question(q: dict[str, Any]) -> None:
+        question_text = _clean_text(q.get("question"))
+        if not question_text:
+            return
+        if "冲突" in question_text and has_conflict:
+            return
+        if "基调" in question_text and has_tone:
+            return
+        if question_text in seen_questions:
+            return
+        normalized = dict(q)
+        normalized["question"] = question_text
+        normalized.setdefault("purpose", "")
+        normalized.setdefault("options", [])
+        normalized.setdefault("type", "single_select")
+        seen_questions.add(question_text)
+        questions.append(normalized)
 
     if is_combination:
         # ── Multi-genre combo: collect all reference material, let LLM generate ──
@@ -2982,47 +3001,35 @@ async def _generate_clarifying_questions(
         )
         if llm_questions:
             for q in llm_questions:
-                if "冲突" in q.get("question", "") and has_conflict:
-                    continue
-                if "基调" in q.get("question", "") and has_tone:
-                    continue
-                questions.append(q)
+                append_question(q)
     else:
-        # ── Single genre: use template questions ──
-        seen_questions = set()
+        # ── Single genre: let LLM ask from principles, using templates only as references/fallback ──
         matched_genres = []
+        ref_questions = []
 
         for genre_key, genre_qs in genre_questions.items():
             if any(genre_key in part or part in genre_key for part in genre_parts):
                 matched_genres.append(genre_key)
-                for q in genre_qs:
-                    if "冲突" in q["question"] and has_conflict:
-                        continue
-                    if "基调" in q["question"] and has_tone:
-                        continue
-                    if q["question"] in seen_questions:
-                        continue
-                    seen_questions.add(q["question"])
-                    questions.append(q)
+                ref_questions.extend(genre_qs)
 
-        questions = questions[:5]
+        llm_questions = await _llm_generate_genre_questions(
+            genre_label=genre_label,
+            user_brief=user_brief,
+            target_audience=target_audience,
+            platform=platform,
+            genre_profile=_get_genre_profile(genre_label) if matched_genres else "",
+            ref_questions=ref_questions or None,
+            model=model,
+        )
+        if llm_questions:
+            for q in llm_questions:
+                append_question(q)
 
-        # If no template match, try LLM
-        if not matched_genres:
-            llm_questions = await _llm_generate_genre_questions(
-                genre_label=genre_label,
-                user_brief=user_brief,
-                target_audience=target_audience,
-                platform=platform,
-                model=model,
-            )
-            if llm_questions:
-                for q in llm_questions:
-                    if "冲突" in q.get("question", "") and has_conflict:
-                        continue
-                    if "基调" in q.get("question", "") and has_tone:
-                        continue
-                    questions.append(q)
+        if not questions and ref_questions:
+            for q in ref_questions:
+                append_question(q)
+                if len(questions) >= 5:
+                    break
 
     # ── Step 3: Fill with generic questions if still not enough ──
     # When genre is unknown, genre selection is the most important first question
@@ -3403,6 +3410,8 @@ def _qa_slot_for(question: str, answer: str = "") -> str:
     a = _clean_text(answer)
     text = f"{q}\n{a}"
     protagonist_question = any(word in q for word in ("主角", "女主", "男主", "主人公", "身份", "背景", "性格", "处境"))
+    if any(word in q for word in ("小说类型", "什么类型", "类型", "题材", "品类")):
+        return "genre"
     if any(word in text for word in ("篇幅", "多长", "章节", "短篇", "中篇", "长篇", "超长篇")):
         return "length"
     if any(word in text for word in ("读者", "受众", "男频", "女频", "平台", "起点", "番茄")):
@@ -3577,7 +3586,8 @@ async def _llm_generate_genre_questions(
     - genre_profile: merged genre profiles (narrator, style, taboos, satisfaction)
     - ref_questions: template questions from all matched genres (as reference)
     The LLM uses all this context to generate better combination-specific questions.
-    Fast call (20s timeout, no retry). Returns None if LLM fails.
+    Fast call (20s timeout for API/cloud, 60s for local CLI, no retry).
+    Returns None if LLM fails.
     """
     profile_section = f"\n{genre_profile}\n" if genre_profile else "\n"
 
@@ -3640,7 +3650,7 @@ async def _llm_generate_genre_questions(
             model=model,
             temperature=0.7,
             max_tokens=1500,
-            timeout=20,
+            timeout=60 if _is_local_cli_planning_model(model) else 20,
             retry=0,
             extra_body=_novel_creation_cli_context(model),
         )
@@ -3942,19 +3952,15 @@ async def _try_llm_initial_draft(
                 )
                 continue
 
-            template_ref = template_blueprints[result_index] if result_index < len(template_blueprints) else template_blueprints[0]
-            merged = _merge_llm_blueprint(llm_bp, template_ref)
-            prot_name = _clean_text(
-                (merged.get("protagonist") or {}).get("name")
-                or (template_ref.get("protagonist") or {}).get("name")
-            )
+            merged = dict(llm_bp)
+            prot_name = _clean_text((merged.get("protagonist") or {}).get("name"))
             validated = _validate_blueprint(
                 merged,
-                fallback_title=merged.get("title", template_ref.get("title", "")),
+                fallback_title=_clean_text(merged.get("title")),
                 genre_label=genre_label,
                 protagonist_name=prot_name,
             )
-            validated["creation_engine"] = "template_llm_hybrid"
+            validated["creation_engine"] = "llm_original"
             result_by_index[result_index] = validated
             pending.discard(result_index)
             title = _clean_text(llm_bp.get("title"), "unknown")
@@ -4217,22 +4223,18 @@ async def _try_llm_blueprint_refinement(
                     reason=f"invalid item type: {type(llm_bp).__name__}",
                 )
                 continue
-            template_ref = template_blueprints[i] if i < len(template_blueprints) else template_blueprints[0]
-            merged = _merge_llm_blueprint(llm_bp, template_ref)
-            prot_name = _clean_text(
-                (merged.get("protagonist") or {}).get("name")
-                or (template_ref.get("protagonist") or {}).get("name")
-            )
+            merged = dict(llm_bp)
+            prot_name = _clean_text((merged.get("protagonist") or {}).get("name"))
             validated = _validate_blueprint(
                 merged,
-                fallback_title=merged.get("title", template_ref.get("title", "")),
+                fallback_title=_clean_text(merged.get("title")),
                 genre_label=genre_label,
                 protagonist_name=prot_name,
             )
             validated["revision_mode"] = "regenerate"
             validated["revision_instruction"] = feedback
             validated["adjustment_notes"] = _feedback_tone(feedback)
-            validated["creation_engine"] = "llm_enhanced"
+            validated["creation_engine"] = "llm_original"
             result.append(validated)
             _record_llm_blueprint_attempt(
                 diagnostics,
@@ -5557,7 +5559,7 @@ async def draft_novel_blueprint(
                     diagnostics=llm_diagnostics,
                 )
             else:
-                # Initial draft: use LLM to enhance template skeleton
+                # Initial draft: templates provide field shape only; content must come from the LLM.
                 llm_result = await _try_llm_initial_draft(
                     session=session,
                     template_blueprints=template_blueprints,
@@ -5642,13 +5644,13 @@ async def draft_novel_blueprint(
         elif revision_mode == "regenerate":
             detail = f"Regenerated {len(blueprints)} blueprint options"
             recommendation = (
-                "已用模板与模型重新生成三套方案；建议比较标题、核心冲突、主角压力和黄金三章。"
+                "已用模型重新生成原创方案；建议比较标题、核心冲突、主角压力和黄金三章。"
                 if llm_succeeded
                 else "模型深化暂时不可用，已用模板重新生成三套方案；可以稍后再次深度优化。"
             )
         elif llm_succeeded:
-            detail = f"Generated {len(blueprints)} hybrid blueprint options (template + LLM)"
-            recommendation = "已用模板+LLM混合引擎生成三套方案；每套方案的标题、角色和世界观都经过创意优化，优先选择最打动你的一套。"
+            detail = f"Generated {len(blueprints)} original LLM blueprint options"
+            recommendation = "已用模型生成原创方案；每套方案的标题、角色和世界观都由当前模型即时构思，优先选择最打动你的一套。"
         else:
             detail = f"Generated {len(blueprints)} API-free blueprint options"
             recommendation = "已用快速创意编译器生成三套方案；优先选择需求覆盖率最高且黄金三章最顺眼的一套。"
@@ -5662,7 +5664,7 @@ async def draft_novel_blueprint(
                 "revision_mode": revision_mode,
                 "enhance_with_llm": enhance_with_llm,
                 "enhancement_mode": (
-                    "template_llm_hybrid"
+                    "llm_original"
                     if llm_succeeded
                     else "instant_template"
                     if template_allowed

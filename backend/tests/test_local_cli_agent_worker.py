@@ -113,6 +113,8 @@ class LocalCLIAgentWorkerTestCase(unittest.TestCase):
         self.assertIn(str(chapter_file), task)
         self.assertIn("include_content=false", task)
         self.assertIn("include_context_indexes=false", task)
+        self.assertIn("本轮唯一任务：只保存事实，不生成候选", task)
+        self.assertIn("本轮禁止调用 `save_external_cataloging_candidates`", task)
         self.assertIn("所有事实、候选和应用操作必须调用 Moshu MCP 工具", task)
         self.assertIn("report_agent_progress", task)
         self.assertNotIn(chapter.content, task)

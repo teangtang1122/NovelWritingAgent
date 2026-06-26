@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database.models import APIConfig, Base, CatalogingJob, Chapter, Project
 from app.services.cataloging.local_cli_agent import (
+    _MAX_NO_SAVE_ATTEMPTS,
     _build_cataloging_cli_launch,
     _coordinate_cataloging,
     _task_prompt,
@@ -104,6 +105,19 @@ class LocalCLICatalogingAgentTestCase(unittest.TestCase):
                         ],
                     },
                 )
+            elif stage == "candidates":
+                assigned = await get_next_external_cataloging_chapter(
+                    db,
+                    job.project_id,
+                    {
+                        "job_id": job.id,
+                        "phase": "candidates",
+                        "include_content": False,
+                        "include_prompt_pack": False,
+                        "include_context_indexes": False,
+                    },
+                )
+                self.assertIsNone(assigned["data"]["content"])
                 await save_external_cataloging_candidates(
                     db,
                     job.project_id,
@@ -245,10 +259,12 @@ class LocalCLICatalogingAgentTestCase(unittest.TestCase):
     def test_no_save_turn_is_retried_before_pausing_job(self):
         job_id = self._create_job("auto")
         attempts = 0
+        stages = []
 
         async def flaky_cli_turn(**kwargs):
             nonlocal attempts
             attempts += 1
+            stages.append(kwargs["stage"])
             if attempts == 1:
                 return 0, "stale task binding", ""
             return await self._fake_cli_turn(**kwargs)
@@ -265,7 +281,54 @@ class LocalCLICatalogingAgentTestCase(unittest.TestCase):
         db = self.Session()
         try:
             job = db.query(CatalogingJob).filter(CatalogingJob.id == job_id).first()
-            self.assertEqual(attempts, 2)
+            self.assertEqual(attempts, 3)
+            self.assertEqual(stages, ["full", "full", "candidates"])
+            self.assertEqual(job.status, "completed", job.error)
+            self.assertEqual(job.chapter_runs[0].status, "completed")
+        finally:
+            db.close()
+
+    def test_no_save_turn_uses_direct_jsonl_fallback_before_pausing_job(self):
+        job_id = self._create_job("auto")
+        attempts = 0
+        fallback_calls = 0
+
+        async def stalled_cli_turn(**_kwargs):
+            nonlocal attempts
+            attempts += 1
+            return 0, "finished without MCP writes", ""
+
+        async def direct_fallback(db, *, job, run, stage, **_kwargs):
+            nonlocal fallback_calls
+            fallback_calls += 1
+            self.assertEqual(stage, "full")
+            run.status = "completed"
+            job.status = "completed"
+            job.completed_chapters = 1
+            job.current_chapter_id = None
+            job.blocked_chapter_id = None
+            job.error = None
+            db.commit()
+            return True, ""
+
+        with (
+            patch("app.services.cataloging.local_cli_agent.SessionLocal", self.Session),
+            patch(
+                "app.services.cataloging.local_cli_agent._run_cli_turn",
+                side_effect=stalled_cli_turn,
+            ),
+            patch(
+                "app.services.cataloging.local_cli_agent._run_direct_jsonl_cataloging_fallback",
+                side_effect=direct_fallback,
+            ),
+        ):
+            asyncio.run(_coordinate_cataloging(job_id, "opencode_cli"))
+
+        db = self.Session()
+        try:
+            job = db.query(CatalogingJob).filter(CatalogingJob.id == job_id).first()
+            self.assertEqual(attempts, _MAX_NO_SAVE_ATTEMPTS)
+            self.assertEqual(fallback_calls, 1)
             self.assertEqual(job.status, "completed", job.error)
             self.assertEqual(job.chapter_runs[0].status, "completed")
         finally:
